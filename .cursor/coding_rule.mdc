@@ -1,0 +1,109 @@
+---
+alwaysApply: true
+---
+---
+type: "agent_requested"
+description: "Example description"
+---
+
+# General Coding Standards
+
+## Core Principle: Code Readability
+
+**ALWAYS write code that is self-explanatory and readable at a glance.**
+
+### Code Readability Rules:
+
+These rules apply to every programming language. Always follow the idioms of whichever language you are writing—naming styles, documentation formats, module organization, and more. When you are unsure about a convention, **query Context7 MCP for that language** to confirm current best practices before you commit to an approach.
+
+1. **Use descriptive names that match the language convention** – Function, method, and class names must communicate intent while respecting the language’s casing rules (e.g., Python `calculate_progress_percentage`, Java `calculateProgressPercentage`, Rust `calculate_progress_percentage`). If the naming style is unclear, confirm it with Context7.
+
+2. **Break down complex operations into helpers** – Replace long inline expressions with named helpers that suit the language (free functions, private methods, extension functions, etc.). For example, extract percentage math into a helper function rather than repeating the arithmetic inline.
+
+3. **Centralize common operations in utilities** – Group shared math, string, date, or IO helpers using the language’s preferred structure (modules in Python, packages in Java, utility namespaces in C#, etc.). Reuse those helpers instead of rewriting low-level logic.
+
+4. **Choose expressive variable names** – Select names that reveal purpose and respect the language’s style (`estimated_minutes_per_step` in Python, `estimatedMinutesPerStep` in Java, `estimatedMinutesPerStep` in TypeScript). Abbreviations are acceptable only when they are standard in that ecosystem.
+
+5. **Isolate responsibilities inside small units** – Decompose large functions into smaller pieces with single responsibilities, using the constructs that feel idiomatic for the language (private helper functions, inner classes, traits, mixins, and so forth). Name each piece clearly so the call sites read like documentation.
+
+6. **Document behaviors with language-appropriate comments** – Add structured documentation using the target language’s format (Python docstrings, Javadoc, Rust `///` doc comments, Go doc comments, etc.). Include purpose, parameters, return values, and notable edge cases. Use Context7 to double-check the correct syntax when switching languages.
+
+7. **Organize code by responsibility in a familiar order** – Place public APIs or entry points first, then internal helpers, keeping utilities in their own modules or files when that’s customary for the language. Follow any additional ordering guidance surfaced via Context7.
+
+### Testing Rules:
+
+8. **Always parameterize tests** - Use test parameterization to cover multiple scenarios:
+   ```typescript
+   describe.each([
+     ['valid input', 'test@example.com', true],
+     ['invalid input', 'invalid-email', false],
+     ['empty input', '', false],
+     ['null input', null, false]
+   ])('validateEmail with %s', (description, input, expected) => {
+     it(`should return ${expected}`, () => {
+       expect(validateEmail(input)).toBe(expected);
+     });
+   });
+   ```
+
+9. **Follow TDD (Test-Driven Development) approach**:
+   - **ALWAYS create test file first** before implementing any new file
+   - Write comprehensive test cases that describe the expected behavior and use cases
+   - Create template tests that cover all scenarios and edge cases
+   - Only then implement the actual logic/function to make tests pass
+   - This ensures complete test coverage and validates the design before implementation
+
+10. **Explain file purpose before implementation**:
+    - **ALWAYS explain exactly what a file does** before writing any code
+    - Describe the file's responsibility, inputs, outputs, and behavior
+    - Outline the key methods/functions and their purposes
+    - Explain how it fits into the overall architecture
+    - This ensures clear understanding and prevents scope creep
+
+### Error Handling and Type Safety:
+
+11. **Handle edge cases gracefully**:
+    - Always check for null/undefined values
+    - Use optional chaining (`?.`) and nullish coalescing (`??`)
+    - Provide meaningful error messages
+
+12. **Use TypeScript strictly**:
+    - Avoid `any` type - use proper interfaces and types
+    - Enable strict mode in tsconfig.json
+    - Use union types for better type safety
+
+### Problem-Solving and UI Testing Rules:
+
+22. **Use Playwright for UI Testing and Validation**:
+   - **ALWAYS use Playwright MCP** for testing browser extension functionality
+   - Test authentication flows, user interactions, and API integrations
+   - Validate CORS handling and cross-origin communication
+   - Test error states and user feedback mechanisms
+   - Use screenshots and snapshots for visual regression testing
+
+23. **UI Testing Best Practices**:
+   - Test all user flows: registration, login, walkthrough requests
+   - Validate error handling and user feedback
+   - Test responsive behavior across different screen sizes
+   - Verify accessibility features and keyboard navigation
+   - Test cross-browser compatibility (Chrome, Firefox, Safari)
+
+24. **Use Context7 MCP for Code Quality and Best Practices**:
+   - **ALWAYS use Context7 MCP** to verify code quality and ensure up-to-date practices
+   - Check library documentation for latest APIs and recommended patterns
+   - Validate implementation approaches against current best practices
+   - Ensure proper usage of frameworks, libraries, and tools
+   - Reference official documentation for accurate method signatures and parameters
+   - Use Context7 to stay current with evolving standards and deprecations
+
+### When writing code, ALWAYS ask yourself:
+- "Is this code self-explanatory?"
+- "Would someone new to the codebase understand this immediately?"
+- "Can I break this down into smaller, more descriptive functions?"
+- "Are my variable and function names descriptive enough?"
+- "Have I written comprehensive parameterized tests first?"
+- "Do I understand exactly what this file should do?"
+- "How can I test this UI functionality with Playwright?"
+- "Should I use Context7 MCP to verify this implementation is following current best practices?"
+
+### Remember: Code is read much more often than it is written. Write for the reader, not just for the compiler.
