@@ -8,19 +8,15 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from common.schemas import SubtitleStatus
 from common.config import settings
-from common.redis_client import redis_client
 from common.logging_config import setup_service_logging
+from common.redis_client import redis_client
+from common.schemas import SubtitleStatus
 from common.utils import StatusProgressCalculator
-from manager.schemas import (
-    SubtitleRequestCreate,
-    SubtitleResponse,
-    SubtitleStatusResponse,
-    QueueStatusResponse,
-    HealthResponse,
-)
 from manager.orchestrator import orchestrator
+from manager.schemas import (HealthResponse, QueueStatusResponse,
+                             SubtitleRequestCreate, SubtitleResponse,
+                             SubtitleStatusResponse)
 
 # Configure logging
 service_logger = setup_service_logging("manager", enable_file_logging=True)

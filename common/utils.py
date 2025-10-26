@@ -1,8 +1,8 @@
 """Utility functions for common operations across the application."""
 
 from datetime import datetime, timezone
-from typing import Dict
 from enum import Enum
+from typing import Dict
 
 
 class MathUtils:

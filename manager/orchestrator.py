@@ -7,16 +7,12 @@ from uuid import UUID
 
 import aio_pika
 from aio_pika import Message
-from aio_pika.abc import AbstractConnection, AbstractChannel
+from aio_pika.abc import AbstractChannel, AbstractConnection
 
-from common.schemas import (
-    SubtitleRequest,
-    DownloadTask,
-    TranslationTask,
-    SubtitleStatus,
-)
 from common.config import settings
 from common.redis_client import redis_client
+from common.schemas import (DownloadTask, SubtitleRequest, SubtitleStatus,
+                            TranslationTask)
 
 logger = logging.getLogger(__name__)
 

@@ -1,9 +1,9 @@
 """SRT subtitle parser and formatter for translation workflows."""
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import List
-import logging
 
 logger = logging.getLogger(__name__)
 

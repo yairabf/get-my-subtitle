@@ -1,9 +1,10 @@
 """Tests for Redis job tracking client."""
 
-import pytest
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
-from datetime import datetime
+
+import pytest
 
 from common.redis_client import RedisJobClient, redis_client
 from common.schemas import SubtitleResponse, SubtitleStatus
