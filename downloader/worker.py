@@ -16,10 +16,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.redis_client import redis_client
 from common.schemas import SubtitleStatus
+from common.logging_config import setup_service_logging
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+service_logger = setup_service_logging('downloader', enable_file_logging=True)
+logger = service_logger.logger
 
 
 async def process_message(message: AbstractIncomingMessage) -> None:

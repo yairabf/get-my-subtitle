@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from common.schemas import SubtitleStatus
 from common.config import settings
 from common.redis_client import redis_client
+from common.logging_config import setup_service_logging
 from manager.schemas import (
     SubtitleRequestCreate,
     SubtitleResponse,
@@ -21,8 +22,8 @@ from manager.schemas import (
 from manager.orchestrator import orchestrator
 
 # Configure logging
-logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
-logger = logging.getLogger(__name__)
+service_logger = setup_service_logging('manager', enable_file_logging=True)
+logger = service_logger.logger
 
 
 @asynccontextmanager
