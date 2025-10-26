@@ -1,0 +1,43 @@
+"""Configuration management for the subtitle management system."""
+
+import os
+from typing import Optional
+
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+    
+    # Redis Configuration
+    redis_url: str = Field(default="redis://localhost:6379", env="REDIS_URL")
+    
+    # RabbitMQ Configuration
+    rabbitmq_url: str = Field(default="amqp://admin:password@localhost:5672/", env="RABBITMQ_URL")
+    
+    # API Configuration
+    api_host: str = Field(default="0.0.0.0", env="API_HOST")
+    api_port: int = Field(default=8000, env="API_PORT")
+    
+    # Logging
+    log_level: str = Field(default="INFO", env="LOG_LEVEL")
+    
+    # Subtitle Sources
+    opensubtitles_username: Optional[str] = Field(default=None, env="OPENSUBTITLES_USERNAME")
+    opensubtitles_password: Optional[str] = Field(default=None, env="OPENSUBTITLES_PASSWORD")
+    opensubtitles_api_key: Optional[str] = Field(default=None, env="OPENSUBTITLES_API_KEY")
+    
+    # Translation Service
+    google_translate_api_key: Optional[str] = Field(default=None, env="GOOGLE_TRANSLATE_API_KEY")
+    
+    # File Storage
+    subtitle_storage_path: str = Field(default="./storage/subtitles", env="SUBTITLE_STORAGE_PATH")
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+
+
+# Global settings instance
+settings = Settings()
