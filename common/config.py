@@ -31,8 +31,11 @@ class Settings(BaseSettings):
     opensubtitles_password: Optional[str] = Field(default=None, env="OPENSUBTITLES_PASSWORD")
     opensubtitles_api_key: Optional[str] = Field(default=None, env="OPENSUBTITLES_API_KEY")
     
-    # Translation Service
-    google_translate_api_key: Optional[str] = Field(default=None, env="GOOGLE_TRANSLATE_API_KEY")
+    # Translation Service (OpenAI GPT-5-nano)
+    openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-5-nano", env="OPENAI_MODEL")
+    openai_max_tokens: int = Field(default=4096, env="OPENAI_MAX_TOKENS")
+    openai_temperature: float = Field(default=0.3, env="OPENAI_TEMPERATURE")  # Lower for consistent translations
     
     # File Storage
     subtitle_storage_path: str = Field(default="./storage/subtitles", env="SUBTITLE_STORAGE_PATH")
