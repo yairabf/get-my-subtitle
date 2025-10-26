@@ -1,9 +1,10 @@
 """Pytest configuration and shared fixtures."""
 
-import pytest
 import asyncio
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 @pytest.fixture(scope="session")
@@ -25,14 +26,14 @@ async def mock_redis():
     mock.expire = AsyncMock(return_value=True)
     mock.ping = AsyncMock(return_value=True)
     mock.close = AsyncMock()
-    
+
     # Mock scan_iter for listing jobs
     async def mock_scan_iter(match):
         return
         yield  # Make it a generator
-    
+
     mock.scan_iter = mock_scan_iter
-    
+
     return mock
 
 
@@ -55,7 +56,7 @@ def sample_subtitle_request():
         "video_title": "Sample Video",
         "language": "en",
         "target_language": "es",
-        "preferred_sources": ["opensubtitles"]
+        "preferred_sources": ["opensubtitles"],
     }
 
 
@@ -70,5 +71,5 @@ def sample_subtitle_data():
         "target_language": "es",
         "status": "processing",
         "created_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:00:00Z"
+        "updated_at": "2024-01-01T00:00:00Z",
     }

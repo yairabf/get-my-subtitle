@@ -1,9 +1,12 @@
 """Tests for utility functions."""
 
-import pytest
 from datetime import datetime, timezone
-from common.utils import MathUtils, StringUtils, DateTimeUtils, StatusProgressCalculator
+
+import pytest
+
 from common.schemas import SubtitleStatus
+from common.utils import (DateTimeUtils, MathUtils, StatusProgressCalculator,
+                          StringUtils)
 
 
 class TestMathUtils:

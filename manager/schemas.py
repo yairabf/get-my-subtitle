@@ -1,11 +1,11 @@
 """Manager-specific schemas and models."""
 
-from typing import Dict, Any
+from typing import Any, Dict
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from common.schemas import SubtitleRequest, SubtitleResponse, HealthResponse
+from common.schemas import HealthResponse, SubtitleRequest, SubtitleResponse
 
 
 class SubtitleRequestCreate(SubtitleRequest):

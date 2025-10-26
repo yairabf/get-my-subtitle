@@ -64,6 +64,7 @@ subtitles/
 
 # Testing
 .coverage
+coverage.xml
 .pytest_cache/
 htmlcov/
 .tox/

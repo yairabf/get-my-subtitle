@@ -15,18 +15,14 @@ from openai import AsyncOpenAI
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from common.redis_client import redis_client
-from common.schemas import SubtitleStatus
 from common.config import settings
 from common.logging_config import setup_service_logging
-from common.subtitle_parser import (
-    SRTParser,
-    SubtitleSegment,
-    extract_text_for_translation,
-    merge_translations,
-    chunk_segments,
-    DEFAULT_MAX_SEGMENTS_PER_CHUNK,
-)
+from common.redis_client import redis_client
+from common.schemas import SubtitleStatus
+from common.subtitle_parser import (DEFAULT_MAX_SEGMENTS_PER_CHUNK, SRTParser,
+                                    SubtitleSegment, chunk_segments,
+                                    extract_text_for_translation,
+                                    merge_translations)
 
 # Configure logging
 service_logger = setup_service_logging("translator", enable_file_logging=True)
