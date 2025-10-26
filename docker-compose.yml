@@ -6,8 +6,90 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   redis:
     image: redis:latest
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  manager:
+    build:
+      context: .
+      dockerfile: ./manager/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./common:/app/common
+      - ./manager:/app/manager
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  downloader:
+    build:
+      context: .
+      dockerfile: ./downloader/Dockerfile
+    volumes:
+      - ./common:/app/common
+      - ./downloader:/app/downloader
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; import sys; r = redis.Redis(host='redis', port=6379); r.ping(); sys.exit(0)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  translator:
+    build:
+      context: .
+      dockerfile: ./translator/Dockerfile
+    volumes:
+      - ./common:/app/common
+      - ./translator:/app/translator
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; import sys; r = redis.Redis(host='redis', port=6379); r.ping(); sys.exit(0)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
