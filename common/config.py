@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     
     # Redis Configuration
     redis_url: str = Field(default="redis://localhost:6379", env="REDIS_URL")
+    redis_job_ttl_completed: int = Field(default=604800, env="REDIS_JOB_TTL_COMPLETED")  # 7 days
+    redis_job_ttl_failed: int = Field(default=259200, env="REDIS_JOB_TTL_FAILED")  # 3 days
+    redis_job_ttl_active: int = Field(default=0, env="REDIS_JOB_TTL_ACTIVE")  # No expiration
     
     # RabbitMQ Configuration
     rabbitmq_url: str = Field(default="amqp://admin:password@localhost:5672/", env="RABBITMQ_URL")

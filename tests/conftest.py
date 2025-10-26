@@ -20,8 +20,19 @@ async def mock_redis():
     mock = AsyncMock()
     mock.get = AsyncMock(return_value=None)
     mock.set = AsyncMock(return_value=True)
-    mock.delete = AsyncMock(return_value=True)
+    mock.delete = AsyncMock(return_value=1)
     mock.exists = AsyncMock(return_value=False)
+    mock.expire = AsyncMock(return_value=True)
+    mock.ping = AsyncMock(return_value=True)
+    mock.close = AsyncMock()
+    
+    # Mock scan_iter for listing jobs
+    async def mock_scan_iter(match):
+        return
+        yield  # Make it a generator
+    
+    mock.scan_iter = mock_scan_iter
+    
     return mock
 
 

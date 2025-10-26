@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from common.schemas import SubtitleStatus
 from common.config import settings
+from common.redis_client import redis_client
 from manager.schemas import (
     SubtitleRequestCreate,
     SubtitleResponse,
@@ -23,16 +24,13 @@ from manager.orchestrator import orchestrator
 logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
 logger = logging.getLogger(__name__)
 
-# In-memory storage for demo purposes
-# In production, this would be Redis or a database
-subtitle_requests: Dict[UUID, SubtitleResponse] = {}
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan events."""
     # Startup
     logger.info("Starting subtitle management API...")
+    await redis_client.connect()
     await orchestrator.connect()
     logger.info("API startup complete")
     
@@ -41,6 +39,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down subtitle management API...")
     await orchestrator.disconnect()
+    await redis_client.disconnect()
     logger.info("API shutdown complete")
 
 
@@ -65,7 +64,14 @@ app.add_middleware(
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
-    return HealthResponse()
+    redis_health = await redis_client.health_check()
+    
+    # Include Redis status in health check
+    health_status = HealthResponse()
+    if not redis_health.get("connected"):
+        logger.warning(f"Redis health check failed: {redis_health.get('error', 'Unknown error')}")
+    
+    return health_status
 
 
 @app.get("/", response_model=Dict[str, str])
@@ -92,8 +98,8 @@ async def request_subtitle_processing(request: SubtitleRequestCreate):
             status=SubtitleStatus.PENDING
         )
         
-        # Store the request
-        subtitle_requests[subtitle_response.id] = subtitle_response
+        # Store the request in Redis
+        await redis_client.save_job(subtitle_response)
         
         # Enqueue download task
         success = await orchestrator.enqueue_download_task(request, subtitle_response.id)
@@ -101,7 +107,7 @@ async def request_subtitle_processing(request: SubtitleRequestCreate):
         if not success:
             subtitle_response.status = SubtitleStatus.FAILED
             subtitle_response.error_message = "Failed to enqueue download task"
-            subtitle_requests[subtitle_response.id] = subtitle_response
+            await redis_client.save_job(subtitle_response)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to enqueue download task"
@@ -121,31 +127,34 @@ async def request_subtitle_processing(request: SubtitleRequestCreate):
 @app.get("/subtitles/{request_id}", response_model=SubtitleResponse)
 async def get_subtitle_status(request_id: UUID):
     """Get the status of a subtitle request."""
-    if request_id not in subtitle_requests:
+    job = await redis_client.get_job(request_id)
+    
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Subtitle request not found"
         )
     
-    return subtitle_requests[request_id]
+    return job
 
 
 @app.get("/subtitles", response_model=List[SubtitleResponse])
 async def list_subtitle_requests():
     """List all subtitle requests."""
-    return list(subtitle_requests.values())
+    jobs = await redis_client.list_jobs()
+    return jobs
 
 
 @app.get("/subtitles/{request_id}/status", response_model=SubtitleStatusResponse)
 async def get_subtitle_status_simple(request_id: UUID):
     """Get simplified status of a subtitle request."""
-    if request_id not in subtitle_requests:
+    subtitle = await redis_client.get_job(request_id)
+    
+    if not subtitle:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Subtitle request not found"
         )
-    
-    subtitle = subtitle_requests[request_id]
     
     # Calculate progress based on status
     progress_map = {
@@ -181,13 +190,13 @@ async def get_queue_status():
 @app.post("/subtitles/{request_id}/download", response_model=Dict[str, str])
 async def download_subtitles(request_id: UUID):
     """Download processed subtitles."""
-    if request_id not in subtitle_requests:
+    subtitle = await redis_client.get_job(request_id)
+    
+    if not subtitle:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Subtitle request not found"
         )
-    
-    subtitle = subtitle_requests[request_id]
     
     if subtitle.status != SubtitleStatus.COMPLETED:
         raise HTTPException(
@@ -230,8 +239,8 @@ async def test_queue_message():
             status=SubtitleStatus.PENDING
         )
         
-        # Store the request
-        subtitle_requests[mock_response.id] = mock_response
+        # Store the request in Redis
+        await redis_client.save_job(mock_response)
         
         # Enqueue the task
         success = await orchestrator.enqueue_download_task(mock_request, mock_response.id)

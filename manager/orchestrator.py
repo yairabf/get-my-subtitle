@@ -9,8 +9,9 @@ import aio_pika
 from aio_pika import Message
 from aio_pika.abc import AbstractConnection, AbstractChannel
 
-from common.schemas import SubtitleRequest, DownloadTask, TranslationTask
+from common.schemas import SubtitleRequest, DownloadTask, TranslationTask, SubtitleStatus
 from common.config import settings
+from common.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,9 @@ class SubtitleOrchestrator:
                 routing_key=self.download_queue_name
             )
             
+            # Update job status to DOWNLOADING in Redis
+            await redis_client.update_job_status(request_id, SubtitleStatus.DOWNLOADING)
+            
             logger.info(f"Download task enqueued for request {request_id}")
             return True
             
@@ -127,6 +131,9 @@ class SubtitleOrchestrator:
                 message,
                 routing_key=self.translation_queue_name
             )
+            
+            # Update job status to TRANSLATING in Redis
+            await redis_client.update_job_status(request_id, SubtitleStatus.TRANSLATING)
             
             logger.info(f"Translation task enqueued for request {request_id}")
             return True

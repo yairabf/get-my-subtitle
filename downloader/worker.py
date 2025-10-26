@@ -3,10 +3,19 @@
 import asyncio
 import json
 import logging
+import sys
+from pathlib import Path
 from typing import Dict, Any
+from uuid import UUID
 
 import aio_pika
 from aio_pika.abc import AbstractIncomingMessage
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from common.redis_client import redis_client
+from common.schemas import SubtitleStatus
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 async def process_message(message: AbstractIncomingMessage) -> None:
     """Process a single message from the queue."""
+    request_id = None
     try:
         # Parse the message body
         message_data = json.loads(message.body.decode())
@@ -29,16 +39,48 @@ async def process_message(message: AbstractIncomingMessage) -> None:
         logger.info(f"Body: {json.dumps(message_data, indent=2)}")
         logger.info("=" * 50)
         
+        # Extract request_id from message
+        request_id_str = message_data.get("request_id")
+        if request_id_str:
+            request_id = UUID(request_id_str)
+        
         # Simulate some processing time
         await asyncio.sleep(1)
+        
+        # Update job status to COMPLETED in Redis
+        # In a real implementation, this would be based on actual subtitle download success
+        if request_id:
+            success = await redis_client.update_job_status(
+                request_id,
+                SubtitleStatus.COMPLETED,
+                download_url=f"https://example.com/subtitles/{request_id}.srt"
+            )
+            if success:
+                logger.info(f"✅ Updated job {request_id} status to COMPLETED in Redis")
+            else:
+                logger.warning(f"⚠️  Failed to update job {request_id} in Redis (but processing succeeded)")
         
         logger.info("✅ Message processed successfully!")
         
     except json.JSONDecodeError as e:
         logger.error(f"❌ Failed to parse JSON: {e}")
         logger.error(f"Raw body: {message.body}")
+        # Update job status to FAILED if we have the request_id
+        if request_id:
+            await redis_client.update_job_status(
+                request_id,
+                SubtitleStatus.FAILED,
+                error_message=f"Failed to parse message: {str(e)}"
+            )
     except Exception as e:
         logger.error(f"❌ Error processing message: {e}")
+        # Update job status to FAILED if we have the request_id
+        if request_id:
+            await redis_client.update_job_status(
+                request_id,
+                SubtitleStatus.FAILED,
+                error_message=f"Processing error: {str(e)}"
+            )
 
 
 async def consume_messages() -> None:
@@ -46,6 +88,10 @@ async def consume_messages() -> None:
     connection = None
     
     try:
+        # Connect to Redis
+        logger.info("🔌 Connecting to Redis...")
+        await redis_client.connect()
+        
         # Connect to RabbitMQ
         logger.info("🔌 Connecting to RabbitMQ...")
         connection = await aio_pika.connect_robust("amqp://guest:guest@localhost:5672/")
@@ -79,6 +125,8 @@ async def consume_messages() -> None:
         if connection and not connection.is_closed:
             logger.info("🔌 Closing RabbitMQ connection...")
             await connection.close()
+        logger.info("🔌 Closing Redis connection...")
+        await redis_client.disconnect()
 
 
 async def main() -> None:

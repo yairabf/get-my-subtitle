@@ -347,8 +347,115 @@ All inputs are validated using Pydantic schemas:
 ### Graceful Degradation
 
 - **RabbitMQ Unavailable**: Falls back to mock mode
-- **Redis Unavailable**: Uses in-memory storage
+- **Redis Unavailable**: Graceful degradation with logging (jobs won't be persisted)
 - **Worker Unavailable**: Queues messages for later processing
+
+## 💾 Redis Job Tracking
+
+The manager uses Redis as a lightweight in-memory datastore to track subtitle processing jobs. This provides persistent job tracking across service restarts and enables real-time status lookups.
+
+### Job Lifecycle
+
+Jobs progress through the following states:
+
+1. **PENDING**: Job created, waiting to be queued
+2. **DOWNLOADING**: Job queued to downloader worker
+3. **TRANSLATING**: Download complete, queued to translator worker
+4. **COMPLETED**: All processing complete, subtitle ready
+5. **FAILED**: Processing failed at any stage
+
+### Redis Key Pattern
+
+Jobs are stored using the pattern: `job:{job_id}`
+
+Example: `job:123e4567-e89b-12d3-a456-426614174000`
+
+### TTL (Time-to-Live) Policy
+
+Jobs automatically expire based on their status to manage storage:
+
+- **Completed jobs**: 7 days (604,800 seconds)
+- **Failed jobs**: 3 days (259,200 seconds)
+- **Active jobs** (pending, downloading, translating): No expiration
+
+### Job Data Structure
+
+Each job is stored as a JSON-serialized `SubtitleResponse` object containing:
+
+```json
+{
+  "id": "uuid",
+  "video_url": "string",
+  "video_title": "string",
+  "language": "string",
+  "target_language": "string",
+  "status": "pending|downloading|translating|completed|failed",
+  "created_at": "timestamp",
+  "updated_at": "timestamp",
+  "error_message": "string|null",
+  "download_url": "string|null"
+}
+```
+
+### Configuration
+
+Configure Redis TTL values in your `.env` file:
+
+```env
+REDIS_JOB_TTL_COMPLETED=604800  # 7 days
+REDIS_JOB_TTL_FAILED=259200     # 3 days
+REDIS_JOB_TTL_ACTIVE=0          # No expiration
+```
+
+### Job Operations
+
+The Redis client (`common/redis_client.py`) provides:
+
+- `save_job(job)`: Store or update a job
+- `get_job(job_id)`: Retrieve a job by ID
+- `update_job_status(job_id, status, ...)`: Update job status
+- `list_jobs(status_filter)`: List all jobs (optionally filtered)
+- `delete_job(job_id)`: Remove a job
+- `health_check()`: Check Redis connectivity
+
+### Benefits
+
+- **Persistence**: Jobs survive service restarts
+- **Fast lookups**: O(1) retrieval by job ID
+- **Automatic cleanup**: TTL-based expiration
+- **Distributed access**: Workers can update jobs directly
+- **No database overhead**: Lightweight in-memory storage
+
+### Troubleshooting Redis Connectivity
+
+If Redis is unavailable:
+
+1. **Check Redis is running**:
+   ```bash
+   docker-compose ps redis
+   # or
+   redis-cli ping
+   ```
+
+2. **Verify connection string**:
+   ```env
+   REDIS_URL=redis://localhost:6379
+   ```
+
+3. **Check logs**:
+   ```bash
+   # Manager logs will show Redis connection status
+   tail -f logs/manager.log
+   ```
+
+4. **Test connection**:
+   ```python
+   import redis.asyncio as redis
+   client = await redis.from_url("redis://localhost:6379")
+   await client.ping()
+   ```
+
+The system will continue to operate even if Redis is unavailable, but jobs will not be persisted across restarts.
 
 ## 🔄 Development
 
