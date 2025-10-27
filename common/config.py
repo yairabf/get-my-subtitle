@@ -58,6 +58,17 @@ class Settings(BaseSettings):
         default="./storage/subtitles", env="SUBTITLE_STORAGE_PATH"
     )
 
+    # Jellyfin Integration
+    jellyfin_default_source_language: str = Field(
+        default="en", env="JELLYFIN_DEFAULT_SOURCE_LANGUAGE"
+    )
+    jellyfin_default_target_language: Optional[str] = Field(
+        default=None, env="JELLYFIN_DEFAULT_TARGET_LANGUAGE"
+    )
+    jellyfin_auto_translate: bool = Field(
+        default=True, env="JELLYFIN_AUTO_TRANSLATE"
+    )
+
     class Config:
         env_file = ".env"
         case_sensitive = False

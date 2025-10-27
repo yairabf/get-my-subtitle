@@ -61,40 +61,35 @@ GET /health
 }
 ```
 
-#### Request Subtitle Processing
+#### Request Subtitle Download
 ```http
-POST /subtitles/request
+POST /subtitles/download
 Content-Type: application/json
 
 {
   "video_url": "https://example.com/video.mp4",
   "video_title": "Sample Video",
   "language": "en",
-  "target_language": "es",
+  "target_language": null,
   "preferred_sources": ["opensubtitles"]
 }
 ```
 
-**Response:**
-```json
-{
-  "id": "123e4567-e89b-12d3-a456-426614174000",
-  "video_url": "https://example.com/video.mp4",
-  "video_title": "Sample Video",
-  "language": "en",
-  "target_language": "es",
-  "status": "pending",
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z",
-  "error_message": null,
-  "download_url": null
-}
+**Workflow:**
+1. Client calls this endpoint with video details
+2. Manager creates job record and publishes SUBTITLE_DOWNLOAD_REQUESTED
+3. Downloader service picks it up and downloads the file
+4. Downloader publishes SUBTITLE_READY
+5. Manager updates job status
+6. Client can check status via `/subtitles/status/{job_id}`
+7. Client can initiate translation via `/subtitles/translate` if needed
+
+#### Get Detailed Subtitle Job Information
+```http
+GET /subtitles/{job_id}
 ```
 
-#### Get Subtitle Status
-```http
-GET /subtitles/{request_id}
-```
+Returns full details about a subtitle job including video information, timestamps, and status.
 
 **Response:**
 ```json
@@ -134,7 +129,7 @@ GET /queue/status
 }
 ```
 
-#### Download Processed Subtitles
+#### Download Processed Subtitles (Legacy)
 ```http
 POST /subtitles/{request_id}/download
 ```
@@ -146,6 +141,100 @@ POST /subtitles/{request_id}/download
   "message": "Subtitles ready for download"
 }
 ```
+
+#### Translate Subtitle File by Path
+```http
+POST /subtitles/translate
+```
+
+Enqueue a subtitle file for translation by providing its file path. The translator worker will read the file and send its content to OpenAI API for translation.
+
+**Request:**
+```json
+{
+  "subtitle_path": "/path/to/subtitle.srt",
+  "source_language": "en",
+  "target_language": "es",
+  "video_title": "Optional Title"
+}
+```
+
+**Response:**
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "video_url": "",
+  "video_title": "Optional Title",
+  "language": "en",
+  "target_language": "es",
+  "status": "pending",
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+#### Get Job Status with Progress
+```http
+GET /subtitles/status/{job_id}
+```
+
+Get simplified status information with progress percentage.
+
+**Response:**
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "status": "downloading",
+  "progress": 25,
+  "message": "Status: downloading"
+}
+```
+
+Progress values:
+- `pending`: 0%
+- `downloading`: 25%
+- `translating`: 75%
+- `completed`: 100%
+- `failed`: 0%
+
+#### Jellyfin Webhook
+```http
+POST /webhooks/jellyfin
+```
+
+Webhook endpoint for Jellyfin media server integration. Automatically processes library item added/updated events for movies and episodes.
+
+**Request:**
+```json
+{
+  "event": "library.item.added",
+  "item_type": "Movie",
+  "item_name": "Sample Movie",
+  "item_path": "/media/movies/sample.mp4",
+  "item_id": "abc123",
+  "library_name": "Movies",
+  "video_url": "http://jellyfin.local/videos/abc123"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "received",
+  "job_id": "123e4567-e89b-12d3-a456-426614174000",
+  "message": "Subtitle processing queued for Sample Movie"
+}
+```
+
+**Ignored Events:**
+- Non-video items (Audio, Books, etc.)
+- Events other than `library.item.added` or `library.item.updated`
+
+**Configuration:**
+Set these environment variables to control webhook behavior:
+- `JELLYFIN_DEFAULT_SOURCE_LANGUAGE`: Default source language (default: "en")
+- `JELLYFIN_DEFAULT_TARGET_LANGUAGE`: Default target language (default: None)
+- `JELLYFIN_AUTO_TRANSLATE`: Enable automatic translation (default: true)
 
 ## 🔧 Configuration
 
@@ -173,10 +262,16 @@ OPENSUBTITLES_PASSWORD=your_password
 OPENSUBTITLES_API_KEY=your_api_key
 
 # Translation Service (optional)
-GOOGLE_TRANSLATE_API_KEY=your_api_key
+OPENAI_API_KEY=your_api_key
+OPENAI_MODEL=gpt-5-nano
 
 # File Storage
 SUBTITLE_STORAGE_PATH=./storage/subtitles
+
+# Jellyfin Integration
+JELLYFIN_DEFAULT_SOURCE_LANGUAGE=en
+JELLYFIN_DEFAULT_TARGET_LANGUAGE=es
+JELLYFIN_AUTO_TRANSLATE=true
 ```
 
 ## 🏗️ Architecture
