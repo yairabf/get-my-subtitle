@@ -241,10 +241,19 @@ make up                 # Start fresh
 
 Once running, the API will be available at `http://localhost:8000`
 
+### Core Endpoints
 - `GET /health` - Health check
-- `POST /subtitles/request` - Request subtitle processing
-- `GET /subtitles/{id}` - Get subtitle status
-- `GET /subtitles/{id}/download` - Download processed subtitles
+- `POST /subtitles/download` - Request subtitle download from video
+- `POST /subtitles/translate` - Enqueue subtitle file for translation by path
+- `GET /subtitles/status/{job_id}` - Get job status with progress (lightweight)
+- `GET /subtitles/{job_id}` - Get detailed subtitle job information (full details)
+- `GET /subtitles` - List all subtitle requests
+
+### Webhooks
+- `POST /webhooks/jellyfin` - Jellyfin webhook for automatic subtitle processing
+
+### Queue Management
+- `GET /queue/status` - Get queue status and active workers
 
 ## Project Structure
 

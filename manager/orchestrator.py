@@ -165,6 +165,26 @@ class SubtitleOrchestrator:
             logger.error(f"Failed to enqueue translation task: {e}")
             return False
 
+    async def enqueue_download_with_translation(
+        self, request: SubtitleRequest, request_id: UUID
+    ) -> bool:
+        """
+        Enqueue a download task that will automatically trigger translation.
+
+        This is used for Jellyfin webhook integration where we want to
+        automatically download and then translate subtitles.
+
+        Args:
+            request: Subtitle request containing video and language information
+            request_id: Unique identifier for this request
+
+        Returns:
+            True if task was successfully enqueued, False otherwise
+        """
+        # Enqueue the download task - the downloader worker will check for
+        # target_language and automatically enqueue translation when complete
+        return await self.enqueue_download_task(request, request_id)
+
     async def get_queue_status(self) -> dict:
         """Get status of processing queues."""
         if not self.channel:
