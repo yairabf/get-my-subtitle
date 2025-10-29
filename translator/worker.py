@@ -16,13 +16,15 @@ from openai import AsyncOpenAI
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.config import settings
+from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
-from common.schemas import SubtitleStatus
+from common.schemas import EventType, SubtitleEvent, SubtitleStatus
 from common.subtitle_parser import (DEFAULT_MAX_SEGMENTS_PER_CHUNK, SRTParser,
                                     SubtitleSegment, chunk_segments,
                                     extract_text_for_translation,
                                     merge_translations)
+from common.utils import DateTimeUtils
 
 # Configure logging
 service_logger = setup_service_logging("translator", enable_file_logging=True)
@@ -221,6 +223,11 @@ async def process_translation_message(
 
         request_id = UUID(request_id_str)
 
+        # Update status to TRANSLATE_IN_PROGRESS
+        await redis_client.update_phase(
+            request_id, SubtitleStatus.TRANSLATE_IN_PROGRESS, source="translator"
+        )
+
         # Read subtitle file
         logger.info(f"Reading subtitle file: {subtitle_file_path}")
 
@@ -276,41 +283,55 @@ Let's get started!
 
         # Save translated file (in production, save to storage)
         output_path = f"{subtitle_file_path.replace('.srt', '')}.{target_language}.srt"
+        download_url = f"https://example.com/subtitles/{request_id}.{target_language}.srt"
         logger.info(f"Would save translated subtitle to: {output_path}")
 
-        # Update job status to COMPLETED in Redis
+        # Publish SUBTITLE_TRANSLATED event
         if request_id:
-            success = await redis_client.update_job_status(
-                request_id,
-                SubtitleStatus.COMPLETED,
-                download_url=f"https://example.com/subtitles/{request_id}.{target_language}.srt",
+            event = SubtitleEvent(
+                event_type=EventType.SUBTITLE_TRANSLATED,
+                job_id=request_id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="translator",
+                payload={
+                    "translated_path": output_path,
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "download_url": download_url,
+                },
             )
+            await event_publisher.publish_event(event)
 
-            if success:
-                logger.info(f"✅ Updated job {request_id} status to COMPLETED in Redis")
-            else:
-                logger.warning(f"⚠️  Failed to update job {request_id} in Redis")
+            logger.info(f"✅ Published SUBTITLE_TRANSLATED event for job {request_id}")
 
         logger.info("✅ Translation completed successfully!")
 
     except json.JSONDecodeError as e:
         logger.error(f"❌ Failed to parse JSON: {e}")
         logger.error(f"Raw body: {message.body}")
+        # Publish JOB_FAILED event
         if request_id:
-            await redis_client.update_job_status(
-                request_id,
-                SubtitleStatus.FAILED,
-                error_message=f"Failed to parse message: {str(e)}",
+            event = SubtitleEvent(
+                event_type=EventType.JOB_FAILED,
+                job_id=request_id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="translator",
+                payload={"error_message": f"Failed to parse message: {str(e)}"},
             )
+            await event_publisher.publish_event(event)
 
     except Exception as e:
         logger.error(f"❌ Error processing translation: {e}")
+        # Publish JOB_FAILED event
         if request_id:
-            await redis_client.update_job_status(
-                request_id,
-                SubtitleStatus.FAILED,
-                error_message=f"Translation error: {str(e)}",
+            event = SubtitleEvent(
+                event_type=EventType.JOB_FAILED,
+                job_id=request_id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="translator",
+                payload={"error_message": f"Translation error: {str(e)}"},
             )
+            await event_publisher.publish_event(event)
 
 
 async def consume_translation_messages() -> None:
@@ -322,6 +343,10 @@ async def consume_translation_messages() -> None:
         # Connect to Redis
         logger.info("🔌 Connecting to Redis...")
         await redis_client.connect()
+
+        # Connect event publisher
+        logger.info("🔌 Connecting event publisher...")
+        await event_publisher.connect()
 
         # Connect to RabbitMQ
         logger.info("🔌 Connecting to RabbitMQ...")
@@ -353,6 +378,9 @@ async def consume_translation_messages() -> None:
     except Exception as e:
         logger.error(f"❌ Error in consumer: {e}")
     finally:
+        logger.info("🔌 Disconnecting event publisher...")
+        await event_publisher.disconnect()
+        
         if connection and not connection.is_closed:
             logger.info("🔌 Closing RabbitMQ connection...")
             await connection.close()
@@ -364,6 +392,7 @@ async def main() -> None:
     """Main entry point for the translator worker."""
     logger.info("🚀 Starting Subtitle Translator Worker")
     logger.info(f"🤖 Using model: {settings.openai_model}")
+    logger.info("This worker will consume translation tasks and publish events")
     logger.info("=" * 60)
 
     await consume_translation_messages()

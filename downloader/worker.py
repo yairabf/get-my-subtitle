@@ -1,4 +1,4 @@
-"""Debug worker for consuming and logging RabbitMQ messages."""
+"""Downloader worker for consuming download tasks and publishing events."""
 
 import asyncio
 import json
@@ -14,9 +14,11 @@ from aio_pika.abc import AbstractIncomingMessage
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
-from common.schemas import SubtitleStatus
+from common.schemas import EventType, SubtitleEvent, SubtitleStatus
+from common.utils import DateTimeUtils
 
 # Configure logging
 service_logger = setup_service_logging("downloader", enable_file_logging=True)
@@ -45,45 +47,88 @@ async def process_message(message: AbstractIncomingMessage) -> None:
         if request_id_str:
             request_id = UUID(request_id_str)
 
-        # Simulate some processing time
+        # Update status to DOWNLOAD_IN_PROGRESS
+        if request_id:
+            await redis_client.update_phase(
+                request_id, SubtitleStatus.DOWNLOAD_IN_PROGRESS, source="downloader"
+            )
+
+        # Simulate some processing time (subtitle download)
         await asyncio.sleep(1)
 
-        # Update job status to COMPLETED in Redis
-        # In a real implementation, this would be based on actual subtitle download success
+        # Simulate subtitle found scenario (90% success rate for demo)
+        import random
+        subtitle_found = random.random() > 0.1
+
         if request_id:
-            success = await redis_client.update_job_status(
-                request_id,
-                SubtitleStatus.COMPLETED,
-                download_url=f"https://example.com/subtitles/{request_id}.srt",
-            )
-            if success:
-                logger.info(f"✅ Updated job {request_id} status to COMPLETED in Redis")
-            else:
-                logger.warning(
-                    f"⚠️  Failed to update job {request_id} in Redis (but processing succeeded)"
+            if subtitle_found:
+                # Subtitle found - publish SUBTITLE_READY event
+                subtitle_path = f"/subtitles/{request_id}.srt"
+                download_url = f"https://example.com/subtitles/{request_id}.srt"
+
+                event = SubtitleEvent(
+                    event_type=EventType.SUBTITLE_READY,
+                    job_id=request_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
+                    source="downloader",
+                    payload={
+                        "subtitle_path": subtitle_path,
+                        "language": message_data.get("language", "en"),
+                        "download_url": download_url,
+                    },
                 )
+                await event_publisher.publish_event(event)
+
+                logger.info(f"✅ Subtitle found! Published SUBTITLE_READY event for job {request_id}")
+
+            else:
+                # Subtitle not found - need translation fallback
+                logger.warning(f"⚠️  Subtitle not found for job {request_id}, will need translation")
+
+                # In a real implementation, this would trigger translation request
+                # For now, just log it
+                event = SubtitleEvent(
+                    event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
+                    job_id=request_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
+                    source="downloader",
+                    payload={
+                        "subtitle_file_path": f"/subtitles/fallback_{request_id}.en.srt",
+                        "source_language": "en",
+                        "target_language": message_data.get("language", "he"),
+                    },
+                )
+                await event_publisher.publish_event(event)
+
+                logger.info(f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}")
 
         logger.info("✅ Message processed successfully!")
 
     except json.JSONDecodeError as e:
         logger.error(f"❌ Failed to parse JSON: {e}")
         logger.error(f"Raw body: {message.body}")
-        # Update job status to FAILED if we have the request_id
+        # Publish JOB_FAILED event
         if request_id:
-            await redis_client.update_job_status(
-                request_id,
-                SubtitleStatus.FAILED,
-                error_message=f"Failed to parse message: {str(e)}",
+            event = SubtitleEvent(
+                event_type=EventType.JOB_FAILED,
+                job_id=request_id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="downloader",
+                payload={"error_message": f"Failed to parse message: {str(e)}"},
             )
+            await event_publisher.publish_event(event)
     except Exception as e:
         logger.error(f"❌ Error processing message: {e}")
-        # Update job status to FAILED if we have the request_id
+        # Publish JOB_FAILED event
         if request_id:
-            await redis_client.update_job_status(
-                request_id,
-                SubtitleStatus.FAILED,
-                error_message=f"Processing error: {str(e)}",
+            event = SubtitleEvent(
+                event_type=EventType.JOB_FAILED,
+                job_id=request_id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="downloader",
+                payload={"error_message": f"Processing error: {str(e)}"},
             )
+            await event_publisher.publish_event(event)
 
 
 async def consume_messages() -> None:
@@ -94,6 +139,10 @@ async def consume_messages() -> None:
         # Connect to Redis
         logger.info("🔌 Connecting to Redis...")
         await redis_client.connect()
+
+        # Connect event publisher
+        logger.info("🔌 Connecting event publisher...")
+        await event_publisher.connect()
 
         # Connect to RabbitMQ
         logger.info("🔌 Connecting to RabbitMQ...")
@@ -125,6 +174,9 @@ async def consume_messages() -> None:
     except Exception as e:
         logger.error(f"❌ Error in consumer: {e}")
     finally:
+        logger.info("🔌 Disconnecting event publisher...")
+        await event_publisher.disconnect()
+        
         if connection and not connection.is_closed:
             logger.info("🔌 Closing RabbitMQ connection...")
             await connection.close()
@@ -133,9 +185,9 @@ async def consume_messages() -> None:
 
 
 async def main() -> None:
-    """Main entry point for the debug worker."""
-    logger.info("🚀 Starting Subtitle Downloader Debug Worker")
-    logger.info("This worker will consume and log messages from RabbitMQ")
+    """Main entry point for the downloader worker."""
+    logger.info("🚀 Starting Subtitle Downloader Worker")
+    logger.info("This worker will consume download tasks and publish events")
     logger.info("=" * 60)
 
     await consume_messages()

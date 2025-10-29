@@ -48,6 +48,56 @@ There are **two different endpoints** for checking job status, each serving a di
 - Debugging or troubleshooting
 - You need video URL, title, timestamps, etc.
 
+---
+
+#### `GET /subtitles/{job_id}/events` - Job Event History
+
+**Use this when:**
+- Debugging workflow issues
+- Auditing job processing timeline
+- Tracking which services processed the job
+- Investigating failures or unexpected behavior
+
+**Returns:**
+```json
+{
+  "job_id": "123e4567-e89b-12d3-a456-426614174000",
+  "event_count": 3,
+  "events": [
+    {
+      "event_type": "subtitle.translated",
+      "timestamp": "2024-01-01T00:05:00Z",
+      "source": "translator",
+      "payload": {
+        "translated_path": "/subtitles/translated.srt",
+        "download_url": "https://example.com/subtitle.srt"
+      }
+    },
+    {
+      "event_type": "subtitle.download.requested",
+      "timestamp": "2024-01-01T00:00:00Z",
+      "source": "manager",
+      "payload": {
+        "video_url": "https://example.com/video.mp4",
+        "language": "en"
+      }
+    }
+  ]
+}
+```
+
+**Response includes:**
+- Complete event timeline (most recent first)
+- Event types and timestamps
+- Source service for each event
+- Event payloads with contextual data
+
+**Why use this?**
+- ✅ Complete audit trail
+- ✅ Workflow visibility
+- ✅ Debugging failures
+- ✅ Performance analysis
+
 **Returns:**
 ```json
 {
