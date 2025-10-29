@@ -5,7 +5,7 @@ pydantic[dotenv]==2.10.4
 pydantic-settings==2.6.1
 redis==5.2.0
 pytest==8.3.4
-pytest-asyncio==0.24.0
+pytest-asyncio==1.2.0
 pytest-cov==6.0.0
 fakeredis[aioredis]==2.25.1
 black==24.10.0
