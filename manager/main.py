@@ -2,7 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Dict, List
+from typing import Any, Dict, List
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, status
@@ -103,6 +103,41 @@ async def get_subtitle_details(job_id: UUID):
         )
 
     return job
+
+
+@app.get("/subtitles/{job_id}/events", response_model=Dict[str, Any])
+async def get_job_event_history(job_id: UUID):
+    """
+    Get event history for a subtitle job.
+    
+    Returns a list of all events that occurred during the processing of this job,
+    providing a complete audit trail of the workflow.
+    """
+    # First check if job exists
+    job = await redis_client.get_job(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Subtitle job not found"
+        )
+    
+    # Get event history
+    events = await redis_client.get_job_events(job_id)
+    
+    if not events:
+        # Job exists but no events yet
+        return {
+            "job_id": str(job_id),
+            "event_count": 0,
+            "events": [],
+            "message": "No events recorded for this job yet"
+        }
+    
+    return {
+        "job_id": str(job_id),
+        "event_count": len(events),
+        "events": events
+    }
 
 
 @app.get("/subtitles", response_model=List[SubtitleResponse])

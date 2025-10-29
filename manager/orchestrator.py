@@ -10,9 +10,11 @@ from aio_pika import Message
 from aio_pika.abc import AbstractChannel, AbstractConnection
 
 from common.config import settings
+from common.event_publisher import event_publisher
 from common.redis_client import redis_client
-from common.schemas import (DownloadTask, SubtitleRequest, SubtitleStatus,
-                            TranslationTask)
+from common.schemas import (DownloadTask, EventType, SubtitleEvent,
+                            SubtitleRequest, SubtitleStatus, TranslationTask)
+from common.utils import DateTimeUtils
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,9 @@ class SubtitleOrchestrator:
             # Declare queues
             await self._declare_queues()
 
+            # Connect event publisher
+            await event_publisher.connect()
+
             logger.info("Connected to RabbitMQ successfully")
         except Exception as e:
             logger.warning(f"Failed to connect to RabbitMQ: {e}")
@@ -45,6 +50,9 @@ class SubtitleOrchestrator:
 
     async def disconnect(self) -> None:
         """Close connection to RabbitMQ."""
+        # Disconnect event publisher
+        await event_publisher.disconnect()
+        
         if self.connection and not self.connection.is_closed:
             await self.connection.close()
             logger.info("Disconnected from RabbitMQ")
@@ -100,8 +108,26 @@ class SubtitleOrchestrator:
                 message, routing_key=self.download_queue_name
             )
 
-            # Update job status to DOWNLOADING in Redis
-            await redis_client.update_job_status(request_id, SubtitleStatus.DOWNLOADING)
+            # Publish event for download request
+            event = SubtitleEvent(
+                event_type=EventType.SUBTITLE_DOWNLOAD_REQUESTED,
+                job_id=request_id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="manager",
+                payload={
+                    "video_url": request.video_url,
+                    "video_title": request.video_title,
+                    "language": request.language,
+                    "target_language": request.target_language,
+                    "preferred_sources": request.preferred_sources,
+                },
+            )
+            await event_publisher.publish_event(event)
+
+            # Update job status to DOWNLOAD_QUEUED in Redis
+            await redis_client.update_phase(
+                request_id, SubtitleStatus.DOWNLOAD_QUEUED, source="manager"
+            )
 
             logger.info(f"Download task enqueued for request {request_id}")
             return True
@@ -155,8 +181,24 @@ class SubtitleOrchestrator:
                 message, routing_key=self.translation_queue_name
             )
 
-            # Update job status to TRANSLATING in Redis
-            await redis_client.update_job_status(request_id, SubtitleStatus.TRANSLATING)
+            # Publish event for translation request
+            event = SubtitleEvent(
+                event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
+                job_id=request_id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="manager",
+                payload={
+                    "subtitle_file_path": subtitle_file_path,
+                    "source_language": source_language,
+                    "target_language": target_language,
+                },
+            )
+            await event_publisher.publish_event(event)
+
+            # Update job status to TRANSLATE_QUEUED in Redis
+            await redis_client.update_phase(
+                request_id, SubtitleStatus.TRANSLATE_QUEUED, source="manager"
+            )
 
             logger.info(f"Translation task enqueued for request {request_id}")
             return True

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -14,10 +14,26 @@ class SubtitleStatus(str, Enum):
     """Status of subtitle processing."""
 
     PENDING = "pending"
+    DOWNLOAD_QUEUED = "download_queued"
+    DOWNLOAD_IN_PROGRESS = "download_in_progress"
+    TRANSLATE_QUEUED = "translate_queued"
+    TRANSLATE_IN_PROGRESS = "translate_in_progress"
+    DONE = "done"
+    FAILED = "failed"
+    # Legacy statuses for backward compatibility
     DOWNLOADING = "downloading"
     TRANSLATING = "translating"
     COMPLETED = "completed"
-    FAILED = "failed"
+
+
+class EventType(str, Enum):
+    """Types of events in the subtitle processing workflow."""
+
+    SUBTITLE_DOWNLOAD_REQUESTED = "subtitle.download.requested"
+    SUBTITLE_READY = "subtitle.ready"
+    SUBTITLE_TRANSLATE_REQUESTED = "subtitle.translate.requested"
+    SUBTITLE_TRANSLATED = "subtitle.translated"
+    JOB_FAILED = "job.failed"
 
 
 class SubtitleRequest(BaseModel):
@@ -122,3 +138,37 @@ class HealthResponse(BaseModel):
         description="Current timestamp",
     )
     version: str = Field(default="1.0.0", description="Service version")
+
+
+class SubtitleEvent(BaseModel):
+    """Event for subtitle processing workflow."""
+
+    event_type: EventType = Field(..., description="Type of event")
+    job_id: UUID = Field(..., description="Job identifier")
+    timestamp: datetime = Field(
+        default_factory=DateTimeUtils.get_current_utc_datetime,
+        description="When the event occurred",
+    )
+    source: str = Field(..., description="Source service (manager, downloader, translator, consumer)")
+    payload: Dict[str, Any] = Field(
+        default_factory=dict, description="Event payload data"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None, description="Additional metadata"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "event_type": "subtitle.ready",
+                "job_id": "123e4567-e89b-12d3-a456-426614174000",
+                "timestamp": "2024-01-01T00:00:00Z",
+                "source": "downloader",
+                "payload": {
+                    "subtitle_path": "/path/to/subtitle.srt",
+                    "language": "en",
+                    "download_url": "https://example.com/subtitles/123.srt"
+                },
+                "metadata": None,
+            }
+        }

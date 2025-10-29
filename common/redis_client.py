@@ -62,6 +62,18 @@ class RedisJobClient:
         """
         return StringUtils.generate_job_key(str(job_id))
 
+    def _get_job_events_key(self, job_id: UUID) -> str:
+        """
+        Generate Redis key for job event history.
+
+        Args:
+            job_id: UUID of the job
+
+        Returns:
+            Redis key string in format 'job:events:uuid'
+        """
+        return f"job:events:{str(job_id)}"
+
     def _get_ttl_for_status(self, status: SubtitleStatus) -> int:
         """
         Get TTL (time-to-live) in seconds based on job status.
@@ -286,6 +298,163 @@ class RedisJobClient:
         except Exception as e:
             logger.error(f"Unexpected error deleting job {job_id}: {e}")
             return False
+
+    async def update_phase(
+        self,
+        job_id: UUID,
+        status: SubtitleStatus,
+        source: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Update job status with source tracking.
+
+        Args:
+            job_id: UUID of the job to update
+            status: New status
+            source: Source service making the update
+            metadata: Optional metadata to merge into job
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.connected or not self.client:
+            logger.warning(f"Redis unavailable - cannot update phase for job {job_id}")
+            return False
+
+        try:
+            # Get existing job
+            job = await self.get_job(job_id)
+            if not job:
+                logger.warning(f"Cannot update phase for non-existent job {job_id}")
+                return False
+
+            # Update fields
+            job.status = status
+            job.updated_at = DateTimeUtils.get_current_utc_datetime()
+
+            # Merge metadata if provided
+            if metadata:
+                if metadata.get("error_message"):
+                    job.error_message = metadata["error_message"]
+                if metadata.get("download_url"):
+                    job.download_url = metadata["download_url"]
+
+            # Save updated job
+            success = await self.save_job(job)
+
+            if success:
+                logger.info(
+                    f"Updated job {job_id} phase to {status.value} (source: {source})"
+                )
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Failed to update job {job_id} phase: {e}")
+            return False
+
+    async def record_event(
+        self,
+        job_id: UUID,
+        event_type: str,
+        payload: Dict[str, Any],
+        source: str,
+    ) -> bool:
+        """
+        Record event history for a job in Redis list.
+
+        Args:
+            job_id: UUID of the job
+            event_type: Type of event
+            payload: Event payload data
+            source: Source service that generated the event
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.connected or not self.client:
+            logger.warning(f"Redis unavailable - cannot record event for job {job_id}")
+            return False
+
+        try:
+            events_key = self._get_job_events_key(job_id)
+
+            # Create event record
+            event_record = {
+                "event_type": event_type,
+                "timestamp": DateTimeUtils.get_current_utc_datetime().isoformat(),
+                "source": source,
+                "payload": payload,
+            }
+
+            # Store as JSON string in Redis list
+            event_json = json.dumps(event_record)
+            await self.client.lpush(events_key, event_json)
+
+            # Set TTL for event history (same as completed jobs)
+            ttl = settings.redis_job_ttl_completed
+            if ttl > 0:
+                await self.client.expire(events_key, ttl)
+
+            logger.debug(
+                f"Recorded event {event_type} for job {job_id} (source: {source})"
+            )
+            return True
+
+        except RedisError as e:
+            logger.error(f"Failed to record event for job {job_id}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error recording event for job {job_id}: {e}")
+            return False
+
+    async def get_job_events(
+        self, job_id: UUID, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve event history for a job.
+
+        Args:
+            job_id: UUID of the job
+            limit: Maximum number of events to retrieve (default: 50)
+
+        Returns:
+            List of event records (most recent first)
+        """
+        if not self.connected or not self.client:
+            logger.warning(f"Redis unavailable - cannot get events for job {job_id}")
+            return []
+
+        try:
+            events_key = self._get_job_events_key(job_id)
+
+            # Get events from Redis list (most recent first)
+            event_jsons = await self.client.lrange(events_key, 0, limit - 1)
+
+            if not event_jsons:
+                logger.debug(f"No events found for job {job_id}")
+                return []
+
+            # Deserialize events
+            events = []
+            for event_json in event_jsons:
+                try:
+                    event = json.loads(event_json)
+                    events.append(event)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to deserialize event: {e}")
+                    continue
+
+            logger.debug(f"Retrieved {len(events)} events for job {job_id}")
+            return events
+
+        except RedisError as e:
+            logger.error(f"Failed to get events for job {job_id}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error getting events for job {job_id}: {e}")
+            return []
 
     async def health_check(self) -> Dict[str, Any]:
         """
