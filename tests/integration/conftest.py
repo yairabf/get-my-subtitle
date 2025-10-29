@@ -155,9 +155,52 @@ async def clean_exchange(rabbitmq_channel):
         pass
 
 
+@pytest_asyncio.fixture
+async def fake_redis_client():
+    """
+    Fake Redis client using fakeredis for realistic behavior in integration tests.
+    
+    This provides a real Redis-like interface without requiring a separate Redis server,
+    making integration tests more realistic while still being isolated.
+    """
+    import fakeredis.aioredis
+    
+    fake_redis = fakeredis.aioredis.FakeRedis(
+        decode_responses=True,
+        encoding="utf-8"
+    )
+    yield fake_redis
+    await fake_redis.flushall()
+    await fake_redis.aclose()
+
+
+@pytest_asyncio.fixture
+async def fake_redis_job_client(fake_redis_client):
+    """
+    RedisJobClient instance using fakeredis for integration testing.
+    
+    This provides realistic Redis behavior for integration tests without
+    requiring a real Redis instance, allowing tests to focus on RabbitMQ integration.
+    """
+    from common.redis_client import RedisJobClient
+    
+    client = RedisJobClient()
+    # Replace the client's Redis connection with our fake one
+    client.client = fake_redis_client
+    client.connected = True
+    yield client
+    # Cleanup
+    await fake_redis_client.flushall()
+    client.connected = False
+
+
 @pytest.fixture
 def mock_redis_client():
-    """Mock Redis client to isolate RabbitMQ testing."""
+    """
+    Simple mock Redis client for backward compatibility.
+    
+    Use fake_redis_job_client for more realistic testing.
+    """
     mock_redis = AsyncMock()
     mock_redis.connect = AsyncMock()
     mock_redis.disconnect = AsyncMock()
@@ -170,12 +213,38 @@ def mock_redis_client():
 
 @pytest_asyncio.fixture
 async def test_orchestrator(
-    rabbitmq_container, clean_queues, mock_redis_client
+    rabbitmq_container, clean_queues, fake_redis_job_client
 ):
-    """Create SubtitleOrchestrator instance for testing."""
+    """
+    Create SubtitleOrchestrator instance for testing with realistic Redis behavior.
+    
+    Uses fakeredis for more realistic Redis behavior while keeping RabbitMQ integration focus.
+    """
     orchestrator = SubtitleOrchestrator()
     
-    # Patch Redis client to isolate RabbitMQ testing
+    # Patch Redis client with fakeredis for realistic behavior
+    with patch("manager.orchestrator.redis_client", fake_redis_job_client):
+        # Connect to RabbitMQ
+        await orchestrator.connect()
+        
+        yield orchestrator
+        
+        # Disconnect
+        await orchestrator.disconnect()
+
+
+@pytest_asyncio.fixture
+async def test_orchestrator_with_mock_redis(
+    rabbitmq_container, clean_queues, mock_redis_client
+):
+    """
+    Create SubtitleOrchestrator instance with simple mock Redis (backward compatibility).
+    
+    Use test_orchestrator for more realistic testing.
+    """
+    orchestrator = SubtitleOrchestrator()
+    
+    # Patch Redis client with simple mock
     with patch("manager.orchestrator.redis_client", mock_redis_client):
         # Connect to RabbitMQ
         await orchestrator.connect()

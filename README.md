@@ -1,5 +1,11 @@
 # Get My Subtitle
 
+[![CI](https://github.com/yairabramovitch/get-my-subtitle/actions/workflows/ci.yml/badge.svg)](https://github.com/yairabramovitch/get-my-subtitle/actions/workflows/ci.yml)
+[![Lint](https://github.com/yairabramovitch/get-my-subtitle/actions/workflows/lint.yml/badge.svg)](https://github.com/yairabramovitch/get-my-subtitle/actions/workflows/lint.yml)
+[![codecov](https://codecov.io/gh/yairabramovitch/get-my-subtitle/branch/main/graph/badge.svg)](https://codecov.io/gh/yairabramovitch/get-my-subtitle)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 A microservices-based subtitle management system that fetches, translates, and manages subtitles for videos.
 
 ## Architecture
@@ -317,6 +323,57 @@ isort .
 pytest -v
 pytest --cov=common --cov=manager --cov-report=html
 ```
+
+### CI/CD
+
+This project uses GitHub Actions for continuous integration and deployment:
+
+#### Automated Workflows
+
+1. **CI Pipeline** (`.github/workflows/ci.yml`)
+   - ✅ Code formatting checks (Black, isort)
+   - ✅ Unit tests on Python 3.11 and 3.12
+   - ✅ Integration tests with Redis and RabbitMQ
+   - ✅ Coverage reporting (70% minimum)
+   - ✅ Docker image builds
+   - Runs on: Push to `main`/`develop`/`feat/*`, Pull Requests
+
+2. **Lint Pipeline** (`.github/workflows/lint.yml`)
+   - ✅ Black formatting validation
+   - ✅ isort import sorting validation
+   - ✅ Pylint static analysis (optional)
+   - ⚡ Fast feedback (~30 seconds)
+   - Runs on: Push and Pull Requests
+
+3. **Dependency Updates** (Dependabot)
+   - 🔄 Weekly automated dependency updates
+   - 📦 Python packages, GitHub Actions, and Docker base images
+   - 🔐 Automatic security vulnerability patches
+
+#### Branch Protection
+
+The `main` and `develop` branches are protected and require:
+- ✅ All CI checks to pass
+- ✅ Code review approval
+- ✅ Up-to-date branches before merging
+- ✅ Conversation resolution
+
+#### Before Committing
+
+Always run these commands locally before pushing:
+
+```bash
+# Run all checks (recommended)
+make check
+
+# Or run individually:
+make format     # Auto-fix formatting
+make lint       # Check code style
+make test-unit  # Run unit tests
+make test-cov   # Check coverage
+```
+
+For more details, see [GitHub Actions Documentation](.github/workflows/README.md).
 
 ### Adding New Subtitle Sources
 
