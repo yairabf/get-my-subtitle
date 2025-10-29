@@ -1,4 +1,4 @@
-aio-pika==9.3.1
+aio-pika==9.5.7
 redis==5.2.0
 pydantic[dotenv]==2.10.4
 pydantic-settings==2.6.1
