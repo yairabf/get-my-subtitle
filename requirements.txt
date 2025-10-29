@@ -10,5 +10,5 @@ pytest-cov==6.0.0
 fakeredis[aioredis]==2.25.1
 black==24.10.0
 isort==5.13.2
-invoke==2.2.0
+invoke==2.2.1
 python-dotenv==1.2.1
