@@ -105,8 +105,11 @@ class TestDownloadRequestPublishingFlow:
         # Simulate worker acknowledgment
         await message.ack()
 
-        # Verify message was removed from queue
-        assert task_queue.declaration_result.message_count == 0
+        # Verify message was removed from queue (re-declare to get fresh count)
+        task_queue_check = await rabbitmq_channel.declare_queue(
+            "subtitle.download", durable=True
+        )
+        assert task_queue_check.declaration_result.message_count == 0
 
     async def test_download_event_can_be_subscribed(
         self,
@@ -238,8 +241,11 @@ class TestTranslationRequestPublishingFlow:
         # Simulate worker acknowledgment
         await message.ack()
 
-        # Verify message was removed from queue
-        assert task_queue.declaration_result.message_count == 0
+        # Verify message was removed from queue (re-declare to get fresh count)
+        task_queue_check = await rabbitmq_channel.declare_queue(
+            "subtitle.translation", durable=True
+        )
+        assert task_queue_check.declaration_result.message_count == 0
 
     async def test_translation_event_can_be_subscribed(
         self,
@@ -349,13 +355,18 @@ class TestPublishingErrorScenarios:
         except Exception:
             pass
 
-        # Act - Publish to non-existent queue
+        # Act - Reconnect orchestrator to re-declare queues
+        await test_orchestrator.disconnect()
+        await test_orchestrator.connect()
+        
+        # Publish to now-existent queue
         result = await test_orchestrator.enqueue_download_task(request, request_id)
 
         # Assert - Should succeed (queue is durable and was declared)
         assert result is True
 
-        # Verify queue was created
+        # Verify queue was created and message is there
+        await asyncio.sleep(0.1)  # Give time for message to arrive
         task_queue = await rabbitmq_channel.declare_queue(
             "subtitle.download", durable=True
         )

@@ -8,6 +8,7 @@ import aio_pika
 import pytest
 from aio_pika import ExchangeType
 from aio_pika.abc import AbstractChannel
+from aio_pika.exceptions import QueueEmpty
 
 from common.event_publisher import EventPublisher
 from common.schemas import EventType, SubtitleEvent
@@ -239,11 +240,9 @@ class TestEventSubscription:
         job_id = uuid4()
 
         # Create queue bound to specific routing key
-        queue = await rabbitmq_channel.declare_queue("test_queue", exclusive=True)
-        exchange = await rabbitmq_channel.declare_exchange(
-            "subtitle.events", ExchangeType.TOPIC, durable=True
-        )
-        await queue.bind(exchange, routing_key="subtitle.ready")
+        queue = await rabbitmq_channel.declare_queue("test_consumer_queue", exclusive=True)
+        # Use the exchange name directly instead of redeclaring
+        await queue.bind("subtitle.events", routing_key="subtitle.ready")
 
         # Act - Publish matching event
         matching_event = SubtitleEvent(
@@ -266,7 +265,7 @@ class TestEventSubscription:
         await test_event_publisher.publish_event(non_matching_event)
 
         # Assert - Only matching event received
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.2)  # Increased sleep time
 
         message = await queue.get(timeout=5)
         assert message is not None
@@ -278,7 +277,7 @@ class TestEventSubscription:
         await message.ack()
 
         # Verify no more messages (non-matching event was filtered)
-        with pytest.raises(asyncio.TimeoutError):
+        with pytest.raises(QueueEmpty):
             await queue.get(timeout=1)
 
     async def test_wildcard_routing_patterns(
@@ -289,12 +288,9 @@ class TestEventSubscription:
         job_id = uuid4()
 
         # Create queue with wildcard pattern
-        queue = await rabbitmq_channel.declare_queue("test_queue", exclusive=True)
-        exchange = await rabbitmq_channel.declare_exchange(
-            "subtitle.events", ExchangeType.TOPIC, durable=True
-        )
+        queue = await rabbitmq_channel.declare_queue("test_wildcard_queue", exclusive=True)
         # Bind with pattern that matches subtitle.ready and subtitle.translated
-        await queue.bind(exchange, routing_key="subtitle.*")
+        await queue.bind("subtitle.events", routing_key="subtitle.*")
 
         # Act - Publish events
         events = [
@@ -326,29 +322,30 @@ class TestEventSubscription:
             await test_event_publisher.publish_event(event)
 
         # Assert - Only events matching subtitle.* pattern received
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.2)
 
-        received_count = 0
+        received_events = []
         try:
-            while received_count < 3:  # Try to get up to 3 messages
+            while len(received_events) < 3:  # Try to get up to 3 messages
                 message = await queue.get(timeout=1)
-                if message:
-                    message_data = json.loads(message.body.decode())
-                    received_event = SubtitleEvent(**message_data)
+                message_data = json.loads(message.body.decode())
+                received_event = SubtitleEvent(**message_data)
 
-                    # Should only receive subtitle.ready and subtitle.translated
-                    # NOT subtitle.download.requested (has multiple dots)
-                    assert received_event.event_type in [
-                        EventType.SUBTITLE_READY,
-                        EventType.SUBTITLE_TRANSLATED,
-                    ]
-                    received_count += 1
-                    await message.ack()
-        except asyncio.TimeoutError:
-            pass
+                # Should only receive subtitle.ready and subtitle.translated
+                # NOT subtitle.download.requested (has multiple dots)
+                assert received_event.event_type in [
+                    EventType.SUBTITLE_READY,
+                    EventType.SUBTITLE_TRANSLATED,
+                ]
+                received_events.append(received_event.event_type)
+                await message.ack()
+        except QueueEmpty:
+            pass  # Expected when no more messages
 
         # Should have received exactly 2 messages (not 3)
-        assert received_count == 2
+        assert len(received_events) == 2
+        assert EventType.SUBTITLE_READY in received_events
+        assert EventType.SUBTITLE_TRANSLATED in received_events
 
     async def test_multiple_consumers_receive_same_event(
         self, test_event_publisher, rabbitmq_channel

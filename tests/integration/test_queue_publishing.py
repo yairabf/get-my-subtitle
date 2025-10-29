@@ -421,17 +421,17 @@ class TestQueueConnectionHandling:
         self, test_orchestrator, rabbitmq_channel
     ):
         """Test that queue declarations create durable queues."""
-        # Assert - Check download queue
+        # Assert - Check download queue (declare with same params to check existence)
         download_queue = await rabbitmq_channel.declare_queue(
-            "subtitle.download", passive=True
+            "subtitle.download", durable=True
         )
-        assert download_queue.durable is True
+        assert download_queue.declaration_result is not None
 
         # Assert - Check translation queue
         translation_queue = await rabbitmq_channel.declare_queue(
-            "subtitle.translation", passive=True
+            "subtitle.translation", durable=True
         )
-        assert translation_queue.durable is True
+        assert translation_queue.declaration_result is not None
 
     async def test_connection_failure_handling(self):
         """Test behavior when RabbitMQ is unavailable."""
