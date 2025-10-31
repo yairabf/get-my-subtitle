@@ -11,6 +11,149 @@ from common.schemas import EventType, SubtitleStatus
 from downloader.worker import process_message
 
 
+class TestSubtitleMissingEventPublishing:
+    """Test SUBTITLE_MISSING event publishing based on translation configuration."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "auto_translate,expected_event_type,expected_reason",
+        [
+            (True, EventType.SUBTITLE_TRANSLATE_REQUESTED, "subtitle_not_found"),
+            (False, EventType.SUBTITLE_MISSING, "subtitle_not_found_no_translation"),
+        ],
+    )
+    async def test_subtitle_not_found_event_based_on_translation_config(
+        self, auto_translate, expected_event_type, expected_reason
+    ):
+        """Test that correct event is published based on translation configuration."""
+        request_id = uuid4()
+
+        mock_message = MagicMock()
+        mock_message.body = json.dumps(
+            {
+                "request_id": str(request_id),
+                "video_url": "https://example.com/video.mp4",
+                "video_title": "Test Video",
+                "language": "en",
+            }
+        ).encode()
+        mock_message.routing_key = "subtitle.download"
+        mock_message.exchange = ""
+        mock_message.message_id = "test-message-id"
+        mock_message.timestamp = None
+
+        with patch("downloader.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+
+            with patch("downloader.worker.opensubtitles_client") as mock_client:
+                # No subtitles found
+                mock_client.search_subtitles = AsyncMock(return_value=[])
+
+                with patch("downloader.worker.event_publisher") as mock_publisher:
+                    mock_publisher.publish_event = AsyncMock()
+
+                    with patch("downloader.worker.settings") as mock_settings:
+                        mock_settings.jellyfin_auto_translate = auto_translate
+
+                        await process_message(mock_message)
+
+                        # Verify correct event was published
+                        mock_publisher.publish_event.assert_called_once()
+                        event_call = mock_publisher.publish_event.call_args[0][0]
+                        assert event_call.event_type == expected_event_type
+                        assert event_call.job_id == request_id
+                        assert event_call.payload["reason"] == expected_reason
+
+    @pytest.mark.asyncio
+    async def test_subtitle_missing_event_contains_correct_payload(self):
+        """Test that SUBTITLE_MISSING event contains all required payload fields."""
+        request_id = uuid4()
+        video_url = "https://example.com/video.mp4"
+        video_title = "Test Video"
+        language = "en"
+
+        mock_message = MagicMock()
+        mock_message.body = json.dumps(
+            {
+                "request_id": str(request_id),
+                "video_url": video_url,
+                "video_title": video_title,
+                "language": language,
+            }
+        ).encode()
+        mock_message.routing_key = "subtitle.download"
+        mock_message.exchange = ""
+        mock_message.message_id = "test-message-id"
+        mock_message.timestamp = None
+
+        with patch("downloader.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+
+            with patch("downloader.worker.opensubtitles_client") as mock_client:
+                mock_client.search_subtitles = AsyncMock(return_value=[])
+
+                with patch("downloader.worker.event_publisher") as mock_publisher:
+                    mock_publisher.publish_event = AsyncMock()
+
+                    with patch("downloader.worker.settings") as mock_settings:
+                        mock_settings.jellyfin_auto_translate = False
+
+                        await process_message(mock_message)
+
+                        # Verify event payload
+                        event_call = mock_publisher.publish_event.call_args[0][0]
+                        assert event_call.event_type == EventType.SUBTITLE_MISSING
+                        assert event_call.payload["language"] == language
+                        assert event_call.payload["reason"] == "subtitle_not_found_no_translation"
+                        assert event_call.payload["video_url"] == video_url
+                        assert event_call.payload["video_title"] == video_title
+
+    @pytest.mark.asyncio
+    async def test_subtitle_ready_unaffected_by_translation_config(self):
+        """Test that SUBTITLE_READY is always published when subtitle is found, regardless of translation config."""
+        request_id = uuid4()
+
+        mock_message = MagicMock()
+        mock_message.body = json.dumps(
+            {
+                "request_id": str(request_id),
+                "video_url": "https://example.com/video.mp4",
+                "video_title": "Test Video",
+                "language": "en",
+            }
+        ).encode()
+        mock_message.routing_key = "subtitle.download"
+        mock_message.exchange = ""
+        mock_message.message_id = "test-message-id"
+        mock_message.timestamp = None
+
+        mock_search_results = [{"IDSubtitleFile": "123"}]
+
+        with patch("downloader.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+
+            with patch("downloader.worker.opensubtitles_client") as mock_client:
+                mock_client.search_subtitles = AsyncMock(
+                    return_value=mock_search_results
+                )
+                mock_client.download_subtitle = AsyncMock(
+                    return_value=Path("/tmp/subtitle.srt")
+                )
+
+                with patch("downloader.worker.event_publisher") as mock_publisher:
+                    mock_publisher.publish_event = AsyncMock()
+
+                    with patch("downloader.worker.settings") as mock_settings:
+                        # Test with translation disabled
+                        mock_settings.jellyfin_auto_translate = False
+
+                        await process_message(mock_message)
+
+                        # Should still publish SUBTITLE_READY
+                        event_call = mock_publisher.publish_event.call_args[0][0]
+                        assert event_call.event_type == EventType.SUBTITLE_READY
+
+
 class TestDownloaderWorker:
     """Test downloader worker functionality."""
 

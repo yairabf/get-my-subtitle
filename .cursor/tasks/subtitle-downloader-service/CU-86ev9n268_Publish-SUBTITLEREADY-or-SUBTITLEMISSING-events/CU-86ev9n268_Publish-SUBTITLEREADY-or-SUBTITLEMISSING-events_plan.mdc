@@ -1,0 +1,231 @@
+# CU-86ev9n268 - Publish SUBTITLE_READY or SUBTITLE_MISSING Events
+
+**Epic:** Subtitle Downloader Service
+**Task:** CU-86ev9n268_Publish-SUBTITLEREADY-or-SUBTITLEMISSING-events
+**Created:** 2025-10-31
+**Status:** In Progress
+
+## Overview
+
+Implement proper event publishing in the downloader worker to emit:
+- `SUBTITLE_READY` when subtitles are successfully found and downloaded
+- `SUBTITLE_MISSING` when subtitles cannot be found AND translation is not configured
+
+This provides clear signals about subtitle availability to downstream consumers and ensures proper job lifecycle management.
+
+### Problem It Solves
+
+Currently, the downloader always publishes `SUBTITLE_TRANSLATE_REQUESTED` when subtitles are not found, regardless of whether translation is enabled. This creates ambiguity and doesn't properly signal terminal "subtitle unavailable" states.
+
+### User Story
+
+As a system administrator, I want clear events indicating whether subtitles are available or permanently missing, so I can monitor job outcomes and provide accurate feedback to users about subtitle availability.
+
+## Architecture
+
+### Components Affected
+
+1. **common/schemas.py**
+   - Add `SUBTITLE_MISSING` to `EventType` enum
+   - Add `SUBTITLE_MISSING` to `SubtitleStatus` enum
+
+2. **downloader/worker.py**
+   - Modify subtitle not found logic to check translation configuration
+   - Publish `SUBTITLE_MISSING` when translation is disabled
+   - Publish `SUBTITLE_TRANSLATE_REQUESTED` when translation is enabled
+
+3. **consumer/worker.py**
+   - Add handler for `SUBTITLE_MISSING` event
+   - Route event to handler in `process_event` method
+   - Update job status to `SUBTITLE_MISSING`
+
+### Dependencies
+
+- Existing: `common.config.settings.jellyfin_auto_translate` (already available)
+- No new external dependencies required
+
+## Implementation Steps (TDD Approach)
+
+### Step 1: Write Tests for Schema Changes
+**File:** `tests/common/test_schemas.py`
+
+Create tests FIRST:
+```python
+def test_subtitle_missing_event_type_exists():
+    """Test that SUBTITLE_MISSING event type exists in EventType enum."""
+    assert hasattr(EventType, 'SUBTITLE_MISSING')
+    assert EventType.SUBTITLE_MISSING.value == "subtitle.missing"
+
+def test_subtitle_missing_status_exists():
+    """Test that SUBTITLE_MISSING status exists in SubtitleStatus enum."""
+    assert hasattr(SubtitleStatus, 'SUBTITLE_MISSING')
+    assert SubtitleStatus.SUBTITLE_MISSING.value == "subtitle_missing"
+
+def test_subtitle_event_with_missing_type():
+    """Test creating SubtitleEvent with SUBTITLE_MISSING type."""
+    event = SubtitleEvent(
+        event_type=EventType.SUBTITLE_MISSING,
+        job_id=uuid4(),
+        timestamp=datetime.now(timezone.utc),
+        source="downloader",
+        payload={"language": "en", "reason": "subtitle_not_found_no_translation"}
+    )
+    assert event.event_type == EventType.SUBTITLE_MISSING
+```
+
+Then implement the enum changes in `common/schemas.py`.
+
+### Step 2: Write Tests for Downloader Logic
+**File:** `tests/downloader/test_worker.py`
+
+Create parameterized tests FIRST:
+```python
+@pytest.mark.parametrize("auto_translate,expected_event_type", [
+    (True, EventType.SUBTITLE_TRANSLATE_REQUESTED),
+    (False, EventType.SUBTITLE_MISSING),
+])
+async def test_subtitle_not_found_event_publishing(auto_translate, expected_event_type):
+    """Test that correct event is published based on translation configuration."""
+    # Test implementation here
+```
+
+Then implement the conditional logic in `downloader/worker.py`.
+
+### Step 3: Write Tests for Consumer Handler
+**File:** `tests/consumer/test_worker.py`
+
+Create tests FIRST:
+```python
+async def test_handle_subtitle_missing():
+    """Test consumer handles SUBTITLE_MISSING event correctly."""
+    # Test implementation here
+
+async def test_subtitle_missing_updates_job_status():
+    """Test that job status is updated to SUBTITLE_MISSING."""
+    # Test implementation here
+```
+
+Then implement the handler in `consumer/worker.py`.
+
+### Step 4: Write Integration Tests
+**File:** `tests/integration/test_event_publishing.py`
+
+Create tests FIRST:
+```python
+async def test_subtitle_missing_event_published_to_exchange():
+    """Test SUBTITLE_MISSING event published with correct routing key."""
+    # Test implementation here
+```
+
+Then verify the complete flow works end-to-end.
+
+## API Changes
+
+No API endpoint changes required. This is purely internal event handling.
+
+## Testing Strategy
+
+### Unit Tests Required
+
+1. **Schema Tests** (`tests/common/test_schemas.py`)
+   - ✅ SUBTITLE_MISSING enum value exists
+   - ✅ SubtitleEvent validates with SUBTITLE_MISSING type
+   - ✅ SubtitleStatus.SUBTITLE_MISSING enum value exists
+
+2. **Downloader Tests** (`tests/downloader/test_worker.py`)
+   - ✅ Publishes SUBTITLE_MISSING when translation disabled
+   - ✅ Publishes SUBTITLE_TRANSLATE_REQUESTED when translation enabled
+   - ✅ Event payload contains correct metadata
+   - ✅ Existing SUBTITLE_READY behavior unchanged
+
+3. **Consumer Tests** (`tests/consumer/test_worker.py`)
+   - ✅ Handles SUBTITLE_MISSING event correctly
+   - ✅ Updates job status to SUBTITLE_MISSING
+   - ✅ Records event in Redis history
+   - ✅ Error handling when Redis fails
+
+### Integration Tests Required
+
+1. **Event Publishing Tests** (`tests/integration/test_event_publishing.py`)
+   - ✅ SUBTITLE_MISSING published to topic exchange
+   - ✅ Correct routing key (`subtitle.missing`)
+   - ✅ Message format and persistence
+   - ✅ Consumer receives and processes event
+
+### Manual Testing Steps
+
+1. **Scenario 1: Translation Enabled**
+   - Set `JELLYFIN_AUTO_TRANSLATE=true`
+   - Submit job for video without subtitles
+   - Verify `SUBTITLE_TRANSLATE_REQUESTED` event published
+   - Verify job enters translation workflow
+
+2. **Scenario 2: Translation Disabled**
+   - Set `JELLYFIN_AUTO_TRANSLATE=false`
+   - Submit job for video without subtitles
+   - Verify `SUBTITLE_MISSING` event published
+   - Verify job status becomes `SUBTITLE_MISSING`
+
+3. **Scenario 3: Subtitles Found**
+   - Submit job for video with available subtitles
+   - Verify `SUBTITLE_READY` event published
+   - Verify translation setting has no effect
+
+## Success Criteria
+
+- ✅ All new enum values added to schemas
+- ✅ Downloader checks `jellyfin_auto_translate` setting
+- ✅ Correct event published based on configuration
+- ✅ Consumer handles SUBTITLE_MISSING event
+- ✅ Job status updated to SUBTITLE_MISSING when appropriate
+- ✅ All unit tests pass with >80% coverage
+- ✅ Integration tests verify complete flow
+- ✅ Manual testing confirms both scenarios work correctly
+- ✅ No regression in existing SUBTITLE_READY behavior
+- ✅ Event routing works correctly through RabbitMQ
+
+## Files to Create/Modify
+
+### New Files
+None (using existing test files)
+
+### Modified Files
+
+1. `common/schemas.py`
+   - Add `SUBTITLE_MISSING` to EventType enum
+   - Add `SUBTITLE_MISSING` to SubtitleStatus enum
+
+2. `downloader/worker.py`
+   - Add conditional logic in subtitle not found block (lines 165-188)
+   - Check `settings.jellyfin_auto_translate`
+   - Publish appropriate event
+
+3. `consumer/worker.py`
+   - Add `handle_subtitle_missing()` method
+   - Add routing in `process_event()` method
+
+4. `tests/common/test_schemas.py`
+   - Add tests for new enum values
+
+5. `tests/downloader/test_worker.py`
+   - Add parameterized tests for event publishing
+
+6. `tests/consumer/test_worker.py`
+   - Add tests for SUBTITLE_MISSING handler
+
+7. `tests/integration/test_event_publishing.py`
+   - Add integration test for SUBTITLE_MISSING flow
+
+## Risk Assessment
+
+**Low Risk** - This is a clean addition with no breaking changes:
+- New enum values don't affect existing code
+- Conditional logic only adds new behavior
+- Existing SUBTITLE_READY flow unchanged
+- Consumer gracefully handles unknown events (already has logging)
+
+## Notes
+
+- Event semantics: `SUBTITLE_MISSING` is a terminal state (no further processing)
+- Different from `FAILED`: Missing means resource unavailable, Failed means system error
+- Translation setting checked at runtime (allows configuration changes without code deploy)

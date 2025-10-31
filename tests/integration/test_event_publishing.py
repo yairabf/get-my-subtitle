@@ -171,6 +171,56 @@ class TestTopicExchangePublishing:
 
         await message.ack()
 
+    async def test_subtitle_missing_event_published(
+        self, test_event_publisher, rabbitmq_channel
+    ):
+        """Test that SUBTITLE_MISSING event is published to topic exchange."""
+        # Arrange
+        job_id = uuid4()
+        event = SubtitleEvent(
+            event_type=EventType.SUBTITLE_MISSING,
+            job_id=job_id,
+            timestamp=DateTimeUtils.get_current_utc_datetime(),
+            source="downloader",
+            payload={
+                "language": "en",
+                "reason": "subtitle_not_found_no_translation",
+                "video_url": "https://example.com/video.mp4",
+                "video_title": "Test Video",
+            },
+        )
+
+        # Create a test queue bound to the exchange
+        queue = await rabbitmq_channel.declare_queue("test_queue", exclusive=True)
+        exchange = await rabbitmq_channel.declare_exchange(
+            "subtitle.events", ExchangeType.TOPIC, durable=True
+        )
+        await queue.bind(exchange, routing_key="subtitle.missing")
+
+        # Act
+        result = await test_event_publisher.publish_event(event)
+
+        # Assert
+        assert result is True
+
+        # Give message time to arrive
+        await asyncio.sleep(0.1)
+
+        # Verify message received
+        message = await queue.get(timeout=5)
+        assert message is not None
+        assert message.routing_key == "subtitle.missing"
+
+        # Verify message content
+        message_data = json.loads(message.body.decode())
+        received_event = SubtitleEvent(**message_data)
+        assert received_event.event_type == EventType.SUBTITLE_MISSING
+        assert str(received_event.job_id) == str(job_id)
+        assert received_event.payload["language"] == "en"
+        assert received_event.payload["reason"] == "subtitle_not_found_no_translation"
+
+        await message.ack()
+
     async def test_multiple_event_types_published(
         self, test_event_publisher, rabbitmq_channel
     ):
@@ -180,6 +230,7 @@ class TestTopicExchangePublishing:
         event_types = [
             EventType.SUBTITLE_DOWNLOAD_REQUESTED,
             EventType.SUBTITLE_READY,
+            EventType.SUBTITLE_MISSING,
             EventType.SUBTITLE_TRANSLATE_REQUESTED,
             EventType.SUBTITLE_TRANSLATED,
             EventType.JOB_FAILED,
