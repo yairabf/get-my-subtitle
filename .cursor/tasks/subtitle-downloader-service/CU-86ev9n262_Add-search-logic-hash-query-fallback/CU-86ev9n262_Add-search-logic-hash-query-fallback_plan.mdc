@@ -1,0 +1,289 @@
+# CU-86ev9n262 - Add Search Logic (Hash → Query Fallback)
+
+**Epic:** Subtitle Downloader Service  
+**Task Number:** CU-86ev9n262  
+**Created:** October 31, 2025  
+**Status:** In Progress
+
+## Overview
+
+Implement file hash-based subtitle search with automatic fallback to text-based query search when hash search yields no results. This provides more accurate subtitle matching for local video files.
+
+- **Brief description**: Add OpenSubtitles hash calculation and implement hash → query fallback search logic
+- **Problem it solves**: Hash-based search is more accurate than title-based search for matching subtitles to specific video files
+- **User story**: As a user, I want the system to find the most accurate subtitles for my video file by using its file hash first, with automatic fallback to title search if hash search finds nothing
+
+## Architecture
+
+### Components Affected
+- `common/utils.py` - Add FileHashUtils class with OpenSubtitles hash algorithm
+- `downloader/opensubtitles_client.py` - Add hash-based search method
+- `downloader/worker.py` - Implement hash calculation and fallback logic
+
+### Design Decisions
+
+**1. Hash Calculation Location**
+- **Decision**: Calculate hash in downloader worker (not manager)
+- **Rationale**: Avoids unnecessary computation for remote URLs; only calculate when actually needed
+
+**2. Video File Access**
+- **Decision**: Assume `video_url` can be a local file path accessible to worker
+- **Rationale**: Jellyfin webhooks and local media servers provide local file paths
+
+**3. Search Strategy**
+- **Decision**: Try hash first → if empty results, try query search
+- **Rationale**: Hash is more accurate but only works for exact file matches; query search catches everything else
+
+**4. Schema Changes**
+- **Decision**: No schema changes - calculate hash on-demand
+- **Rationale**: Keeps architecture simple; hash only needed during search, not for storage
+
+### Files to Create
+- `tests/common/test_file_hash.py` - Hash calculation tests
+
+### Files to Modify
+- `common/utils.py` - Add FileHashUtils class (~70 lines)
+- `downloader/opensubtitles_client.py` - Add search_subtitles_by_hash() method (~40 lines)
+- `downloader/worker.py` - Update process_message() with fallback logic (~60 lines)
+- `tests/downloader/test_opensubtitles_client.py` - Add hash search tests (~60 lines)
+- `tests/downloader/test_worker.py` - Add fallback tests (~150 lines)
+
+## Implementation Steps
+
+### 1. Add Hash Calculation Utility
+**File**: `common/utils.py`
+
+Create `FileHashUtils` class implementing OpenSubtitles hash algorithm:
+- Read first 64KB of file
+- Read last 64KB of file
+- Sum all 64-bit chunks with file size
+- Return 16-character hex string
+- Handle errors gracefully (return None if file inaccessible)
+
+**OpenSubtitles Hash Algorithm**:
+```python
+# Initialize hash with file size
+hash_value = file_size
+
+# Read first 64KB in 8-byte chunks, add to hash
+for chunk in first_64kb:
+    value = struct.unpack("<Q", chunk)[0]
+    hash_value = (hash_value + value) & 0xFFFFFFFFFFFFFFFF
+
+# Read last 64KB in 8-byte chunks, add to hash  
+for chunk in last_64kb:
+    value = struct.unpack("<Q", chunk)[0]
+    hash_value = (hash_value + value) & 0xFFFFFFFFFFFFFFFF
+
+# Format as 16-char hex
+hash_string = f"{hash_value:016x}"
+```
+
+### 2. Add Hash Search to OpenSubtitles Client
+**File**: `downloader/opensubtitles_client.py`
+
+Add new method after existing `search_subtitles()`:
+```python
+async def search_subtitles_by_hash(
+    self,
+    movie_hash: str,
+    file_size: int,
+    languages: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Search for subtitles using file hash and size.
+    
+    Args:
+        movie_hash: 16-character OpenSubtitles hash
+        file_size: File size in bytes
+        languages: List of language codes
+        
+    Returns:
+        List of subtitle results
+    """
+```
+
+**Implementation**:
+- Use XML-RPC API with `moviehash` and `moviebytesize` parameters
+- Reuse existing `_search_subtitles_xmlrpc()` structure
+- Return same format as `search_subtitles()`
+
+### 3. Implement Search Fallback in Worker
+**File**: `downloader/worker.py`
+
+Update `process_message()` function (lines 37-177):
+
+**Current Flow**:
+```
+1. Parse message
+2. Extract metadata (video_title, imdb_id, language)
+3. Search by IMDB/query
+4. Download or fallback to translation
+```
+
+**New Flow**:
+```
+1. Parse message
+2. Extract metadata (video_url, video_title, imdb_id, language)
+3. Try to calculate file hash from video_url:
+   - Check if video_url is a local file path
+   - If local and accessible: calculate hash
+   - If remote URL or error: skip hash
+4. If hash available:
+   a. Search by hash first
+   b. If empty results → Search by IMDB/query
+5. If no hash:
+   - Search by IMDB/query (existing behavior)
+6. Download best result or trigger translation fallback
+```
+
+**Key Code Changes**:
+```python
+# After extracting metadata (line ~68)
+video_url = message_data.get("video_url")
+movie_hash = None
+file_size = None
+
+# Try to calculate hash if local file
+if video_url:
+    from pathlib import Path
+    from common.utils import FileHashUtils
+    
+    # Check if it's a local file path
+    try:
+        path = Path(video_url)
+        if path.exists() and path.is_file():
+            hash_result = FileHashUtils.calculate_opensubtitles_hash(str(path))
+            if hash_result:
+                movie_hash, file_size = hash_result
+                logger.info(f"📊 Calculated file hash: {movie_hash}")
+            else:
+                logger.debug(f"Could not calculate hash for: {video_url}")
+        else:
+            logger.debug(f"video_url is not a local file: {video_url}")
+    except Exception as e:
+        logger.debug(f"Error checking file path: {e}")
+
+# Try hash search first if available
+search_results = []
+if movie_hash:
+    logger.info(f"🔍 Searching by file hash: {movie_hash}")
+    search_results = await opensubtitles_client.search_subtitles_by_hash(
+        movie_hash=movie_hash,
+        file_size=file_size,
+        languages=[language] if language else None,
+    )
+    
+    if search_results:
+        logger.info(f"✅ Found {len(search_results)} subtitle(s) by hash")
+    else:
+        logger.info(f"⚠️  No results by hash, falling back to query search")
+
+# Fallback to query search if hash search returned no results
+if not search_results:
+    logger.info(f"🔍 Searching by metadata: title={video_title}, imdb_id={imdb_id}")
+    search_results = await opensubtitles_client.search_subtitles(
+        imdb_id=imdb_id,
+        query=video_title,
+        languages=[language] if language else None,
+    )
+
+# Continue with existing download logic...
+```
+
+## API Changes
+
+No public API changes - this is an internal improvement to the subtitle search logic.
+
+## Testing Strategy
+
+### Unit Tests Required
+
+**File**: `tests/common/test_file_hash.py` (New)
+- `test_calculate_opensubtitles_hash_success()` - Valid video file returns hash and size
+- `test_calculate_hash_file_not_found()` - Missing file returns None
+- `test_calculate_hash_file_too_small()` - File < 128KB returns None
+- `test_calculate_hash_permission_denied()` - Access error returns None
+- `test_hash_consistency()` - Same file produces same hash
+
+**File**: `tests/downloader/test_opensubtitles_client.py` (Update)
+- `test_search_subtitles_by_hash_found()` - Hash search returns results
+- `test_search_subtitles_by_hash_not_found()` - Empty results handled
+- `test_search_by_hash_xmlrpc()` - XML-RPC hash search works
+
+**File**: `tests/downloader/test_worker.py` (Update)
+- `test_process_message_hash_search_success()` - Hash finds subtitle, downloads it
+- `test_process_message_hash_empty_fallback_to_query()` - Hash → query fallback works
+- `test_process_message_remote_url_skips_hash()` - Remote URL uses query only
+- `test_process_message_hash_calculation_failure()` - Hash error, uses query
+- `test_process_message_local_file_not_accessible()` - File access error handled
+
+### Manual Testing Steps
+1. Create a test video file (any file > 128KB)
+2. Calculate its hash manually
+3. Start downloader worker
+4. Submit request with local file path
+5. Verify hash search is attempted in logs
+6. Verify fallback to query search if needed
+7. Test with remote URL to verify query-only path
+
+## Success Criteria
+
+### Functional Requirements
+- [x] Task documentation created (plan document)
+- [x] FileHashUtils class implements OpenSubtitles hash algorithm
+- [ ] Hash calculation works for local files > 128KB
+- [ ] Hash search method added to OpenSubtitlesClient
+- [ ] Worker attempts hash search first when file is local
+- [ ] Worker falls back to query search on empty hash results
+- [ ] Remote URLs skip hash calculation (no errors)
+- [ ] All existing functionality preserved
+
+### Non-Functional Requirements
+- [ ] All new unit tests pass
+- [ ] All existing tests still pass (no regressions)
+- [ ] Code coverage remains above 90%
+- [ ] Logging clearly shows hash/query search attempts
+- [ ] No performance degradation for remote URLs
+- [ ] Hash calculation completes in < 1 second for typical files
+
+### Acceptance Criteria
+- [ ] Code follows coding standards (descriptive names, utility functions)
+- [ ] Tests follow TDD approach
+- [ ] Error handling is comprehensive
+- [ ] Logs are clear and informative
+- [ ] No breaking changes to existing code
+
+## Security Considerations
+
+- File path validation to prevent directory traversal
+- Handle permission errors gracefully
+- No sensitive file content logged
+- Hash calculation doesn't expose file contents
+- Same security posture as existing code
+
+## Notes
+
+### OpenSubtitles Hash Algorithm Reference
+- Official docs: https://trac.opensubtitles.org/projects/opensubtitles/wiki/HashSourceCodes
+- Algorithm: Sum of 64-bit chunks from first/last 64KB + file size
+- Output: 16-character hexadecimal string
+- Minimum file size: 128KB (64KB * 2)
+
+### Implementation Notes
+- Hash calculation is CPU-bound but fast (~10ms for typical files)
+- Only first and last 64KB are read, not entire file
+- Hash is deterministic - same file always produces same hash
+- Hash only works for exact file matches (bit-for-bit identical)
+
+### Future Enhancements
+- Cache calculated hashes in Redis (keyed by file path + mtime)
+- Parallel hash calculation for multiple files
+- Support for streaming video files (HTTP range requests)
+- Hash-based duplicate detection
+
+## Related Tasks
+
+- **Previous**: CU-86ev9n261 - Implement connection to OpenSubtitles API
+- **Next**: TBD - Subtitle caching implementation
+- **Related**: Video file metadata extraction

@@ -1,8 +1,13 @@
 """Utility functions for common operations across the application."""
 
+import logging
+import struct
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict
+from pathlib import Path
+from typing import Dict, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class MathUtils:
@@ -160,3 +165,94 @@ class StatusProgressCalculator:
             SubtitleStatus.COMPLETED: 100,
             SubtitleStatus.FAILED: 0,
         }
+
+
+class FileHashUtils:
+    """File hashing utility functions for subtitle matching."""
+
+    @staticmethod
+    def calculate_opensubtitles_hash(file_path: str) -> Optional[Tuple[str, int]]:
+        """
+        Calculate OpenSubtitles hash for a video file.
+
+        The OpenSubtitles hash algorithm:
+        1. Read first 64KB of file
+        2. Read last 64KB of file
+        3. Sum all 64-bit chunks from both blocks with the file size
+        4. Return as 16-character hex string
+
+        Args:
+            file_path: Path to the video file
+
+        Returns:
+            Tuple of (hash_string, file_size) if successful, None if error
+
+        Note:
+            Returns None for files that cannot be accessed, are too small,
+            or encounter any errors during calculation.
+
+        Example:
+            >>> result = FileHashUtils.calculate_opensubtitles_hash("/path/to/video.mp4")
+            >>> if result:
+            ...     hash_str, file_size = result
+            ...     print(f"Hash: {hash_str}, Size: {file_size}")
+        """
+        try:
+            path = Path(file_path)
+
+            # Check if file exists and is accessible
+            if not path.exists() or not path.is_file():
+                logger.debug(f"File does not exist or is not a file: {file_path}")
+                return None
+
+            # Get file size
+            file_size = path.stat().st_size
+
+            # OpenSubtitles hash requires at least 128KB (64KB * 2)
+            if file_size < 65536 * 2:
+                logger.debug(
+                    f"File too small for OpenSubtitles hash (< 128KB): {file_path}"
+                )
+                return None
+
+            # Initialize hash with file size
+            hash_value = file_size
+
+            # Read and process first 64KB
+            with open(path, "rb") as f:
+                # Read first 64KB in 8-byte chunks
+                for _ in range(65536 // 8):
+                    chunk = f.read(8)
+                    if len(chunk) < 8:
+                        break
+                    (value,) = struct.unpack("<Q", chunk)
+                    hash_value = (hash_value + value) & 0xFFFFFFFFFFFFFFFF
+
+                # Seek to last 64KB
+                f.seek(max(0, file_size - 65536), 0)
+
+                # Read last 64KB in 8-byte chunks
+                for _ in range(65536 // 8):
+                    chunk = f.read(8)
+                    if len(chunk) < 8:
+                        break
+                    (value,) = struct.unpack("<Q", chunk)
+                    hash_value = (hash_value + value) & 0xFFFFFFFFFFFFFFFF
+
+            # Format as 16-character hex string (64-bit value)
+            hash_string = f"{hash_value:016x}"
+
+            logger.debug(
+                f"Calculated OpenSubtitles hash for {file_path}: {hash_string}"
+            )
+            return (hash_string, file_size)
+
+        except PermissionError:
+            logger.warning(f"Permission denied accessing file: {file_path}")
+            return None
+        except OSError as e:
+            logger.warning(f"OS error calculating hash for {file_path}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error calculating hash for {file_path}: {e}")
+            return None

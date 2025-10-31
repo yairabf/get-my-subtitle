@@ -182,6 +182,113 @@ class TestOpenSubtitlesDownload:
                 await client.download_subtitle(subtitle_id="123")
 
 
+class TestOpenSubtitlesHashSearch:
+    """Test OpenSubtitles hash-based subtitle search."""
+
+    @pytest.mark.asyncio
+    async def test_search_subtitles_by_hash_found(self):
+        """Test successful subtitle search using file hash."""
+        client = OpenSubtitlesClient()
+        client.token = "test-token"
+
+        mock_result = {
+            "status": "200 OK",
+            "data": [
+                {
+                    "IDSubtitleFile": "12345",
+                    "SubLanguageID": "eng",
+                    "MovieHash": "8e245d9679d31e12",
+                    "MovieByteSize": "735934464",
+                }
+            ],
+        }
+
+        with patch.object(client, "_xmlrpc_search", return_value=mock_result):
+            results = await client.search_subtitles_by_hash(
+                movie_hash="8e245d9679d31e12",
+                file_size=735934464,
+                languages=["en"],
+            )
+
+            assert len(results) == 1
+            assert results[0]["IDSubtitleFile"] == "12345"
+            assert results[0]["MovieHash"] == "8e245d9679d31e12"
+
+    @pytest.mark.asyncio
+    async def test_search_subtitles_by_hash_not_found(self):
+        """Test hash search returns empty when nothing found."""
+        client = OpenSubtitlesClient()
+        client.token = "test-token"
+
+        mock_result = {
+            "status": "200 OK",
+            "data": [],
+        }
+
+        with patch.object(client, "_xmlrpc_search", return_value=mock_result):
+            results = await client.search_subtitles_by_hash(
+                movie_hash="0000000000000000",
+                file_size=12345,
+            )
+
+            assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_search_by_hash_not_authenticated(self):
+        """Test hash search fails when not authenticated."""
+        client = OpenSubtitlesClient()
+        client.token = None
+
+        with pytest.raises(OpenSubtitlesAPIError, match="Not authenticated"):
+            await client.search_subtitles_by_hash(
+                movie_hash="8e245d9679d31e12",
+                file_size=735934464,
+            )
+
+    @pytest.mark.asyncio
+    async def test_search_by_hash_xmlrpc_error(self):
+        """Test handling of XML-RPC hash search errors."""
+        client = OpenSubtitlesClient()
+        client.token = "test-token"
+
+        mock_result = {
+            "status": "500 Internal Server Error",
+            "data": [],
+        }
+
+        with patch.object(client, "_xmlrpc_search", return_value=mock_result):
+            with pytest.raises(
+                OpenSubtitlesAPIError, match="XML-RPC hash search failed"
+            ):
+                await client.search_subtitles_by_hash(
+                    movie_hash="8e245d9679d31e12",
+                    file_size=735934464,
+                )
+
+    @pytest.mark.asyncio
+    async def test_search_by_hash_with_multiple_languages(self):
+        """Test hash search with multiple languages."""
+        client = OpenSubtitlesClient()
+        client.token = "test-token"
+
+        mock_result = {
+            "status": "200 OK",
+            "data": [
+                {"IDSubtitleFile": "111", "SubLanguageID": "eng"},
+                {"IDSubtitleFile": "222", "SubLanguageID": "heb"},
+            ],
+        }
+
+        with patch.object(client, "_xmlrpc_search", return_value=mock_result):
+            results = await client.search_subtitles_by_hash(
+                movie_hash="8e245d9679d31e12",
+                file_size=735934464,
+                languages=["en", "he"],
+            )
+
+            assert len(results) == 2
+
+
 class TestOpenSubtitlesClientLifecycle:
     """Test client connection lifecycle."""
 

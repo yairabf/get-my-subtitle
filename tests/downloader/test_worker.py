@@ -283,6 +283,260 @@ class TestDownloaderWorker:
                 assert event_call.event_type == EventType.JOB_FAILED
 
 
+class TestWorkerHashSearchFallback:
+    """Test worker hash search with query fallback logic."""
+
+    @pytest.mark.asyncio
+    async def test_process_message_hash_search_success(self):
+        """Test successful subtitle search using file hash."""
+        request_id = uuid4()
+
+        # Create a temporary video file
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+            tmp_file.write(b"A" * (256 * 1024))  # 256KB file
+            video_path = tmp_file.name
+
+        try:
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "video_url": video_path,  # Local file path
+                    "video_title": "Test Video",
+                    "language": "en",
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
+
+            mock_search_results = [{"IDSubtitleFile": "123"}]
+
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
+
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
+                    # Hash search succeeds
+                    mock_client.search_subtitles_by_hash = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.download_subtitle = AsyncMock(
+                        return_value=Path("/tmp/subtitle.srt")
+                    )
+
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
+
+                        await process_message(mock_message)
+
+                        # Verify hash search was called
+                        mock_client.search_subtitles_by_hash.assert_called_once()
+                        # Verify query search was NOT called (hash succeeded)
+                        mock_client.search_subtitles.assert_not_called()
+                        # Verify subtitle was downloaded
+                        mock_client.download_subtitle.assert_called_once()
+
+        finally:
+            Path(video_path).unlink()
+
+    @pytest.mark.asyncio
+    async def test_process_message_hash_empty_fallback_to_query(self):
+        """Test fallback to query search when hash returns empty results."""
+        request_id = uuid4()
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+            tmp_file.write(b"B" * (256 * 1024))
+            video_path = tmp_file.name
+
+        try:
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "video_url": video_path,
+                    "video_title": "Obscure Movie",
+                    "imdb_id": "tt9999999",
+                    "language": "en",
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
+
+            mock_query_results = [{"IDSubtitleFile": "456"}]
+
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
+
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
+                    # Hash search returns empty
+                    mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
+                    # Query search succeeds
+                    mock_client.search_subtitles = AsyncMock(
+                        return_value=mock_query_results
+                    )
+                    mock_client.download_subtitle = AsyncMock(
+                        return_value=Path("/tmp/subtitle.srt")
+                    )
+
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
+
+                        await process_message(mock_message)
+
+                        # Verify hash search was tried first
+                        mock_client.search_subtitles_by_hash.assert_called_once()
+                        # Verify fallback to query search
+                        mock_client.search_subtitles.assert_called_once_with(
+                            imdb_id="tt9999999",
+                            query="Obscure Movie",
+                            languages=["en"],
+                        )
+                        # Verify subtitle was downloaded
+                        mock_client.download_subtitle.assert_called_once()
+
+        finally:
+            Path(video_path).unlink()
+
+    @pytest.mark.asyncio
+    async def test_process_message_remote_url_skips_hash(self):
+        """Test remote URL skips hash calculation and uses query search."""
+        request_id = uuid4()
+
+        mock_message = MagicMock()
+        mock_message.body = json.dumps(
+            {
+                "request_id": str(request_id),
+                "video_url": "https://example.com/video.mp4",  # Remote URL
+                "video_title": "Remote Video",
+                "language": "en",
+            }
+        ).encode()
+        mock_message.routing_key = "subtitle.download"
+        mock_message.exchange = ""
+        mock_message.message_id = "test-message-id"
+        mock_message.timestamp = None
+
+        mock_search_results = [{"IDSubtitleFile": "789"}]
+
+        with patch("downloader.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+
+            with patch("downloader.worker.opensubtitles_client") as mock_client:
+                # Query search succeeds
+                mock_client.search_subtitles = AsyncMock(
+                    return_value=mock_search_results
+                )
+                mock_client.download_subtitle = AsyncMock(
+                    return_value=Path("/tmp/subtitle.srt")
+                )
+
+                with patch("downloader.worker.event_publisher") as mock_publisher:
+                    mock_publisher.publish_event = AsyncMock()
+
+                    await process_message(mock_message)
+
+                    # Verify hash search was NOT called (remote URL)
+                    mock_client.search_subtitles_by_hash.assert_not_called()
+                    # Verify query search was called
+                    mock_client.search_subtitles.assert_called_once()
+                    # Verify subtitle was downloaded
+                    mock_client.download_subtitle.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_message_hash_calculation_failure(self):
+        """Test graceful handling when hash calculation fails."""
+        request_id = uuid4()
+
+        mock_message = MagicMock()
+        mock_message.body = json.dumps(
+            {
+                "request_id": str(request_id),
+                "video_url": "/nonexistent/file.mp4",  # File doesn't exist
+                "video_title": "Test Video",
+                "language": "en",
+            }
+        ).encode()
+        mock_message.routing_key = "subtitle.download"
+        mock_message.exchange = ""
+        mock_message.message_id = "test-message-id"
+        mock_message.timestamp = None
+
+        mock_search_results = [{"IDSubtitleFile": "999"}]
+
+        with patch("downloader.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+
+            with patch("downloader.worker.opensubtitles_client") as mock_client:
+                # Query search succeeds
+                mock_client.search_subtitles = AsyncMock(
+                    return_value=mock_search_results
+                )
+                mock_client.download_subtitle = AsyncMock(
+                    return_value=Path("/tmp/subtitle.srt")
+                )
+
+                with patch("downloader.worker.event_publisher") as mock_publisher:
+                    mock_publisher.publish_event = AsyncMock()
+
+                    await process_message(mock_message)
+
+                    # Hash calculation fails, should skip to query search
+                    mock_client.search_subtitles_by_hash.assert_not_called()
+                    mock_client.search_subtitles.assert_called_once()
+                    mock_client.download_subtitle.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_message_local_file_not_accessible(self):
+        """Test handling when local file path exists but is not a file."""
+        request_id = uuid4()
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "video_url": tmp_dir,  # Directory, not a file
+                    "video_title": "Test Video",
+                    "language": "en",
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
+
+            mock_search_results = [{"IDSubtitleFile": "111"}]
+
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
+
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
+                    mock_client.search_subtitles = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.download_subtitle = AsyncMock(
+                        return_value=Path("/tmp/subtitle.srt")
+                    )
+
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
+
+                        await process_message(mock_message)
+
+                        # Should skip hash and use query search
+                        mock_client.search_subtitles_by_hash.assert_not_called()
+                        mock_client.search_subtitles.assert_called_once()
+
+
 class TestWorkerIntegration:
     """Test worker integration with OpenSubtitles API."""
 
