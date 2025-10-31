@@ -14,6 +14,7 @@ from aio_pika.abc import AbstractIncomingMessage
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from common.config import settings
 from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
@@ -163,29 +164,53 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                         f"✅ Subtitle downloaded! Published SUBTITLE_READY event for job {request_id}"
                     )
             else:
-                # Subtitle not found - need translation fallback
-                logger.warning(
-                    f"⚠️  No subtitle found for job {request_id}, requesting translation"
-                )
+                # Subtitle not found - check if translation is enabled
+                logger.warning(f"⚠️  No subtitle found for job {request_id}")
 
                 if request_id:
-                    event = SubtitleEvent(
-                        event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
-                        job_id=request_id,
-                        timestamp=DateTimeUtils.get_current_utc_datetime(),
-                        source="downloader",
-                        payload={
-                            "subtitle_file_path": f"/subtitles/fallback_{request_id}.en.srt",
-                            "source_language": "en",
-                            "target_language": language,
-                            "reason": "subtitle_not_found",
-                        },
-                    )
-                    await event_publisher.publish_event(event)
-
-                    logger.info(
-                        f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}"
-                    )
+                    # Check if auto-translate is enabled
+                    if settings.jellyfin_auto_translate:
+                        # Translation enabled - request fallback translation
+                        logger.info(
+                            f"📤 Translation enabled, requesting translation for job {request_id}"
+                        )
+                        event = SubtitleEvent(
+                            event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
+                            job_id=request_id,
+                            timestamp=DateTimeUtils.get_current_utc_datetime(),
+                            source="downloader",
+                            payload={
+                                "subtitle_file_path": f"/subtitles/fallback_{request_id}.en.srt",
+                                "source_language": "en",
+                                "target_language": language,
+                                "reason": "subtitle_not_found",
+                            },
+                        )
+                        await event_publisher.publish_event(event)
+                        logger.info(
+                            f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}"
+                        )
+                    else:
+                        # Translation disabled - publish SUBTITLE_MISSING
+                        logger.warning(
+                            f"❌ Translation disabled, publishing SUBTITLE_MISSING for job {request_id}"
+                        )
+                        event = SubtitleEvent(
+                            event_type=EventType.SUBTITLE_MISSING,
+                            job_id=request_id,
+                            timestamp=DateTimeUtils.get_current_utc_datetime(),
+                            source="downloader",
+                            payload={
+                                "language": language,
+                                "reason": "subtitle_not_found_no_translation",
+                                "video_url": video_url,
+                                "video_title": video_title,
+                            },
+                        )
+                        await event_publisher.publish_event(event)
+                        logger.info(
+                            f"📤 Published SUBTITLE_MISSING event for job {request_id}"
+                        )
 
         except OpenSubtitlesRateLimitError as e:
             logger.error(f"⚠️  Rate limit exceeded: {e}")

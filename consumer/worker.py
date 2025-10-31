@@ -219,6 +219,41 @@ class EventConsumer:
                 f"❌ Error handling TRANSLATE_REQUESTED for job {event.job_id}: {e}"
             )
 
+    async def handle_subtitle_missing(self, event: SubtitleEvent) -> None:
+        """
+        Handle subtitle.missing event.
+
+        Updates job status to SUBTITLE_MISSING (terminal state) when subtitles
+        cannot be found and translation is not available.
+
+        Args:
+            event: SubtitleEvent containing subtitle missing information
+        """
+        logger.info(f"📥 Handling SUBTITLE_MISSING for job {event.job_id}")
+
+        try:
+            # Update job status to SUBTITLE_MISSING
+            await redis_client.update_phase(
+                event.job_id,
+                SubtitleStatus.SUBTITLE_MISSING,
+                source="consumer",
+                metadata=event.payload,
+            )
+
+            # Record event in history
+            await redis_client.record_event(
+                event.job_id, event.event_type.value, event.payload, source="consumer"
+            )
+
+            logger.info(
+                f"✅ Successfully processed SUBTITLE_MISSING for job {event.job_id}"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"❌ Error handling SUBTITLE_MISSING for job {event.job_id}: {e}"
+            )
+
     async def process_event(self, message: AbstractIncomingMessage) -> None:
         """
         Process a single event message from the queue.
@@ -241,6 +276,8 @@ class EventConsumer:
             # Route to appropriate handler based on event type
             if event.event_type == EventType.SUBTITLE_READY:
                 await self.handle_subtitle_ready(event)
+            elif event.event_type == EventType.SUBTITLE_MISSING:
+                await self.handle_subtitle_missing(event)
             elif event.event_type == EventType.SUBTITLE_TRANSLATED:
                 await self.handle_subtitle_translated(event)
             elif event.event_type == EventType.JOB_FAILED:

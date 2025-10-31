@@ -20,6 +20,7 @@ class SubtitleStatus(str, Enum):
     TRANSLATE_IN_PROGRESS = "translate_in_progress"
     DONE = "done"
     FAILED = "failed"
+    SUBTITLE_MISSING = "subtitle_missing"
     # Legacy statuses for backward compatibility
     DOWNLOADING = "downloading"
     TRANSLATING = "translating"
@@ -31,6 +32,7 @@ class EventType(str, Enum):
 
     SUBTITLE_DOWNLOAD_REQUESTED = "subtitle.download.requested"
     SUBTITLE_READY = "subtitle.ready"
+    SUBTITLE_MISSING = "subtitle.missing"
     SUBTITLE_TRANSLATE_REQUESTED = "subtitle.translate.requested"
     SUBTITLE_TRANSLATED = "subtitle.translated"
     JOB_FAILED = "job.failed"
