@@ -10,8 +10,13 @@ from aio_pika import ExchangeType
 from aio_pika.abc import AbstractChannel
 
 from common.event_publisher import EventPublisher
-from common.schemas import (DownloadTask, EventType, SubtitleEvent,
-                            SubtitleRequest, TranslationTask)
+from common.schemas import (
+    DownloadTask,
+    EventType,
+    SubtitleEvent,
+    SubtitleRequest,
+    TranslationTask,
+)
 from common.utils import DateTimeUtils
 from manager.orchestrator import SubtitleOrchestrator
 

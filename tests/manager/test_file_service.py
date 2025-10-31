@@ -7,9 +7,12 @@ from uuid import uuid4
 
 import pytest
 
-from manager.file_service import (ensure_storage_directory,
-                                  get_subtitle_file_path, read_subtitle_file,
-                                  save_subtitle_file)
+from manager.file_service import (
+    ensure_storage_directory,
+    get_subtitle_file_path,
+    read_subtitle_file,
+    save_subtitle_file,
+)
 
 
 @pytest.fixture

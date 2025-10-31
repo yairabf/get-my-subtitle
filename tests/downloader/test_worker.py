@@ -194,8 +194,7 @@ class TestDownloaderWorker:
 
             with patch("downloader.worker.opensubtitles_client") as mock_client:
                 # Simulate API error
-                from downloader.opensubtitles_client import \
-                    OpenSubtitlesAPIError
+                from downloader.opensubtitles_client import OpenSubtitlesAPIError
 
                 mock_client.search_subtitles = AsyncMock(
                     side_effect=OpenSubtitlesAPIError("API error")
@@ -237,8 +236,7 @@ class TestDownloaderWorker:
 
             with patch("downloader.worker.opensubtitles_client") as mock_client:
                 # Simulate rate limit error
-                from downloader.opensubtitles_client import \
-                    OpenSubtitlesRateLimitError
+                from downloader.opensubtitles_client import OpenSubtitlesRateLimitError
 
                 mock_client.search_subtitles = AsyncMock(
                     side_effect=OpenSubtitlesRateLimitError("Rate limit exceeded")

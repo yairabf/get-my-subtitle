@@ -14,10 +14,16 @@ from common.redis_client import redis_client
 from common.schemas import SubtitleStatus
 from common.utils import StatusProgressCalculator
 from manager.orchestrator import orchestrator
-from manager.schemas import (HealthResponse, JellyfinWebhookPayload,
-                             QueueStatusResponse, SubtitleRequestCreate,
-                             SubtitleResponse, SubtitleStatusResponse,
-                             SubtitleTranslateRequest, WebhookAcknowledgement)
+from manager.schemas import (
+    HealthResponse,
+    JellyfinWebhookPayload,
+    QueueStatusResponse,
+    SubtitleRequestCreate,
+    SubtitleResponse,
+    SubtitleStatusResponse,
+    SubtitleTranslateRequest,
+    WebhookAcknowledgement,
+)
 
 # Configure logging
 service_logger = setup_service_logging("manager", enable_file_logging=True)

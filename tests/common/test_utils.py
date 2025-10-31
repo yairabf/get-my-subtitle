@@ -5,8 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from common.schemas import SubtitleStatus
-from common.utils import (DateTimeUtils, MathUtils, StatusProgressCalculator,
-                          StringUtils)
+from common.utils import DateTimeUtils, MathUtils, StatusProgressCalculator, StringUtils
 
 
 class TestMathUtils:
