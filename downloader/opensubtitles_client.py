@@ -144,6 +144,33 @@ class OpenSubtitlesClient:
 
         return await self._search_subtitles_xmlrpc(imdb_id, query, languages)
 
+    async def search_subtitles_by_hash(
+        self,
+        movie_hash: str,
+        file_size: int,
+        languages: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for subtitles using file hash and size.
+
+        Args:
+            movie_hash: 16-character OpenSubtitles hash
+            file_size: File size in bytes
+            languages: List of language codes (e.g., ['en', 'he'])
+
+        Returns:
+            List of subtitle results
+
+        Raises:
+            OpenSubtitlesAPIError: If search fails
+        """
+        if not self.token:
+            raise OpenSubtitlesAPIError("Not authenticated")
+
+        return await self._search_subtitles_by_hash_xmlrpc(
+            movie_hash, file_size, languages
+        )
+
     async def _search_subtitles_xmlrpc(
         self,
         imdb_id: Optional[str] = None,
@@ -188,6 +215,42 @@ class OpenSubtitlesClient:
             self.xmlrpc_client = ServerProxy("https://api.opensubtitles.org/xml-rpc")
 
         return self.xmlrpc_client.SearchSubtitles(self.token, search_criteria)
+
+    async def _search_subtitles_by_hash_xmlrpc(
+        self,
+        movie_hash: str,
+        file_size: int,
+        languages: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search subtitles by hash using XML-RPC API."""
+        search_criteria = [
+            {
+                "moviehash": movie_hash,
+                "moviebytesize": str(file_size),
+            }
+        ]
+
+        if languages:
+            for criteria in search_criteria:
+                criteria["sublanguageid"] = ",".join(languages)
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self._xmlrpc_search,
+                search_criteria,
+            )
+
+            if result.get("status") != "200 OK":
+                raise OpenSubtitlesAPIError(
+                    f"XML-RPC hash search failed: {result.get('status')}"
+                )
+
+            return result.get("data", [])
+
+        except Exception as e:
+            raise OpenSubtitlesAPIError(f"XML-RPC hash search error: {e}") from e
 
     async def download_subtitle(
         self,

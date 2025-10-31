@@ -63,21 +63,74 @@ async def process_message(message: AbstractIncomingMessage) -> None:
             )
 
         # Extract video metadata for subtitle search
+        video_url = message_data.get("video_url")
         video_title = message_data.get("video_title")
         imdb_id = message_data.get("imdb_id")
         language = message_data.get("language", "en")
 
         logger.info(
-            f"🔍 Searching for subtitles: title={video_title}, imdb_id={imdb_id}, language={language}"
+            f"🔍 Searching for subtitles: url={video_url}, title={video_title}, imdb_id={imdb_id}, language={language}"
         )
 
+        # Try to calculate file hash if video_url is a local file
+        movie_hash = None
+        file_size = None
+
+        if video_url:
+            from common.utils import FileHashUtils
+
+            try:
+                video_path = Path(video_url)
+                if video_path.exists() and video_path.is_file():
+                    logger.info(f"📁 Local file detected, calculating hash...")
+                    hash_result = FileHashUtils.calculate_opensubtitles_hash(
+                        str(video_path)
+                    )
+                    if hash_result:
+                        movie_hash, file_size = hash_result
+                        logger.info(
+                            f"📊 Calculated file hash: {movie_hash} (size: {file_size} bytes)"
+                        )
+                    else:
+                        logger.debug(f"Could not calculate hash for: {video_url}")
+                else:
+                    logger.debug(
+                        f"video_url is not a local file, skipping hash: {video_url}"
+                    )
+            except Exception as e:
+                logger.debug(f"Error checking/hashing file path: {e}")
+
         try:
-            # Search for subtitles on OpenSubtitles
-            search_results = await opensubtitles_client.search_subtitles(
-                imdb_id=imdb_id,
-                query=video_title,
-                languages=[language] if language else None,
-            )
+            # Try hash-based search first if available
+            search_results = []
+
+            if movie_hash:
+                logger.info(f"🔍 Searching by file hash: {movie_hash}")
+                search_results = await opensubtitles_client.search_subtitles_by_hash(
+                    movie_hash=movie_hash,
+                    file_size=file_size,
+                    languages=[language] if language else None,
+                )
+
+                if search_results:
+                    logger.info(
+                        f"✅ Found {len(search_results)} subtitle(s) by hash search"
+                    )
+                else:
+                    logger.info(
+                        f"⚠️  No results by hash, falling back to query search"
+                    )
+
+            # Fallback to query search if hash search returned no results
+            if not search_results:
+                logger.info(
+                    f"🔍 Searching by metadata: title={video_title}, imdb_id={imdb_id}"
+                )
+                search_results = await opensubtitles_client.search_subtitles(
+                    imdb_id=imdb_id,
+                    query=video_title,
+                    languages=[language] if language else None,
+                )
 
             if search_results:
                 # Subtitle found - download it
