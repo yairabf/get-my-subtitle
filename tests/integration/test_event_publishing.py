@@ -90,9 +90,7 @@ class TestTopicExchangePublishing:
         assert message.routing_key == "subtitle.download.requested"
         await message.ack()
 
-    async def test_event_message_format(
-        self, test_event_publisher, rabbitmq_channel
-    ):
+    async def test_event_message_format(self, test_event_publisher, rabbitmq_channel):
         """Test that event messages contain valid SubtitleEvent schema."""
         # Arrange
         job_id = uuid4()
@@ -138,9 +136,7 @@ class TestTopicExchangePublishing:
 
         await message.ack()
 
-    async def test_event_persistence(
-        self, test_event_publisher, rabbitmq_channel
-    ):
+    async def test_event_persistence(self, test_event_publisher, rabbitmq_channel):
         """Test that event messages use persistent delivery mode."""
         # Arrange
         job_id = uuid4()
@@ -240,7 +236,9 @@ class TestEventSubscription:
         job_id = uuid4()
 
         # Create queue bound to specific routing key
-        queue = await rabbitmq_channel.declare_queue("test_consumer_queue", exclusive=True)
+        queue = await rabbitmq_channel.declare_queue(
+            "test_consumer_queue", exclusive=True
+        )
         # Use the exchange name directly instead of redeclaring
         await queue.bind("subtitle.events", routing_key="subtitle.ready")
 
@@ -288,7 +286,9 @@ class TestEventSubscription:
         job_id = uuid4()
 
         # Create queue with wildcard pattern
-        queue = await rabbitmq_channel.declare_queue("test_wildcard_queue", exclusive=True)
+        queue = await rabbitmq_channel.declare_queue(
+            "test_wildcard_queue", exclusive=True
+        )
         # Bind with pattern that matches subtitle.ready and subtitle.translated
         await queue.bind("subtitle.events", routing_key="subtitle.*")
 
@@ -487,4 +487,3 @@ class TestEventPublisherConnectionHandling:
 
         # Assert - Should return True (mock mode)
         assert result is True
-

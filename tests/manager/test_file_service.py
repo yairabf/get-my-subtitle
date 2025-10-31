@@ -234,4 +234,3 @@ class TestReadSubtitleFile:
         # Don't save any file
         with pytest.raises(FileNotFoundError):
             read_subtitle_file(job_id, language)
-

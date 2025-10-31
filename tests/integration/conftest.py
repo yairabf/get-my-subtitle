@@ -38,9 +38,9 @@ def rabbitmq_container():
         capture_output=True,
         text=True,
     )
-    
+
     rabbitmq_already_running = "rabbitmq" in result.stdout
-    
+
     if not rabbitmq_already_running:
         # Start RabbitMQ using docker-compose
         subprocess.run(
@@ -48,7 +48,7 @@ def rabbitmq_container():
             check=True,
             cwd="/Users/yairabramovitch/Documents/workspace/get-my-subtitle",
         )
-        
+
         # Wait for RabbitMQ to be ready
         max_retries = 30
         for i in range(max_retries):
@@ -69,20 +69,20 @@ def rabbitmq_container():
                     break
             except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
                 pass
-            
+
             if i < max_retries - 1:
                 time.sleep(1)
         else:
             raise RuntimeError("RabbitMQ failed to start within timeout")
     else:
         print("\n✓ RabbitMQ already running")
-    
+
     yield {
         "host": "localhost",
         "port": 5672,
         "url": "amqp://guest:guest@localhost:5672/",
     }
-    
+
     # Cleanup: Only stop if we started it
     if not rabbitmq_already_running:
         subprocess.run(
@@ -115,7 +115,7 @@ async def rabbitmq_channel(
 async def clean_queues(rabbitmq_channel):
     """Clean all test queues before and after tests."""
     queue_names = ["subtitle.download", "subtitle.translation"]
-    
+
     # Purge queues before test
     for queue_name in queue_names:
         try:
@@ -123,9 +123,9 @@ async def clean_queues(rabbitmq_channel):
             await queue.purge()
         except Exception:
             pass  # Queue might not exist yet
-    
+
     yield
-    
+
     # Purge queues after test
     for queue_name in queue_names:
         try:
@@ -139,15 +139,15 @@ async def clean_queues(rabbitmq_channel):
 async def clean_exchange(rabbitmq_channel):
     """Clean test exchange before and after tests."""
     exchange_name = "subtitle.events"
-    
+
     # Delete and recreate exchange before test
     try:
         await rabbitmq_channel.exchange_delete(exchange_name)
     except Exception:
         pass  # Exchange might not exist
-    
+
     yield
-    
+
     # Delete exchange after test
     try:
         await rabbitmq_channel.exchange_delete(exchange_name)
@@ -159,16 +159,13 @@ async def clean_exchange(rabbitmq_channel):
 async def fake_redis_client():
     """
     Fake Redis client using fakeredis for realistic behavior in integration tests.
-    
+
     This provides a real Redis-like interface without requiring a separate Redis server,
     making integration tests more realistic while still being isolated.
     """
     import fakeredis.aioredis
-    
-    fake_redis = fakeredis.aioredis.FakeRedis(
-        decode_responses=True,
-        encoding="utf-8"
-    )
+
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True, encoding="utf-8")
     yield fake_redis
     await fake_redis.flushall()
     await fake_redis.aclose()
@@ -178,12 +175,12 @@ async def fake_redis_client():
 async def fake_redis_job_client(fake_redis_client):
     """
     RedisJobClient instance using fakeredis for integration testing.
-    
+
     This provides realistic Redis behavior for integration tests without
     requiring a real Redis instance, allowing tests to focus on RabbitMQ integration.
     """
     from common.redis_client import RedisJobClient
-    
+
     client = RedisJobClient()
     # Replace the client's Redis connection with our fake one
     client.client = fake_redis_client
@@ -198,7 +195,7 @@ async def fake_redis_job_client(fake_redis_client):
 def mock_redis_client():
     """
     Simple mock Redis client for backward compatibility.
-    
+
     Use fake_redis_job_client for more realistic testing.
     """
     mock_redis = AsyncMock()
@@ -212,23 +209,21 @@ def mock_redis_client():
 
 
 @pytest_asyncio.fixture
-async def test_orchestrator(
-    rabbitmq_container, clean_queues, fake_redis_job_client
-):
+async def test_orchestrator(rabbitmq_container, clean_queues, fake_redis_job_client):
     """
     Create SubtitleOrchestrator instance for testing with realistic Redis behavior.
-    
+
     Uses fakeredis for more realistic Redis behavior while keeping RabbitMQ integration focus.
     """
     orchestrator = SubtitleOrchestrator()
-    
+
     # Patch Redis client with fakeredis for realistic behavior
     with patch("manager.orchestrator.redis_client", fake_redis_job_client):
         # Connect to RabbitMQ
         await orchestrator.connect()
-        
+
         yield orchestrator
-        
+
         # Disconnect
         await orchestrator.disconnect()
 
@@ -239,34 +234,31 @@ async def test_orchestrator_with_mock_redis(
 ):
     """
     Create SubtitleOrchestrator instance with simple mock Redis (backward compatibility).
-    
+
     Use test_orchestrator for more realistic testing.
     """
     orchestrator = SubtitleOrchestrator()
-    
+
     # Patch Redis client with simple mock
     with patch("manager.orchestrator.redis_client", mock_redis_client):
         # Connect to RabbitMQ
         await orchestrator.connect()
-        
+
         yield orchestrator
-        
+
         # Disconnect
         await orchestrator.disconnect()
 
 
 @pytest_asyncio.fixture
-async def test_event_publisher(
-    rabbitmq_container, clean_exchange
-):
+async def test_event_publisher(rabbitmq_container, clean_exchange):
     """Create EventPublisher instance for testing."""
     publisher = EventPublisher()
-    
+
     # Connect to RabbitMQ (using env var set at module level)
     await publisher.connect()
-    
+
     yield publisher
-    
+
     # Disconnect
     await publisher.disconnect()
-

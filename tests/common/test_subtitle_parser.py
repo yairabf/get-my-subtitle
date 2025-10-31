@@ -2,10 +2,14 @@
 
 import pytest
 
-from common.subtitle_parser import (DEFAULT_MAX_SEGMENTS_PER_CHUNK, SRTParser,
-                                    SubtitleSegment, chunk_segments,
-                                    extract_text_for_translation,
-                                    merge_translations)
+from common.subtitle_parser import (
+    DEFAULT_MAX_SEGMENTS_PER_CHUNK,
+    SRTParser,
+    SubtitleSegment,
+    chunk_segments,
+    extract_text_for_translation,
+    merge_translations,
+)
 
 
 class TestSubtitleSegment:

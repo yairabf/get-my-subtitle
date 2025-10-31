@@ -26,14 +26,11 @@ def event_loop():
 async def fake_redis_client():
     """
     Fake Redis client using fakeredis for realistic Redis behavior.
-    
+
     This provides a real Redis-like interface without requiring a Redis server.
     Perfect for unit tests that need Redis functionality without Docker.
     """
-    fake_redis = fakeredis.aioredis.FakeRedis(
-        decode_responses=True,
-        encoding="utf-8"
-    )
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True, encoding="utf-8")
     yield fake_redis
     await fake_redis.flushall()
     await fake_redis.aclose()
@@ -43,7 +40,7 @@ async def fake_redis_client():
 async def fake_redis_job_client(fake_redis_client):
     """
     RedisJobClient instance using fakeredis for testing.
-    
+
     This provides a fully functional RedisJobClient with realistic Redis behavior
     for unit testing without external dependencies.
     """
@@ -94,23 +91,23 @@ def mock_rabbitmq_connection():
 def mock_rabbitmq_channel():
     """Mock RabbitMQ channel for testing."""
     mock_channel = AsyncMock(spec=aio_pika.abc.AbstractChannel)
-    
+
     # Mock queue declaration
     mock_queue = AsyncMock(spec=aio_pika.abc.AbstractQueue)
     mock_queue.declaration_result = MagicMock()
     mock_queue.declaration_result.message_count = 0
     mock_channel.declare_queue = AsyncMock(return_value=mock_queue)
-    
+
     # Mock exchange declaration
     mock_exchange = AsyncMock(spec=aio_pika.abc.AbstractExchange)
     mock_exchange.publish = AsyncMock()
     mock_channel.declare_exchange = AsyncMock(return_value=mock_exchange)
-    
+
     # Mock default exchange
     mock_channel.default_exchange = mock_exchange
-    
+
     mock_channel.close = AsyncMock()
-    
+
     return mock_channel
 
 

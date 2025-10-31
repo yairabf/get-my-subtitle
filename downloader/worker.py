@@ -20,9 +20,9 @@ from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus
 from common.utils import DateTimeUtils
 from downloader.opensubtitles_client import (
-    OpenSubtitlesClient,
     OpenSubtitlesAPIError,
     OpenSubtitlesAuthenticationError,
+    OpenSubtitlesClient,
     OpenSubtitlesRateLimitError,
 )
 
@@ -66,9 +66,11 @@ async def process_message(message: AbstractIncomingMessage) -> None:
         video_title = message_data.get("video_title")
         imdb_id = message_data.get("imdb_id")
         language = message_data.get("language", "en")
-        
-        logger.info(f"🔍 Searching for subtitles: title={video_title}, imdb_id={imdb_id}, language={language}")
-        
+
+        logger.info(
+            f"🔍 Searching for subtitles: title={video_title}, imdb_id={imdb_id}, language={language}"
+        )
+
         try:
             # Search for subtitles on OpenSubtitles
             search_results = await opensubtitles_client.search_subtitles(
@@ -76,20 +78,20 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                 query=video_title,
                 languages=[language] if language else None,
             )
-            
+
             if search_results:
                 # Subtitle found - download it
                 logger.info(f"✅ Found {len(search_results)} subtitle(s)")
                 best_result = search_results[0]
-                
+
                 # Get subtitle ID from XML-RPC result
                 subtitle_id = best_result.get("IDSubtitleFile")
-                
+
                 # Download subtitle
                 subtitle_path = await opensubtitles_client.download_subtitle(
                     subtitle_id=str(subtitle_id),
                 )
-                
+
                 if request_id:
                     # Subtitle downloaded successfully - publish SUBTITLE_READY event
                     event = SubtitleEvent(
@@ -105,12 +107,16 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                         },
                     )
                     await event_publisher.publish_event(event)
-                    
-                    logger.info(f"✅ Subtitle downloaded! Published SUBTITLE_READY event for job {request_id}")
+
+                    logger.info(
+                        f"✅ Subtitle downloaded! Published SUBTITLE_READY event for job {request_id}"
+                    )
             else:
                 # Subtitle not found - need translation fallback
-                logger.warning(f"⚠️  No subtitle found for job {request_id}, requesting translation")
-                
+                logger.warning(
+                    f"⚠️  No subtitle found for job {request_id}, requesting translation"
+                )
+
                 if request_id:
                     event = SubtitleEvent(
                         event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
@@ -125,9 +131,11 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                         },
                     )
                     await event_publisher.publish_event(event)
-                    
-                    logger.info(f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}")
-        
+
+                    logger.info(
+                        f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}"
+                    )
+
         except OpenSubtitlesRateLimitError as e:
             logger.error(f"⚠️  Rate limit exceeded: {e}")
             if request_id:
@@ -142,11 +150,11 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                     },
                 )
                 await event_publisher.publish_event(event)
-        
+
         except (OpenSubtitlesAPIError, OpenSubtitlesAuthenticationError) as e:
             logger.error(f"❌ OpenSubtitles API error: {e}")
             logger.warning(f"⚠️  Falling back to translation for job {request_id}")
-            
+
             if request_id:
                 # Fallback to translation on API errors
                 event = SubtitleEvent(
@@ -162,8 +170,10 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                     },
                 )
                 await event_publisher.publish_event(event)
-                
-                logger.info(f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}")
+
+                logger.info(
+                    f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}"
+                )
 
         logger.info("✅ Message processed successfully!")
 
@@ -206,7 +216,7 @@ async def consume_messages() -> None:
         # Connect event publisher
         logger.info("🔌 Connecting event publisher...")
         await event_publisher.connect()
-        
+
         # Connect OpenSubtitles client
         logger.info("🔌 Connecting to OpenSubtitles API...")
         await opensubtitles_client.connect()
@@ -243,10 +253,10 @@ async def consume_messages() -> None:
     finally:
         logger.info("🔌 Disconnecting OpenSubtitles client...")
         await opensubtitles_client.disconnect()
-        
+
         logger.info("🔌 Disconnecting event publisher...")
         await event_publisher.disconnect()
-        
+
         if connection and not connection.is_closed:
             logger.info("🔌 Closing RabbitMQ connection...")
             await connection.close()

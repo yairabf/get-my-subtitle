@@ -358,7 +358,7 @@ class TestPublishingErrorScenarios:
         # Act - Reconnect orchestrator to re-declare queues
         await test_orchestrator.disconnect()
         await test_orchestrator.connect()
-        
+
         # Publish to now-existent queue
         result = await test_orchestrator.enqueue_download_task(request, request_id)
 
@@ -483,4 +483,3 @@ class TestPublishingErrorScenarios:
         message = await task_queue.get(timeout=5)
         if message:
             await message.ack()
-

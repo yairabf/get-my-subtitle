@@ -99,7 +99,9 @@ class EventConsumer:
                 event.job_id, event.event_type.value, event.payload, source="consumer"
             )
 
-            logger.info(f"✅ Successfully processed SUBTITLE_READY for job {event.job_id}")
+            logger.info(
+                f"✅ Successfully processed SUBTITLE_READY for job {event.job_id}"
+            )
 
         except Exception as e:
             logger.error(
@@ -302,4 +304,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

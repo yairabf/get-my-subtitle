@@ -20,10 +20,14 @@ from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus
-from common.subtitle_parser import (DEFAULT_MAX_SEGMENTS_PER_CHUNK, SRTParser,
-                                    SubtitleSegment, chunk_segments,
-                                    extract_text_for_translation,
-                                    merge_translations)
+from common.subtitle_parser import (
+    DEFAULT_MAX_SEGMENTS_PER_CHUNK,
+    SRTParser,
+    SubtitleSegment,
+    chunk_segments,
+    extract_text_for_translation,
+    merge_translations,
+)
 from common.utils import DateTimeUtils
 
 # Configure logging
@@ -283,7 +287,9 @@ Let's get started!
 
         # Save translated file (in production, save to storage)
         output_path = f"{subtitle_file_path.replace('.srt', '')}.{target_language}.srt"
-        download_url = f"https://example.com/subtitles/{request_id}.{target_language}.srt"
+        download_url = (
+            f"https://example.com/subtitles/{request_id}.{target_language}.srt"
+        )
         logger.info(f"Would save translated subtitle to: {output_path}")
 
         # Publish SUBTITLE_TRANSLATED event
@@ -380,7 +386,7 @@ async def consume_translation_messages() -> None:
     finally:
         logger.info("🔌 Disconnecting event publisher...")
         await event_publisher.disconnect()
-        
+
         if connection and not connection.is_closed:
             logger.info("🔌 Closing RabbitMQ connection...")
             await connection.close()

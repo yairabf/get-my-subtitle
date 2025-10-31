@@ -103,4 +103,3 @@ def read_subtitle_file(job_id: UUID, language: str) -> str:
 
     logger.debug(f"Read subtitle file: {file_path}")
     return content
-

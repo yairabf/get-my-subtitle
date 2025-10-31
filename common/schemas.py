@@ -149,13 +149,13 @@ class SubtitleEvent(BaseModel):
         default_factory=DateTimeUtils.get_current_utc_datetime,
         description="When the event occurred",
     )
-    source: str = Field(..., description="Source service (manager, downloader, translator, consumer)")
+    source: str = Field(
+        ..., description="Source service (manager, downloader, translator, consumer)"
+    )
     payload: Dict[str, Any] = Field(
         default_factory=dict, description="Event payload data"
     )
-    metadata: Optional[Dict[str, Any]] = Field(
-        None, description="Additional metadata"
-    )
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
 
     class Config:
         json_schema_extra = {
@@ -167,7 +167,7 @@ class SubtitleEvent(BaseModel):
                 "payload": {
                     "subtitle_path": "/path/to/subtitle.srt",
                     "language": "en",
-                    "download_url": "https://example.com/subtitles/123.srt"
+                    "download_url": "https://example.com/subtitles/123.srt",
                 },
                 "metadata": None,
             }
