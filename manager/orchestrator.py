@@ -12,14 +12,8 @@ from aio_pika.abc import AbstractChannel, AbstractConnection
 from common.config import settings
 from common.event_publisher import event_publisher
 from common.redis_client import redis_client
-from common.schemas import (
-    DownloadTask,
-    EventType,
-    SubtitleEvent,
-    SubtitleRequest,
-    SubtitleStatus,
-    TranslationTask,
-)
+from common.schemas import (DownloadTask, EventType, SubtitleEvent,
+                            SubtitleRequest, SubtitleStatus, TranslationTask)
 from common.utils import DateTimeUtils
 
 logger = logging.getLogger(__name__)

@@ -194,7 +194,8 @@ class TestDownloaderWorker:
 
             with patch("downloader.worker.opensubtitles_client") as mock_client:
                 # Simulate API error
-                from downloader.opensubtitles_client import OpenSubtitlesAPIError
+                from downloader.opensubtitles_client import \
+                    OpenSubtitlesAPIError
 
                 mock_client.search_subtitles = AsyncMock(
                     side_effect=OpenSubtitlesAPIError("API error")
@@ -236,7 +237,8 @@ class TestDownloaderWorker:
 
             with patch("downloader.worker.opensubtitles_client") as mock_client:
                 # Simulate rate limit error
-                from downloader.opensubtitles_client import OpenSubtitlesRateLimitError
+                from downloader.opensubtitles_client import \
+                    OpenSubtitlesRateLimitError
 
                 mock_client.search_subtitles = AsyncMock(
                     side_effect=OpenSubtitlesRateLimitError("Rate limit exceeded")
@@ -294,9 +296,7 @@ class TestWorkerHashSearchFallback:
         # Create a temporary video file
         import tempfile
 
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".mp4"
-        ) as tmp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
             tmp_file.write(b"A" * (256 * 1024))  # 256KB file
             video_path = tmp_file.name
 
@@ -351,9 +351,7 @@ class TestWorkerHashSearchFallback:
 
         import tempfile
 
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".mp4"
-        ) as tmp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
             tmp_file.write(b"B" * (256 * 1024))
             video_path = tmp_file.name
 

@@ -20,14 +20,10 @@ from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus
-from common.subtitle_parser import (
-    DEFAULT_MAX_SEGMENTS_PER_CHUNK,
-    SRTParser,
-    SubtitleSegment,
-    chunk_segments,
-    extract_text_for_translation,
-    merge_translations,
-)
+from common.subtitle_parser import (DEFAULT_MAX_SEGMENTS_PER_CHUNK, SRTParser,
+                                    SubtitleSegment, chunk_segments,
+                                    extract_text_for_translation,
+                                    merge_translations)
 from common.utils import DateTimeUtils
 
 # Configure logging

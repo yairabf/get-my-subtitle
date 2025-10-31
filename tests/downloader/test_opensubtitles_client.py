@@ -7,11 +7,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from downloader.opensubtitles_client import (
-    OpenSubtitlesAPIError,
-    OpenSubtitlesAuthenticationError,
-    OpenSubtitlesClient,
-)
+from downloader.opensubtitles_client import (OpenSubtitlesAPIError,
+                                             OpenSubtitlesAuthenticationError,
+                                             OpenSubtitlesClient)
 
 
 class TestOpenSubtitlesAuthentication:

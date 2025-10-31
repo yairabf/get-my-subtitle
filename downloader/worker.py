@@ -19,12 +19,10 @@ from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus
 from common.utils import DateTimeUtils
-from downloader.opensubtitles_client import (
-    OpenSubtitlesAPIError,
-    OpenSubtitlesAuthenticationError,
-    OpenSubtitlesClient,
-    OpenSubtitlesRateLimitError,
-)
+from downloader.opensubtitles_client import (OpenSubtitlesAPIError,
+                                             OpenSubtitlesAuthenticationError,
+                                             OpenSubtitlesClient,
+                                             OpenSubtitlesRateLimitError)
 
 # Configure logging
 service_logger = setup_service_logging("downloader", enable_file_logging=True)
@@ -117,9 +115,7 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                         f"✅ Found {len(search_results)} subtitle(s) by hash search"
                     )
                 else:
-                    logger.info(
-                        f"⚠️  No results by hash, falling back to query search"
-                    )
+                    logger.info(f"⚠️  No results by hash, falling back to query search")
 
             # Fallback to query search if hash search returned no results
             if not search_results:

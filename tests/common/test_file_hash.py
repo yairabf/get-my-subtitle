@@ -252,4 +252,3 @@ class TestFileHashUtils:
 
         finally:
             Path(tmp_file_path).unlink()
-
