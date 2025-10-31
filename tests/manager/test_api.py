@@ -51,11 +51,20 @@ class TestHealthEndpoint:
         "redis_response,expected_status_code",
         [
             ({"connected": True, "status": "healthy"}, 200),
-            ({"connected": False, "status": "unhealthy", "error": "Connection failed"}, 200),
+            (
+                {
+                    "connected": False,
+                    "status": "unhealthy",
+                    "error": "Connection failed",
+                },
+                200,
+            ),
             ({"connected": True, "status": "degraded"}, 200),
         ],
     )
-    def test_health_check_redis_states(self, client, redis_response, expected_status_code):
+    def test_health_check_redis_states(
+        self, client, redis_response, expected_status_code
+    ):
         """Test health endpoint with various Redis states."""
         with patch("manager.main.redis_client") as mock_redis:
             mock_redis.health_check = AsyncMock(return_value=redis_response)
@@ -142,7 +151,7 @@ class TestSubtitleEndpoints:
             )
 
             job_id = uuid4()
-            
+
             # The endpoint doesn't handle exceptions, so it will propagate
             try:
                 response = client.get(f"/subtitles/{job_id}")
@@ -345,7 +354,9 @@ class TestSubtitleDownloadRequest:
         ) as mock_orchestrator:
 
             mock_redis.save_job = AsyncMock(return_value=True)
-            mock_orchestrator.enqueue_download_task = AsyncMock(return_value=enqueue_result)
+            mock_orchestrator.enqueue_download_task = AsyncMock(
+                return_value=enqueue_result
+            )
 
             request_data = {
                 "video_url": "https://example.com/video.mp4",
@@ -387,9 +398,7 @@ class TestSubtitleDownloadRequest:
             ),
         ],
     )
-    def test_request_download_missing_fields(
-        self, client, missing_field, request_data
-    ):
+    def test_request_download_missing_fields(self, client, missing_field, request_data):
         """Test download request validation with missing required fields."""
         response = client.post("/subtitles/download", json=request_data)
 
@@ -569,7 +578,9 @@ class TestSubtitleTranslateEndpoint:
         ) as mock_orchestrator:
 
             mock_redis.save_job = AsyncMock(return_value=True)
-            mock_orchestrator.enqueue_translation_task = AsyncMock(return_value=enqueue_result)
+            mock_orchestrator.enqueue_translation_task = AsyncMock(
+                return_value=enqueue_result
+            )
 
             request_data = {
                 "subtitle_path": "/path/to/subtitle.srt",
@@ -732,7 +743,7 @@ class TestSubtitleStatusEndpoint:
             )
 
             job_id = uuid4()
-            
+
             # The endpoint doesn't handle exceptions, so it will propagate
             try:
                 response = client.get(f"/subtitles/status/{job_id}")

@@ -93,4 +93,3 @@ class EventPublisher:
 
 # Global event publisher instance
 event_publisher = EventPublisher()
-

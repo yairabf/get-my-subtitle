@@ -34,7 +34,10 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
 
-    # Subtitle Sources
+    # Subtitle Sources - OpenSubtitles (XML-RPC)
+    opensubtitles_user_agent: str = Field(
+        default="get-my-subtitle v1.0", env="OPENSUBTITLES_USER_AGENT"
+    )
     opensubtitles_username: Optional[str] = Field(
         default=None, env="OPENSUBTITLES_USERNAME"
     )
@@ -43,7 +46,9 @@ class Settings(BaseSettings):
     )
     opensubtitles_api_key: Optional[str] = Field(
         default=None, env="OPENSUBTITLES_API_KEY"
-    )
+    )  # Legacy - not used, kept for backward compatibility
+    opensubtitles_max_retries: int = Field(default=3, env="OPENSUBTITLES_MAX_RETRIES")
+    opensubtitles_retry_delay: int = Field(default=1, env="OPENSUBTITLES_RETRY_DELAY")
 
     # Translation Service (OpenAI GPT-5-nano)
     openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
@@ -65,9 +70,7 @@ class Settings(BaseSettings):
     jellyfin_default_target_language: Optional[str] = Field(
         default=None, env="JELLYFIN_DEFAULT_TARGET_LANGUAGE"
     )
-    jellyfin_auto_translate: bool = Field(
-        default=True, env="JELLYFIN_AUTO_TRANSLATE"
-    )
+    jellyfin_auto_translate: bool = Field(default=True, env="JELLYFIN_AUTO_TRANSLATE")
 
     class Config:
         env_file = ".env"

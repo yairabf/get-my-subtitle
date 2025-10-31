@@ -72,6 +72,121 @@ These rules apply to every programming language. Always follow the idioms of whi
     - Enable strict mode in tsconfig.json
     - Use union types for better type safety
 
+### Composer/Plan Mode - Epic & Task Documentation:
+
+13. **ALWAYS Follow Epic/Task Documentation Structure in Plan Mode**:
+   
+   When developing a new feature in Composer/Plan Mode:
+   
+   **Step 1: User provides Epic Name and Task Number+Name**
+   - Example: Epic: "User Authentication", Task: "001-login-flow"
+   
+   **Step 2: Check if Epic directory exists**
+   - Look for `.cursor/tasks/[epic_name]/` directory
+   
+   **Step 3: Create Epic directory if it doesn't exist**
+   - Create `.cursor/tasks/[epic_name]/` using kebab-case
+   - Example: `.cursor/tasks/user-authentication/`
+   
+   **Step 4: Create Task subdirectory**
+   - Inside epic directory, create `[task_number]-[task_name]/` directory
+   - Example: `.cursor/tasks/user-authentication/001-login-flow/`
+   
+   **Step 5: Create documentation files inside task directory**
+   - `[task_number]-[task_name]_plan.mdc` - Created BEFORE implementation
+   - `[task_number]-[task_name]_summary.mdc` - Created AFTER implementation
+   
+   **Complete Structure:**
+   ```
+   .cursor/
+   └── tasks/
+       └── [epic_name]/                           # e.g., user-authentication
+           └── [task_number]-[task_name]/         # e.g., 001-login-flow
+               ├── [task_number]-[task_name]_plan.mdc      # e.g., 001-login-flow_plan.mdc
+               └── [task_number]-[task_name]_summary.mdc   # e.g., 001-login-flow_summary.mdc
+   ```
+
+14. **Plan Document Structure (`*_plan.mdc`)**:
+   ```markdown
+   # [Task Number] - [Task Name]
+   
+   **Epic:** [Epic Name]
+   **Created:** [Date]
+   **Status:** Planning
+   
+   ## Overview
+   - Brief description of the task
+   - Problem it solves
+   - User story / Use case
+   
+   ## Architecture
+   - Components affected
+   - New files to create
+   - Files to modify
+   - Dependencies required
+   
+   ## Implementation Steps
+   1. Step-by-step breakdown
+   2. Order of implementation
+   3. Testing strategy for each step
+   
+   ## API Changes (if applicable)
+   - New endpoints
+   - Modified endpoints
+   - Request/Response schemas
+   
+   ## Testing Strategy
+   - Unit tests required
+   - Integration tests required
+   - Manual testing steps
+   
+   ## Success Criteria
+   - How to verify the feature works
+   - Performance metrics
+   - Acceptance criteria
+   ```
+
+15. **Summary Document Structure (`*_summary.mdc`)**:
+   ```markdown
+   # [Task Number] - [Task Name] - Implementation Summary
+   
+   **Epic:** [Epic Name]
+   **Completed:** [Date]
+   **Status:** Completed
+   
+   ## What Was Implemented
+   - List of files created/modified
+   - Actual implementation vs. plan
+   
+   ## Deviations from Plan
+   - Any changes made during implementation
+   - Reasons for deviations
+   
+   ## Testing Results
+   - Unit test results
+   - Integration test results
+   - Manual testing outcome
+   
+   ## Lessons Learned
+   - What went well
+   - What could be improved
+   - Technical debt introduced (if any)
+   
+   ## Next Steps
+   - Follow-up tasks
+   - Related tasks
+   ```
+
+16. **ALWAYS Create Plan Document FIRST**:
+   - Before writing any code, create the `*_plan.mdc` file
+   - Get user approval on the plan before implementation
+   - Update plan if requirements change
+
+17. **ALWAYS Create Summary Document LAST**:
+   - After implementation is complete, create `*_summary.mdc`
+   - Document actual results vs. planned approach
+   - Include lessons learned and next steps
+
 ### Problem-Solving and UI Testing Rules:
 
 22. **Use Playwright for UI Testing and Validation**:

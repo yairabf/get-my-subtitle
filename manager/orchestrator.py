@@ -12,8 +12,14 @@ from aio_pika.abc import AbstractChannel, AbstractConnection
 from common.config import settings
 from common.event_publisher import event_publisher
 from common.redis_client import redis_client
-from common.schemas import (DownloadTask, EventType, SubtitleEvent,
-                            SubtitleRequest, SubtitleStatus, TranslationTask)
+from common.schemas import (
+    DownloadTask,
+    EventType,
+    SubtitleEvent,
+    SubtitleRequest,
+    SubtitleStatus,
+    TranslationTask,
+)
 from common.utils import DateTimeUtils
 
 logger = logging.getLogger(__name__)
@@ -52,7 +58,7 @@ class SubtitleOrchestrator:
         """Close connection to RabbitMQ."""
         # Disconnect event publisher
         await event_publisher.disconnect()
-        
+
         if self.connection and not self.connection.is_closed:
             await self.connection.close()
             logger.info("Disconnected from RabbitMQ")

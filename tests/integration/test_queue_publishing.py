@@ -75,9 +75,7 @@ class TestDownloadQueuePublishing:
 
         await message.ack()
 
-    async def test_download_task_persistence(
-        self, test_orchestrator, rabbitmq_channel
-    ):
+    async def test_download_task_persistence(self, test_orchestrator, rabbitmq_channel):
         """Test that download task messages are persistent/durable."""
         # Arrange
         request_id = uuid4()
@@ -101,9 +99,7 @@ class TestDownloadQueuePublishing:
 
         await message.ack()
 
-    async def test_download_task_routing_key(
-        self, test_orchestrator, rabbitmq_channel
-    ):
+    async def test_download_task_routing_key(self, test_orchestrator, rabbitmq_channel):
         """Test that download task uses correct routing key."""
         # Arrange
         request_id = uuid4()
@@ -227,7 +223,10 @@ class TestTranslationQueuePublishing:
 
         # Verify task fields
         assert str(translation_task.request_id) == str(request_id)
-        assert translation_task.subtitle_file_path == "/storage/subtitles/test_subtitle.srt"
+        assert (
+            translation_task.subtitle_file_path
+            == "/storage/subtitles/test_subtitle.srt"
+        )
         assert translation_task.source_language == "en"
         assert translation_task.target_language == "fr"
 
@@ -473,4 +472,3 @@ class TestQueueConnectionHandling:
 
         # Cleanup
         await orchestrator.disconnect()
-

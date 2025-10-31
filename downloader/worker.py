@@ -19,10 +19,19 @@ from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus
 from common.utils import DateTimeUtils
+from downloader.opensubtitles_client import (
+    OpenSubtitlesAPIError,
+    OpenSubtitlesAuthenticationError,
+    OpenSubtitlesClient,
+    OpenSubtitlesRateLimitError,
+)
 
 # Configure logging
 service_logger = setup_service_logging("downloader", enable_file_logging=True)
 logger = service_logger.logger
+
+# Global OpenSubtitles client instance
+opensubtitles_client = OpenSubtitlesClient()
 
 
 async def process_message(message: AbstractIncomingMessage) -> None:
@@ -53,40 +62,101 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                 request_id, SubtitleStatus.DOWNLOAD_IN_PROGRESS, source="downloader"
             )
 
-        # Simulate some processing time (subtitle download)
-        await asyncio.sleep(1)
+        # Extract video metadata for subtitle search
+        video_title = message_data.get("video_title")
+        imdb_id = message_data.get("imdb_id")
+        language = message_data.get("language", "en")
 
-        # Simulate subtitle found scenario (90% success rate for demo)
-        import random
-        subtitle_found = random.random() > 0.1
+        logger.info(
+            f"🔍 Searching for subtitles: title={video_title}, imdb_id={imdb_id}, language={language}"
+        )
 
-        if request_id:
-            if subtitle_found:
-                # Subtitle found - publish SUBTITLE_READY event
-                subtitle_path = f"/subtitles/{request_id}.srt"
-                download_url = f"https://example.com/subtitles/{request_id}.srt"
+        try:
+            # Search for subtitles on OpenSubtitles
+            search_results = await opensubtitles_client.search_subtitles(
+                imdb_id=imdb_id,
+                query=video_title,
+                languages=[language] if language else None,
+            )
 
+            if search_results:
+                # Subtitle found - download it
+                logger.info(f"✅ Found {len(search_results)} subtitle(s)")
+                best_result = search_results[0]
+
+                # Get subtitle ID from XML-RPC result
+                subtitle_id = best_result.get("IDSubtitleFile")
+
+                # Download subtitle
+                subtitle_path = await opensubtitles_client.download_subtitle(
+                    subtitle_id=str(subtitle_id),
+                )
+
+                if request_id:
+                    # Subtitle downloaded successfully - publish SUBTITLE_READY event
+                    event = SubtitleEvent(
+                        event_type=EventType.SUBTITLE_READY,
+                        job_id=request_id,
+                        timestamp=DateTimeUtils.get_current_utc_datetime(),
+                        source="downloader",
+                        payload={
+                            "subtitle_path": str(subtitle_path),
+                            "language": language,
+                            "download_url": f"file://{subtitle_path}",
+                            "source": "opensubtitles",
+                        },
+                    )
+                    await event_publisher.publish_event(event)
+
+                    logger.info(
+                        f"✅ Subtitle downloaded! Published SUBTITLE_READY event for job {request_id}"
+                    )
+            else:
+                # Subtitle not found - need translation fallback
+                logger.warning(
+                    f"⚠️  No subtitle found for job {request_id}, requesting translation"
+                )
+
+                if request_id:
+                    event = SubtitleEvent(
+                        event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
+                        job_id=request_id,
+                        timestamp=DateTimeUtils.get_current_utc_datetime(),
+                        source="downloader",
+                        payload={
+                            "subtitle_file_path": f"/subtitles/fallback_{request_id}.en.srt",
+                            "source_language": "en",
+                            "target_language": language,
+                            "reason": "subtitle_not_found",
+                        },
+                    )
+                    await event_publisher.publish_event(event)
+
+                    logger.info(
+                        f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}"
+                    )
+
+        except OpenSubtitlesRateLimitError as e:
+            logger.error(f"⚠️  Rate limit exceeded: {e}")
+            if request_id:
                 event = SubtitleEvent(
-                    event_type=EventType.SUBTITLE_READY,
+                    event_type=EventType.JOB_FAILED,
                     job_id=request_id,
                     timestamp=DateTimeUtils.get_current_utc_datetime(),
                     source="downloader",
                     payload={
-                        "subtitle_path": subtitle_path,
-                        "language": message_data.get("language", "en"),
-                        "download_url": download_url,
+                        "error_message": "OpenSubtitles rate limit exceeded, please try again later",
+                        "error_type": "rate_limit",
                     },
                 )
                 await event_publisher.publish_event(event)
 
-                logger.info(f"✅ Subtitle found! Published SUBTITLE_READY event for job {request_id}")
+        except (OpenSubtitlesAPIError, OpenSubtitlesAuthenticationError) as e:
+            logger.error(f"❌ OpenSubtitles API error: {e}")
+            logger.warning(f"⚠️  Falling back to translation for job {request_id}")
 
-            else:
-                # Subtitle not found - need translation fallback
-                logger.warning(f"⚠️  Subtitle not found for job {request_id}, will need translation")
-
-                # In a real implementation, this would trigger translation request
-                # For now, just log it
+            if request_id:
+                # Fallback to translation on API errors
                 event = SubtitleEvent(
                     event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
                     job_id=request_id,
@@ -95,12 +165,15 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                     payload={
                         "subtitle_file_path": f"/subtitles/fallback_{request_id}.en.srt",
                         "source_language": "en",
-                        "target_language": message_data.get("language", "he"),
+                        "target_language": language,
+                        "reason": "api_error",
                     },
                 )
                 await event_publisher.publish_event(event)
 
-                logger.info(f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}")
+                logger.info(
+                    f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}"
+                )
 
         logger.info("✅ Message processed successfully!")
 
@@ -144,6 +217,10 @@ async def consume_messages() -> None:
         logger.info("🔌 Connecting event publisher...")
         await event_publisher.connect()
 
+        # Connect OpenSubtitles client
+        logger.info("🔌 Connecting to OpenSubtitles API...")
+        await opensubtitles_client.connect()
+
         # Connect to RabbitMQ
         logger.info("🔌 Connecting to RabbitMQ...")
         connection = await aio_pika.connect_robust("amqp://guest:guest@localhost:5672/")
@@ -174,9 +251,12 @@ async def consume_messages() -> None:
     except Exception as e:
         logger.error(f"❌ Error in consumer: {e}")
     finally:
+        logger.info("🔌 Disconnecting OpenSubtitles client...")
+        await opensubtitles_client.disconnect()
+
         logger.info("🔌 Disconnecting event publisher...")
         await event_publisher.disconnect()
-        
+
         if connection and not connection.is_closed:
             logger.info("🔌 Closing RabbitMQ connection...")
             await connection.close()
