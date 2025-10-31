@@ -1,0 +1,136 @@
+# 000 - Example Task
+
+**Epic:** Example Epic  
+**Created:** October 30, 2025  
+**Status:** Planning
+
+## Overview
+
+This is an example plan document that shows the structure and content that should be included when planning a new task in Composer/Plan Mode.
+
+- **Brief description**: Demonstrates the task documentation structure
+- **Problem it solves**: Provides a template for future task planning
+- **User story**: As a developer, I want to see an example of task documentation so I can understand the expected format
+
+## Architecture
+
+### Components Affected
+- `.cursor/tasks/` - New documentation system
+- `.cursor/coding_rule.mdc` - Updated with new rules
+
+### New Files to Create
+- Plan document (this file)
+- Summary document (after implementation)
+- Supporting code files as needed
+
+### Files to Modify
+- Existing configuration files if needed
+- Related test files
+
+### Dependencies Required
+- List any new packages or dependencies
+- Example: `pytest`, `fastapi`, etc.
+
+## Implementation Steps
+
+1. **Setup Phase**
+   - Create directory structure
+   - Initialize configuration
+   - Set up testing environment
+
+2. **Core Implementation**
+   - Implement main functionality
+   - Add error handling
+   - Write unit tests
+
+3. **Integration Phase**
+   - Integrate with existing systems
+   - Add integration tests
+   - Update documentation
+
+4. **Testing Strategy for Each Step**
+   - Unit tests after each component
+   - Integration tests after phase 2
+   - End-to-end tests after phase 3
+
+## API Changes (if applicable)
+
+### New Endpoints
+```python
+POST /api/v1/example
+GET /api/v1/example/{id}
+PUT /api/v1/example/{id}
+DELETE /api/v1/example/{id}
+```
+
+### Request Schema
+```json
+{
+  "name": "string",
+  "description": "string",
+  "metadata": {
+    "key": "value"
+  }
+}
+```
+
+### Response Schema
+```json
+{
+  "id": "string",
+  "name": "string",
+  "description": "string",
+  "created_at": "2025-10-30T12:00:00Z",
+  "updated_at": "2025-10-30T12:00:00Z"
+}
+```
+
+## Testing Strategy
+
+### Unit Tests Required
+- Test each function/method in isolation
+- Mock external dependencies
+- Cover edge cases and error conditions
+- Target: 90%+ code coverage
+
+### Integration Tests Required
+- Test API endpoints end-to-end
+- Test database interactions
+- Test event publishing/consuming
+- Verify error handling across components
+
+### Manual Testing Steps
+1. Start the application
+2. Test happy path scenarios
+3. Test error scenarios
+4. Verify logs and monitoring
+5. Check performance metrics
+
+## Success Criteria
+
+### Functional Requirements
+- [ ] All unit tests pass
+- [ ] All integration tests pass
+- [ ] Feature works as described in user story
+- [ ] Error handling is comprehensive
+
+### Non-Functional Requirements
+- [ ] Response time < 200ms for API calls
+- [ ] No memory leaks
+- [ ] Proper logging at all levels
+- [ ] Documentation is complete
+
+### Acceptance Criteria
+- [ ] Code review approved
+- [ ] Manual testing completed
+- [ ] Documentation updated
+- [ ] No critical bugs remaining
+- [ ] Performance benchmarks met
+
+## Notes
+
+Add any additional notes, considerations, or questions here:
+- Architecture decisions and rationale
+- Trade-offs considered
+- Future improvements to consider
+- Questions for stakeholders

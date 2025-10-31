@@ -1,0 +1,202 @@
+# CU-86ev9n261 - Implement Connection to OpenSubtitles API
+
+**Epic:** Subtitle Downloader Service  
+**Created:** October 30, 2025  
+**Status:** In Progress
+
+## Overview
+
+Set up secure integration with the OpenSubtitles API using an authenticated client that supports both REST API (primary) and XML-RPC API (fallback) methods.
+
+- **Brief description**: Implement OpenSubtitles API client with authentication, search, and download capabilities
+- **Problem it solves**: Replace mock subtitle download logic with real OpenSubtitles API integration
+- **User story**: As a user, I want the system to automatically download subtitles from OpenSubtitles when available, so I don't need to manually source them
+
+## Architecture
+
+### Components Affected
+- `downloader/worker.py` - Replace mock logic with real API client
+- `downloader/opensubtitles_client.py` - New API client module
+- `common/config.py` - Add OpenSubtitles configuration
+
+### New Files to Create
+- `downloader/opensubtitles_client.py` - Main API client implementation
+- `tests/downloader/test_opensubtitles_client.py` - Comprehensive unit tests
+
+### Files to Modify
+- `common/config.py` - Add OpenSubtitles settings
+- `env.template` - Add API configuration variables
+- `downloader/requirements.txt` - Add httpx and tenacity
+- `downloader/worker.py` - Integrate OpenSubtitles client
+- `tests/downloader/test_worker.py` - Add integration tests
+
+### Dependencies Required
+- `httpx==0.27.0` - Modern async HTTP client
+- `tenacity==8.2.3` - Retry logic with exponential backoff
+
+## Implementation Steps
+
+### 1. Configuration Setup
+- Add OpenSubtitles settings to `common/config.py`
+  - API URL, user agent, credentials
+  - Retry configuration (max retries, delay)
+- Update `env.template` with new environment variables
+- Add httpx and tenacity to requirements.txt
+
+### 2. Core Client Implementation
+- Create `OpenSubtitlesClient` class in `downloader/opensubtitles_client.py`
+- Implement REST API authentication with API key
+- Implement XML-RPC fallback authentication with username/password
+- Add token management and refresh logic
+- Implement search_subtitles() method
+- Implement download_subtitle() method
+- Add retry logic with exponential backoff using tenacity
+
+### 3. Worker Integration
+- Initialize OpenSubtitlesClient in worker startup
+- Replace mock download logic (lines 56-103 in worker.py)
+- Add proper error handling and event publishing
+- Implement fallback to translation service on failure
+
+### 4. Testing Implementation
+- Write comprehensive unit tests for OpenSubtitlesClient
+  - Test authentication (both methods)
+  - Test search functionality
+  - Test download functionality
+  - Test retry logic
+  - Test error handling
+- Update worker integration tests
+- Prepare for manual testing with real credentials
+
+## API Changes
+
+No public API changes - this is internal service improvement.
+
+### Authentication Flow
+
+**Primary (REST API):**
+```
+POST /api/v1/login
+Headers:
+  Api-Key: {API_KEY}
+  User-Agent: {USER_AGENT}
+Response:
+  {
+    "token": "...",
+    "user": {...}
+  }
+```
+
+**Fallback (XML-RPC):**
+```
+LogIn(username, password, language, useragent)
+Response:
+  {
+    "token": "...",
+    "status": "200 OK"
+  }
+```
+
+### Search Subtitles
+
+**REST API:**
+```
+GET /api/v1/subtitles
+Params:
+  - imdb_id
+  - query
+  - languages
+Headers:
+  Authorization: Bearer {token}
+```
+
+**XML-RPC:**
+```
+SearchSubtitles(token, [search_criteria])
+```
+
+## Testing Strategy
+
+### Unit Tests Required
+- `test_authenticate_with_api_key_success()` - REST API auth success
+- `test_authenticate_with_api_key_failure()` - REST API auth fails, fallback to XML-RPC
+- `test_authenticate_with_username_password()` - XML-RPC auth success
+- `test_search_subtitles_found()` - Subtitle found
+- `test_search_subtitles_not_found()` - Subtitle not found
+- `test_download_subtitle_success()` - Download succeeds
+- `test_download_subtitle_failure()` - Download fails
+- `test_retry_logic_exponential_backoff()` - Retry with backoff
+- `test_rate_limiting_handling()` - Rate limit response handling
+- `test_network_errors()` - Network errors handled
+- `test_token_expiration_refresh()` - Token refresh on expiration
+
+### Integration Tests Required
+- `test_worker_downloads_subtitle_from_opensubtitles()` - Full flow
+- `test_worker_fallback_to_translation()` - Subtitle not found fallback
+- `test_worker_handles_api_errors()` - Error handling and event publishing
+
+### Manual Testing Steps
+1. Set up `.env` file with OpenSubtitles API key
+2. Start Redis and RabbitMQ
+3. Start downloader worker
+4. Submit subtitle request via manager API
+5. Verify subtitle downloaded from OpenSubtitles
+6. Check logs for authentication and download
+7. Test with invalid API key to verify fallback
+8. Test with non-existent video to verify translation fallback
+
+## Success Criteria
+
+### Functional Requirements
+- [x] Task documentation created
+- [ ] OpenSubtitles client authenticates with API key
+- [ ] Client falls back to username/password if API key fails
+- [ ] Search returns subtitle results based on video metadata
+- [ ] Download saves subtitle to storage path
+- [ ] Retry logic handles transient failures (3 attempts)
+- [ ] Worker publishes appropriate events (SUBTITLE_READY, JOB_FAILED)
+- [ ] Fallback to translation service when subtitle not found
+
+### Non-Functional Requirements
+- [ ] All unit tests pass with 90%+ code coverage
+- [ ] Integration tests pass
+- [ ] No credentials logged
+- [ ] Rate limiting respected (max 40 requests/10 seconds)
+- [ ] Response time < 5 seconds for search
+- [ ] HTTPS used for all API calls
+
+### Acceptance Criteria
+- [ ] Code review approved
+- [ ] Manual testing completed successfully
+- [ ] Documentation updated
+- [ ] No critical bugs remaining
+- [ ] Security best practices followed
+
+## Security Considerations
+
+- Store all credentials in environment variables only
+- Never log API keys, passwords, or tokens
+- Use HTTPS for all API calls
+- Validate downloaded subtitle files before saving
+- Implement rate limiting to avoid API bans
+- Handle authentication errors gracefully without exposing credentials
+
+## Notes
+
+### OpenSubtitles API Documentation
+- REST API: https://api.opensubtitles.com/api/v1
+- XML-RPC API: https://trac.opensubtitles.org/projects/opensubtitles/wiki/XMLRPC
+- Rate Limits: 40 requests per 10 seconds (logged in), 10 requests per 10 seconds (anonymous)
+
+### Design Decisions
+- Use httpx instead of requests for better async support
+- Use tenacity for retry logic instead of manual implementation
+- Primary authentication method: API key (simpler, more reliable)
+- Fallback authentication: username/password (compatibility with older accounts)
+- Store subtitles in path specified by `subtitle_storage_path` config
+
+### Future Improvements
+- Add caching layer for search results
+- Implement subtitle rating/voting
+- Support for multiple subtitle sources
+- Parallel subtitle downloads
