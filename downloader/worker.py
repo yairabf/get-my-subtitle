@@ -7,13 +7,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 from uuid import UUID
-
 import aio_pika
 from aio_pika.abc import AbstractIncomingMessage
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
+from common.utils import PathUtils
 from common.config import settings
 from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
@@ -140,30 +139,63 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                 # Get subtitle ID from XML-RPC result
                 subtitle_id = best_result.get("IDSubtitleFile")
 
-                # Download subtitle
-                subtitle_path = await opensubtitles_client.download_subtitle(
-                    subtitle_id=str(subtitle_id),
+                # Determine output path based on video location
+                output_path = PathUtils.generate_subtitle_path_from_video(
+                    video_url, language
                 )
 
-                if request_id:
-                    # Subtitle downloaded successfully - publish SUBTITLE_READY event
-                    event = SubtitleEvent(
-                        event_type=EventType.SUBTITLE_READY,
-                        job_id=request_id,
-                        timestamp=DateTimeUtils.get_current_utc_datetime(),
-                        source="downloader",
-                        payload={
-                            "subtitle_path": str(subtitle_path),
-                            "language": language,
-                            "download_url": f"file://{subtitle_path}",
-                            "source": "opensubtitles",
-                        },
+                if not output_path:
+                    # video_url is not a local file - cannot save to video directory
+                    logger.error(
+                        f"❌ Cannot save subtitle: video_url is not a local file path: {video_url}"
                     )
-                    await event_publisher.publish_event(event)
 
-                    logger.info(
-                        f"✅ Subtitle downloaded! Published SUBTITLE_READY event for job {request_id}"
+                    if request_id:
+                        event = SubtitleEvent(
+                            event_type=EventType.JOB_FAILED,
+                            job_id=request_id,
+                            timestamp=DateTimeUtils.get_current_utc_datetime(),
+                            source="downloader",
+                            payload={
+                                "error_message": "Cannot save subtitle: video is not a local file",
+                                "error_type": "invalid_video_path",
+                                "video_url": video_url,
+                            },
+                        )
+                        await event_publisher.publish_event(event)
+
+                    logger.info("✅ Message processed (skipped due to invalid video path)")
+                else:
+                    logger.info(f"📁 Will save subtitle to: {output_path}")
+
+                    # Ensure parent directory exists
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    # Download subtitle to calculated path
+                    subtitle_path = await opensubtitles_client.download_subtitle(
+                        subtitle_id=str(subtitle_id),
+                        output_path=output_path,
                     )
+
+                    if request_id:
+                        # Subtitle downloaded successfully - publish SUBTITLE_READY event
+                        event = SubtitleEvent(
+                            event_type=EventType.SUBTITLE_READY,
+                            job_id=request_id,
+                            timestamp=DateTimeUtils.get_current_utc_datetime(),
+                            source="downloader",
+                            payload={
+                                "subtitle_path": str(subtitle_path),
+                                "language": language,
+                                "download_url": f"file://{subtitle_path}",
+                                "source": "opensubtitles",
+                            },
+                        )
+                        await event_publisher.publish_event(event)
+
+                        logger.info(
+                            f"✅ Subtitle downloaded! Published SUBTITLE_READY event for job {request_id}"
+                        )
             else:
                 # Subtitle not found - check if translation is enabled
                 logger.warning(f"⚠️  No subtitle found for job {request_id}")

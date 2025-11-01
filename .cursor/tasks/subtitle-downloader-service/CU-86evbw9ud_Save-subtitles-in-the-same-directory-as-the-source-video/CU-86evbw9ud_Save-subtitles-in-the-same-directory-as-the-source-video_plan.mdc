@@ -1,0 +1,306 @@
+# CU-86evbw9ud - Save Subtitles in Same Directory as Source Video
+
+**Epic:** Subtitle Downloader Service  
+**Created:** November 1, 2025  
+**Status:** In Progress
+
+## Overview
+
+Ensure the subtitle file is saved in the same directory as its corresponding video, regardless of the downloader's current working directory.
+
+- **Brief description**: Save downloaded subtitles alongside video files with proper naming convention
+- **Problem it solves**: Currently, subtitles are saved to a central storage directory (`subtitle_storage_path`), making it hard to organize and manage subtitle files alongside their corresponding videos
+- **User story**: As a user with a video at `/mnt/media/movies/matrix/matrix.mkv`, I want the downloaded subtitle to be saved at `/mnt/media/movies/matrix/matrix.en.srt` so that the subtitle file is organized with the video file
+
+## Requirements Clarification
+
+Based on user input:
+1. **Non-local video URLs**: Should **fail with an error** (not save to fallback location)
+2. **Subtitle filename format**: Should use `{video_basename}.{language}.srt` pattern (e.g., `matrix.mkv` → `matrix.en.srt`)
+
+## Architecture
+
+### Components Affected
+- `downloader/worker.py` - Worker that downloads subtitles (determines save path)
+- `downloader/opensubtitles_client.py` - OpenSubtitles API client (already supports custom output_path)
+- `common/utils.py` - Utility functions (new path generation function)
+
+### New Files to Create
+- `tests/common/test_path_utils.py` - Unit tests for path utility function
+
+### Files to Modify
+- `common/utils.py` - Add `PathUtils` class with path generation method
+- `downloader/worker.py` - Calculate output path before download, handle non-local URLs
+- `tests/downloader/test_worker.py` - Add tests for save location logic
+- `tests/downloader/test_opensubtitles_client.py` - Add tests for custom output_path
+
+### Dependencies Required
+None (using standard library)
+
+## Implementation Steps
+
+### 1. Add Path Utility Function (TDD Approach)
+
+**File**: `tests/common/test_path_utils.py` (CREATE FIRST) ✅
+
+Create comprehensive parameterized tests for the new `PathUtils.generate_subtitle_path_from_video()` function:
+
+Test cases:
+- Valid local file paths with various extensions (.mkv, .mp4, .avi, .mov)
+- Non-existent file paths (should return None)
+- Remote URLs (should return None)
+- Various language codes (en, es, fr, he, etc.)
+- Edge cases: files without extensions, special characters in names, nested directories
+
+**File**: `common/utils.py` (IMPLEMENT SECOND) ✅
+
+Add new `PathUtils` class after existing utility classes:
+
+```python
+class PathUtils:
+    """Path manipulation utility functions."""
+
+    @staticmethod
+    def generate_subtitle_path_from_video(
+        video_path: str, language: str
+    ) -> Optional[Path]:
+        """
+        Generate subtitle file path based on video file location.
+        
+        Args:
+            video_path: Path to the video file
+            language: Language code (e.g., 'en', 'es')
+        
+        Returns:
+            Path object for subtitle file, or None if video_path is not a local file
+        """
+```
+
+### 2. Update Downloader Worker (TDD Approach)
+
+**File**: `tests/downloader/test_worker.py` (ADD TESTS FIRST)
+
+Add new test class `TestSubtitleSaveLocation` with parameterized tests:
+- Local file path: Subtitle saved to video directory
+- Remote URL: JOB_FAILED event published
+- Non-existent local path: JOB_FAILED event published
+- Verify filename format includes language code
+- Verify directory is created if needed
+
+**File**: `downloader/worker.py` (UPDATE SECOND)
+
+Modify `process_message()` function around line 143-146:
+
+**Current code**:
+```python
+# Download subtitle
+subtitle_path = await opensubtitles_client.download_subtitle(
+    subtitle_id=str(subtitle_id),
+)
+```
+
+**New code**:
+```python
+# Determine output path based on video location
+from common.utils import PathUtils
+
+output_path = PathUtils.generate_subtitle_path_from_video(video_url, language)
+
+if not output_path:
+    # video_url is not a local file - cannot save to video directory
+    logger.error(
+        f"❌ Cannot save subtitle: video_url is not a local file path: {video_url}"
+    )
+    
+    if request_id:
+        event = SubtitleEvent(
+            event_type=EventType.JOB_FAILED,
+            job_id=request_id,
+            timestamp=DateTimeUtils.get_current_utc_datetime(),
+            source="downloader",
+            payload={
+                "error_message": "Cannot save subtitle: video is not a local file",
+                "error_type": "invalid_video_path",
+                "video_url": video_url,
+            },
+        )
+        await event_publisher.publish_event(event)
+    
+    logger.info("✅ Message processed (skipped due to invalid video path)")
+    return
+
+logger.info(f"📁 Will save subtitle to: {output_path}")
+
+# Ensure parent directory exists
+output_path.parent.mkdir(parents=True, exist_ok=True)
+
+# Download subtitle to calculated path
+subtitle_path = await opensubtitles_client.download_subtitle(
+    subtitle_id=str(subtitle_id),
+    output_path=output_path,
+)
+```
+
+### 3. Test OpenSubtitles Client with Custom Output Path
+
+**File**: `tests/downloader/test_opensubtitles_client.py` (ADD TESTS)
+
+Add tests for `download_subtitle()` with custom `output_path`:
+- Test that subtitle is downloaded to custom output path
+- Test that parent directory is created if it doesn't exist
+- Test that file is written to correct location
+
+## API Changes
+
+No external API changes. This is an internal implementation change to file storage behavior.
+
+### Behavior Changes
+
+**Before**:
+- All subtitles saved to central `subtitle_storage_path`
+- Filename: `{subtitle_id}.srt`
+- Works for both local and remote video URLs
+
+**After**:
+- Subtitles for **local videos** saved to video's directory
+- Filename: `{video_basename}.{language}.srt`
+- **Remote video URLs** result in JOB_FAILED event
+
+## Testing Strategy
+
+### Unit Tests Required
+
+1. **Path Utility Tests** (`tests/common/test_path_utils.py`) ✅
+   - Test with valid local file paths (various extensions)
+   - Test with non-existent file paths (returns None)
+   - Test with remote URLs (returns None)
+   - Test with various language codes
+   - Test edge cases: no extension, special characters
+   - Target: 100% coverage
+
+2. **Worker Tests** (`tests/downloader/test_worker.py`)
+   - Test subtitle saved to video directory for local files
+   - Test JOB_FAILED event for remote URLs
+   - Test JOB_FAILED event for non-existent local paths
+   - Test correct filename format with language code
+   - Test directory creation if needed
+   - Target: Cover all new code paths
+
+3. **Client Tests** (`tests/downloader/test_opensubtitles_client.py`)
+   - Test download with custom output_path
+   - Test directory creation
+   - Test file written to correct location
+   - Target: Verify output_path parameter works correctly
+
+### Integration Tests
+
+Not required for this feature (well-covered by unit tests).
+
+### Manual Testing Steps
+
+1. **Test with Local Video File**
+   - Create test video at `/tmp/test_video/movie.mkv`
+   - Submit download request via API
+   - Verify subtitle saved at `/tmp/test_video/movie.en.srt`
+   - Verify filename includes language code
+
+2. **Test with Remote Video URL**
+   - Submit request with `video_url="http://server/video.mp4"`
+   - Verify JOB_FAILED event published
+   - Verify error message is clear
+
+3. **Test with Non-existent Local Path**
+   - Submit request with non-existent local path
+   - Verify JOB_FAILED event published
+   - Verify error handling
+
+## Success Criteria
+
+### Functional Requirements
+- [x] `PathUtils.generate_subtitle_path_from_video()` correctly generates paths for local files
+- [x] Function returns `None` for non-local video URLs
+- [ ] Worker calculates output path before downloading
+- [ ] Worker publishes JOB_FAILED event for non-local URLs
+- [ ] Subtitle filename follows pattern: `{video_basename}.{language}.srt`
+- [ ] Subtitle saved in same directory as video file
+- [ ] Parent directory created if it doesn't exist
+- [ ] All unit tests pass
+- [ ] Manual testing confirms behavior
+
+### Non-Functional Requirements
+- [ ] No performance degradation
+- [ ] Clear error messages for failures
+- [ ] Logging shows where subtitle will be saved
+- [x] Code follows TDD approach (tests first)
+- [ ] Code follows project style guidelines
+- [ ] No breaking changes to existing functionality
+
+### Acceptance Criteria
+- [ ] Video at `/mnt/media/movies/matrix/matrix.mkv` → subtitle at `/mnt/media/movies/matrix/matrix.en.srt`
+- [ ] Remote video URL → JOB_FAILED event with clear error
+- [ ] Non-existent local path → JOB_FAILED event
+- [ ] Subtitle filename includes language code
+- [ ] No changes to downloader's working directory
+- [ ] All tests pass
+- [ ] Code review approved
+
+## Notes
+
+### Architecture Decisions
+
+1. **Use Path utility function**: Clean, reusable, testable separation of concerns
+2. **Fail for non-local URLs**: Clear, explicit behavior (per user requirement)
+3. **Include language in filename**: Allows multiple subtitle languages for same video
+4. **Create directory if needed**: User-friendly, prevents errors
+
+### Trade-offs Considered
+
+1. **Fail vs. Fallback for Non-local URLs**
+   - ✅ Chose: Fail with error
+   - Rationale: User specified to fail for non-local URLs
+   - Alternative: Fall back to central storage (not what user wants)
+
+2. **Filename Format**
+   - ✅ Chose: `{basename}.{language}.srt`
+   - Rationale: User specified this format
+   - Alternative: `{basename}.srt` (no language code)
+
+3. **Where to Check Video Path**
+   - ✅ Chose: In utility function
+   - Rationale: Single responsibility, easy to test
+   - Alternative: In worker (more coupled)
+
+### Future Improvements to Consider
+
+1. **Support for Remote URLs**: Could download video temporarily to calculate hash
+2. **Subtitle Versioning**: Handle multiple subtitle versions for same video/language
+3. **Cleanup**: Remove orphaned subtitles when videos are deleted
+4. **Permissions Check**: Verify write permissions before attempting download
+
+### Questions
+
+- Q: What if video directory is not writable?
+  - A: Download will fail, error will be logged, JOB_FAILED event published
+
+- Q: Should we validate file extensions?
+  - A: No, PathUtils just checks if it's a valid file
+
+- Q: What about subtitle formats other than SRT?
+  - A: Out of scope for this task (OpenSubtitles only provides SRT)
+
+## Progress Tracking
+
+### Completed
+- [x] Created plan document
+- [x] Created test file: `tests/common/test_path_utils.py`
+- [x] Implemented `PathUtils.generate_subtitle_path_from_video()` in `common/utils.py`
+
+### In Progress
+- [ ] Running tests for PathUtils
+- [ ] Adding worker tests
+- [ ] Updating worker implementation
+
+### Not Started
+- [ ] Adding client tests
+- [ ] Manual testing
+- [ ] Creating summary document
