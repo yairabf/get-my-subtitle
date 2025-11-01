@@ -103,6 +103,7 @@ async def process_message(message: AbstractIncomingMessage) -> None:
 
         try:
             # Try hash-based search first if available
+            # Note: All OpenSubtitles API calls include automatic retry with exponential backoff
             search_results = []
 
             if movie_hash:

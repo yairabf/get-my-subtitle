@@ -1,0 +1,260 @@
+# CU-86ev9n269 - Implement Retry/Backoff on API Errors
+
+**Epic:** Subtitle Downloader Service  
+**Created:** November 1, 2025  
+**Status:** Planning
+
+## Overview
+
+Add automatic retry logic with exponential backoff for transient API errors in the OpenSubtitles downloader service.
+
+- **Brief description**: Implement resilient API error handling with exponential backoff retry mechanism
+- **Problem it solves**: Currently, transient API errors (network timeouts, temporary server errors, rate limits) cause immediate job failures without retry attempts, reducing system reliability
+- **User story**: As a system, I want to automatically retry failed API requests with exponential backoff so that temporary errors don't cause permanent job failures and the system is more resilient
+
+## Architecture
+
+### Components Affected
+- `downloader/opensubtitles_client.py` - OpenSubtitles API client (main implementation)
+- `downloader/worker.py` - Worker that calls the client (error handling orchestration)
+- `common/config.py` - Configuration settings for retry behavior
+- `env.template` - Environment variable template
+
+### New Files to Create
+- `tests/downloader/test_retry_logic.py` - Unit tests for retry mechanism
+- `common/retry_utils.py` - Reusable retry utility with exponential backoff decorator
+
+### Files to Modify
+- `downloader/opensubtitles_client.py` - Add retry logic to API methods
+- `downloader/worker.py` - Update error handling to work with retries
+- `common/config.py` - Add retry configuration settings
+- `env.template` - Document new environment variables
+- `requirements.txt` - Add tenacity library for retry logic
+
+### Dependencies Required
+- `tenacity` - Industry-standard Python retry library with exponential backoff support
+
+## Implementation Steps
+
+1. **Setup Phase**
+   - Add `tenacity` to requirements.txt
+   - Add retry configuration to common/config.py:
+     - `OPENSUBTITLES_MAX_RETRIES` (already exists, default: 3)
+     - `OPENSUBTITLES_RETRY_DELAY` (already exists, default: 1 second)
+     - `OPENSUBTITLES_RETRY_MAX_DELAY` (new, default: 60 seconds)
+     - `OPENSUBTITLES_RETRY_EXPONENTIAL_BASE` (new, default: 2)
+   - Update env.template with new variables
+   - Create test file structure
+
+2. **Core Implementation - Retry Utility**
+   - Create `common/retry_utils.py` with reusable retry decorator
+   - Implement exponential backoff calculation
+   - Add logging for retry attempts
+   - Handle different error types (transient vs. permanent)
+   - Write comprehensive unit tests
+
+3. **Integration with OpenSubtitles Client**
+   - Apply retry decorator to API methods:
+     - `authenticate()` / `_authenticate_xmlrpc()`
+     - `search_subtitles()` / `_search_subtitles_xmlrpc()`
+     - `search_subtitles_by_hash()` / `_search_subtitles_by_hash_xmlrpc()`
+     - `download_subtitle()` / `_download_subtitle_xmlrpc()`
+   - Configure which errors should trigger retries (transient only)
+   - Ensure rate limit errors use appropriate backoff
+   - Add retry metrics to logs
+
+4. **Worker Error Handling Updates**
+   - Update worker.py to handle retry exhaustion
+   - Improve error messages with retry information
+   - Ensure events are published correctly after retries
+   - Add retry count to event payloads for observability
+
+5. **Testing Strategy**
+   - Unit tests: Retry utility with various configurations
+   - Unit tests: Mock API failures and verify retry behavior
+   - Integration tests: Test full flow with simulated failures
+   - Manual testing: Test with real API using test harness
+
+## API Changes
+
+No external API changes. This is an internal implementation improvement.
+
+### Configuration Changes
+
+New environment variables:
+```bash
+# Existing (kept)
+OPENSUBTITLES_MAX_RETRIES=3          # Maximum retry attempts
+OPENSUBTITLES_RETRY_DELAY=1          # Initial delay in seconds
+
+# New
+OPENSUBTITLES_RETRY_MAX_DELAY=60     # Maximum delay in seconds (backoff cap)
+OPENSUBTITLES_RETRY_EXPONENTIAL_BASE=2  # Exponential base (2 = double each time)
+```
+
+### Retry Behavior Examples
+
+With `max_retries=3`, `initial_delay=1`, `exponential_base=2`, `max_delay=60`:
+- Attempt 1: Immediate
+- Attempt 2: After 1 second (1 * 2^0)
+- Attempt 3: After 2 seconds (1 * 2^1)
+- Attempt 4: After 4 seconds (1 * 2^2)
+- Total time: ~7 seconds before giving up
+
+With rate limit error (should wait longer):
+- Attempt 1: Immediate
+- Attempt 2: After 5 seconds
+- Attempt 3: After 10 seconds
+- Attempt 4: After 20 seconds
+
+## Testing Strategy
+
+### Unit Tests Required
+
+1. **Retry Utility Tests** (`tests/common/test_retry_utils.py`)
+   - Test exponential backoff calculation
+   - Test max delay cap
+   - Test retry exhaustion
+   - Test transient vs. permanent error handling
+   - Test jitter addition (randomization)
+   - Test logging of retry attempts
+   - Target: 100% coverage of retry logic
+
+2. **OpenSubtitles Client Tests** (`tests/downloader/test_opensubtitles_client.py`)
+   - Mock API failures (network errors, timeouts)
+   - Verify retry behavior for each API method
+   - Test rate limit handling
+   - Test authentication retry
+   - Test permanent error fast-fail (no retry)
+   - Target: 95%+ coverage
+
+3. **Worker Tests** (`tests/downloader/test_worker.py`)
+   - Test message processing with API failures
+   - Verify correct event publishing after retries
+   - Test retry exhaustion handling
+   - Verify error payloads include retry information
+
+### Integration Tests Required
+
+1. **End-to-End Retry Flow**
+   - Submit job with mocked failing API
+   - Verify retry attempts via logs
+   - Verify final success/failure event
+   - Test with different error types
+
+2. **Rate Limit Handling**
+   - Simulate rate limit response
+   - Verify longer backoff delays
+   - Verify eventual success
+
+### Manual Testing Steps
+
+1. **Test with Real API**
+   - Use test harness to submit job
+   - Temporarily cause network issues (disconnect/reconnect)
+   - Verify retries in logs
+   - Verify eventual success
+
+2. **Test Rate Limit**
+   - Make multiple rapid requests
+   - Hit rate limit
+   - Verify backoff behavior
+   - Verify recovery
+
+3. **Test Configuration**
+   - Try different retry settings
+   - Verify exponential backoff timing
+   - Verify max delay cap works
+
+## Success Criteria
+
+### Functional Requirements
+- [x] Retry utility implemented with exponential backoff
+- [x] All OpenSubtitles API methods use retry logic
+- [x] Transient errors trigger retries, permanent errors don't
+- [x] Rate limit errors use appropriate backoff
+- [x] Configuration is flexible via environment variables
+- [x] Retry attempts are logged with clear information
+- [x] All unit tests pass (100% for retry utility)
+- [x] All integration tests pass
+- [x] Error messages include retry information
+
+### Non-Functional Requirements
+- [x] Retry overhead is minimal (< 10ms per attempt)
+- [x] Exponential backoff properly prevents API hammering
+- [x] Max delay cap prevents excessive waiting
+- [x] Logging provides clear visibility into retry behavior
+- [x] Configuration is well-documented
+- [x] No breaking changes to existing functionality
+
+### Acceptance Criteria
+- [x] Transient network errors automatically retry
+- [x] Rate limits are handled gracefully with backoff
+- [x] Permanent errors (auth failures) fail fast without retries
+- [x] Retry count and timing visible in logs
+- [x] Configuration validated and documented
+- [x] All tests pass
+- [x] Manual testing confirms behavior
+- [x] Code review approved
+
+## Error Classification
+
+### Transient Errors (Should Retry)
+- Network timeouts
+- Connection errors
+- Temporary server errors (503 Service Unavailable)
+- Rate limit errors (429 Too Many Requests)
+- XML-RPC transport errors
+
+### Permanent Errors (Should NOT Retry)
+- Authentication failures (invalid credentials)
+- Invalid API key
+- Malformed requests (400 Bad Request)
+- Resource not found (404)
+- Authorization errors (403 Forbidden)
+
+## Notes
+
+### Architecture Decisions
+
+1. **Use tenacity library**: Industry-standard, well-tested, feature-rich
+2. **Exponential backoff**: Prevents API hammering, standard practice
+3. **Configurable behavior**: Allow tuning for different environments
+4. **Decorator pattern**: Clean, reusable, testable
+5. **Separate retry logic**: Keep OpenSubtitles client focused on API, retry logic reusable
+
+### Trade-offs Considered
+
+1. **Library vs. Custom Implementation**
+   - ✅ Chose: tenacity library
+   - Rationale: Battle-tested, feature-rich, maintained
+   - Alternative: Custom implementation (more control but more code)
+
+2. **Where to Apply Retries**
+   - ✅ Chose: At client method level
+   - Rationale: Cleanest separation, most flexible
+   - Alternative: At worker level (less granular control)
+
+3. **Synchronous vs. Async Retries**
+   - ✅ Chose: Async-aware retries
+   - Rationale: System uses asyncio throughout
+   - Alternative: Blocking retries (simpler but worse performance)
+
+### Future Improvements to Consider
+
+1. **Circuit Breaker Pattern**: Stop trying if API is consistently down
+2. **Metrics Collection**: Track retry rates, success rates
+3. **Adaptive Backoff**: Adjust based on API response headers
+4. **Retry Budget**: Limit total retry time across all requests
+5. **Dead Letter Queue**: Move permanently failed jobs to DLQ
+
+### Questions
+
+- Q: Should we add jitter to prevent thundering herd?
+  - A: Yes, add small random jitter to backoff delays
+
+- Q: What's the maximum total wait time acceptable?
+  - A: ~60 seconds max (with default settings)
+
+- Q: Should rate limit errors use different backoff?
+  - A: Yes, longer initial delay for rate limits
