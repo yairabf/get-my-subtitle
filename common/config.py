@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     )  # Legacy - not used, kept for backward compatibility
     opensubtitles_max_retries: int = Field(default=3, env="OPENSUBTITLES_MAX_RETRIES")
     opensubtitles_retry_delay: int = Field(default=1, env="OPENSUBTITLES_RETRY_DELAY")
+    opensubtitles_retry_max_delay: int = Field(
+        default=60, env="OPENSUBTITLES_RETRY_MAX_DELAY"
+    )  # Maximum backoff delay in seconds
+    opensubtitles_retry_exponential_base: int = Field(
+        default=2, env="OPENSUBTITLES_RETRY_EXPONENTIAL_BASE"
+    )  # Exponential base for backoff calculation
 
     # Translation Service (OpenAI GPT-5-nano)
     openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
