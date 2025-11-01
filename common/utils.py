@@ -256,3 +256,48 @@ class FileHashUtils:
         except Exception as e:
             logger.error(f"Unexpected error calculating hash for {file_path}: {e}")
             return None
+
+
+class PathUtils:
+    """Path manipulation utility functions."""
+
+    @staticmethod
+    def generate_subtitle_path_from_video(
+        video_path: str, language: str
+    ) -> Optional[Path]:
+        """
+        Generate subtitle file path based on video file location.
+
+        Args:
+            video_path: Path to the video file
+            language: Language code (e.g., 'en', 'es')
+
+        Returns:
+            Path object for subtitle file, or None if video_path is not a local file
+
+        Example:
+            >>> PathUtils.generate_subtitle_path_from_video(
+            ...     "/mnt/media/movies/matrix/matrix.mkv", "en"
+            ... )
+            Path('/mnt/media/movies/matrix/matrix.en.srt')
+        """
+        try:
+            video_file_path = Path(video_path)
+
+            # Check if it's a valid local file
+            if not video_file_path.exists() or not video_file_path.is_file():
+                return None
+
+            # Extract directory and basename (without extension)
+            video_dir = video_file_path.parent
+            video_stem = video_file_path.stem
+
+            # Generate subtitle filename: {basename}.{language}.srt
+            subtitle_filename = f"{video_stem}.{language}.srt"
+
+            # Return full path
+            return video_dir / subtitle_filename
+
+        except Exception as e:
+            logger.debug(f"Error generating subtitle path from video path: {e}")
+            return None

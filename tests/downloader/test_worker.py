@@ -113,45 +113,60 @@ class TestSubtitleMissingEventPublishing:
         """Test that SUBTITLE_READY is always published when subtitle is found, regardless of translation config."""
         request_id = uuid4()
 
-        mock_message = MagicMock()
-        mock_message.body = json.dumps(
-            {
-                "request_id": str(request_id),
-                "video_url": "https://example.com/video.mp4",
-                "video_title": "Test Video",
-                "language": "en",
-            }
-        ).encode()
-        mock_message.routing_key = "subtitle.download"
-        mock_message.exchange = ""
-        mock_message.message_id = "test-message-id"
-        mock_message.timestamp = None
+        # Create a temporary local video file
+        import tempfile
 
-        mock_search_results = [{"IDSubtitleFile": "123"}]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+            tmp_file.write(b"A" * (256 * 1024))  # 256KB file
+            video_url = tmp_file.name
 
-        with patch("downloader.worker.redis_client") as mock_redis:
-            mock_redis.update_phase = AsyncMock(return_value=True)
+        try:
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "video_url": video_url,
+                    "video_title": "Test Video",
+                    "language": "en",
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
 
-            with patch("downloader.worker.opensubtitles_client") as mock_client:
-                mock_client.search_subtitles = AsyncMock(
-                    return_value=mock_search_results
-                )
-                mock_client.download_subtitle = AsyncMock(
-                    return_value=Path("/tmp/subtitle.srt")
-                )
+            mock_search_results = [{"IDSubtitleFile": "123"}]
 
-                with patch("downloader.worker.event_publisher") as mock_publisher:
-                    mock_publisher.publish_event = AsyncMock()
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
 
-                    with patch("downloader.worker.settings") as mock_settings:
-                        # Test with translation disabled
-                        mock_settings.jellyfin_auto_translate = False
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
+                    # Mock both hash and query search methods
+                    mock_client.search_subtitles_by_hash = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.search_subtitles = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.download_subtitle = AsyncMock(
+                        return_value=Path("/tmp/subtitle.srt")
+                    )
 
-                        await process_message(mock_message)
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
 
-                        # Should still publish SUBTITLE_READY
-                        event_call = mock_publisher.publish_event.call_args[0][0]
-                        assert event_call.event_type == EventType.SUBTITLE_READY
+                        with patch("downloader.worker.settings") as mock_settings:
+                            # Test with translation disabled
+                            mock_settings.jellyfin_auto_translate = False
+
+                            await process_message(mock_message)
+
+                            # Should still publish SUBTITLE_READY
+                            event_call = mock_publisher.publish_event.call_args[0][0]
+                            assert event_call.event_type == EventType.SUBTITLE_READY
+        finally:
+            # Clean up temp file
+            Path(video_url).unlink(missing_ok=True)
 
 
 class TestDownloaderWorker:
@@ -162,60 +177,70 @@ class TestDownloaderWorker:
         """Test processing a message when subtitle is found."""
         request_id = uuid4()
 
-        # Create mock message
-        mock_message = MagicMock()
-        mock_message.body = json.dumps(
-            {
-                "request_id": str(request_id),
-                "video_url": "https://example.com/video.mp4",
-                "video_title": "Test Video",
-                "imdb_id": "tt1234567",
-                "language": "en",
-            }
-        ).encode()
-        mock_message.routing_key = "subtitle.download"
-        mock_message.exchange = ""
-        mock_message.message_id = "test-message-id"
-        mock_message.timestamp = None
+        # Create a temporary local video file
+        import tempfile
 
-        # Mock subtitle search results
-        mock_search_results = [
-            {
-                "id": "123",
-                "attributes": {
-                    "files": [{"file_id": 456}],
-                },
-            }
-        ]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+            tmp_file.write(b"A" * (256 * 1024))  # 256KB file
+            video_url = tmp_file.name
 
-        with patch("downloader.worker.redis_client") as mock_redis:
-            mock_redis.update_phase = AsyncMock(return_value=True)
+        try:
+            # Create mock message
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "video_url": video_url,
+                    "video_title": "Test Video",
+                    "imdb_id": "tt1234567",
+                    "language": "en",
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
 
-            with patch("downloader.worker.opensubtitles_client") as mock_client:
-                mock_client.search_subtitles = AsyncMock(
-                    return_value=mock_search_results
-                )
-                mock_client.download_subtitle = AsyncMock(
-                    return_value=Path("/tmp/subtitle.srt")
-                )
-                mock_client.auth_method = "rest"
+            # Mock subtitle search results
+            mock_search_results = [
+                {
+                    "IDSubtitleFile": "123",
+                    "SubFileName": "test.srt",
+                    "LanguageName": "English",
+                }
+            ]
 
-                with patch("downloader.worker.event_publisher") as mock_publisher:
-                    mock_publisher.publish_event = AsyncMock()
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
 
-                    await process_message(mock_message)
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
+                    # Mock both hash and query search methods
+                    mock_client.search_subtitles_by_hash = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.search_subtitles = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.download_subtitle = AsyncMock(
+                        return_value=Path("/tmp/subtitle.srt")
+                    )
 
-                    # Verify subtitle was searched
-                    mock_client.search_subtitles.assert_called_once()
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
 
-                    # Verify subtitle was downloaded
-                    mock_client.download_subtitle.assert_called_once()
+                        await process_message(mock_message)
 
-                    # Verify SUBTITLE_READY event was published
-                    mock_publisher.publish_event.assert_called_once()
-                    event_call = mock_publisher.publish_event.call_args[0][0]
-                    assert event_call.event_type == EventType.SUBTITLE_READY
-                    assert event_call.job_id == request_id
+                        # Verify subtitle was downloaded
+                        mock_client.download_subtitle.assert_called_once()
+
+                        # Verify SUBTITLE_READY event was published
+                        mock_publisher.publish_event.assert_called_once()
+                        event_call = mock_publisher.publish_event.call_args[0][0]
+                        assert event_call.event_type == EventType.SUBTITLE_READY
+                        assert event_call.job_id == request_id
+        finally:
+            # Clean up temp file
+            Path(video_url).unlink(missing_ok=True)
 
     @pytest.mark.asyncio
     async def test_process_message_subtitle_not_found(self):
@@ -586,11 +611,23 @@ class TestWorkerHashSearchFallback:
                     await process_message(mock_message)
 
                     # Verify hash search was NOT called (remote URL)
-                    mock_client.search_subtitles_by_hash.assert_not_called()
+                    if hasattr(mock_client, 'search_subtitles_by_hash'):
+                        mock_client.search_subtitles_by_hash.assert_not_called()
                     # Verify query search was called
                     mock_client.search_subtitles.assert_called_once()
-                    # Verify subtitle was downloaded
-                    mock_client.download_subtitle.assert_called_once()
+                    # Verify subtitle was NOT downloaded (remote URL not supported)
+                    mock_client.download_subtitle.assert_not_called()
+                    
+                    # Verify JOB_FAILED event was published
+                    events = [
+                        call[0][0]
+                        for call in mock_publisher.publish_event.call_args_list
+                    ]
+                    failed_events = [
+                        e for e in events if e.event_type == EventType.JOB_FAILED
+                    ]
+                    assert len(failed_events) == 1
+                    assert "video is not a local file" in failed_events[0].payload["error_message"]
 
     @pytest.mark.asyncio
     async def test_process_message_hash_calculation_failure(self):
@@ -630,10 +667,22 @@ class TestWorkerHashSearchFallback:
 
                     await process_message(mock_message)
 
-                    # Hash calculation fails, should skip to query search
-                    mock_client.search_subtitles_by_hash.assert_not_called()
+                    # Hash calculation fails (file doesn't exist), should skip to query search
+                    if hasattr(mock_client, 'search_subtitles_by_hash'):
+                        mock_client.search_subtitles_by_hash.assert_not_called()
                     mock_client.search_subtitles.assert_called_once()
-                    mock_client.download_subtitle.assert_called_once()
+                    # Should NOT download subtitle (file doesn't exist - not a valid local file)
+                    mock_client.download_subtitle.assert_not_called()
+                    
+                    # Verify JOB_FAILED event was published
+                    events = [
+                        call[0][0]
+                        for call in mock_publisher.publish_event.call_args_list
+                    ]
+                    failed_events = [
+                        e for e in events if e.event_type == EventType.JOB_FAILED
+                    ]
+                    assert len(failed_events) == 1
 
     @pytest.mark.asyncio
     async def test_process_message_local_file_not_accessible(self):
@@ -688,54 +737,65 @@ class TestWorkerIntegration:
         """Test complete flow: search, download, and event publishing."""
         request_id = uuid4()
 
-        mock_message = MagicMock()
-        mock_message.body = json.dumps(
-            {
-                "request_id": str(request_id),
-                "video_url": "https://example.com/video.mp4",
-                "video_title": "Test Video",
-                "imdb_id": "tt1234567",
-                "language": "en",
-            }
-        ).encode()
-        mock_message.routing_key = "subtitle.download"
-        mock_message.exchange = ""
-        mock_message.message_id = "test-message-id"
-        mock_message.timestamp = None
+        # Create a temporary local video file
+        import tempfile
 
-        # Mock subtitle found and downloaded
-        mock_search_results = [
-            {"id": "123", "attributes": {"files": [{"file_id": 456}]}}
-        ]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+            tmp_file.write(b"A" * (256 * 1024))  # 256KB file
+            video_url = tmp_file.name
 
-        with patch("downloader.worker.redis_client") as mock_redis:
-            mock_redis.update_phase = AsyncMock(return_value=True)
+        try:
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "video_url": video_url,
+                    "video_title": "Test Video",
+                    "imdb_id": "tt1234567",
+                    "language": "en",
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
 
-            with patch("downloader.worker.opensubtitles_client") as mock_client:
-                mock_client.search_subtitles = AsyncMock(
-                    return_value=mock_search_results
-                )
-                mock_client.download_subtitle = AsyncMock(
-                    return_value=Path("/tmp/subtitle.srt")
-                )
-                mock_client.auth_method = "rest"
+            # Mock subtitle found and downloaded
+            mock_search_results = [
+                {"IDSubtitleFile": "123"}
+            ]
 
-                with patch("downloader.worker.event_publisher") as mock_publisher:
-                    mock_publisher.publish_event = AsyncMock()
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
 
-                    await process_message(mock_message)
-
-                    # Verify complete flow
-                    mock_redis.update_phase.assert_called_with(
-                        request_id,
-                        SubtitleStatus.DOWNLOAD_IN_PROGRESS,
-                        source="downloader",
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
+                    # Mock both hash and query search methods
+                    mock_client.search_subtitles_by_hash = AsyncMock(
+                        return_value=mock_search_results
                     )
-                    mock_client.search_subtitles.assert_called_once_with(
-                        imdb_id="tt1234567", query="Test Video", languages=["en"]
+                    mock_client.search_subtitles = AsyncMock(
+                        return_value=mock_search_results
                     )
-                    mock_client.download_subtitle.assert_called_once()
-                    mock_publisher.publish_event.assert_called_once()
+                    mock_client.download_subtitle = AsyncMock(
+                        return_value=Path("/tmp/subtitle.srt")
+                    )
+
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
+
+                        await process_message(mock_message)
+
+                        # Verify complete flow
+                        mock_redis.update_phase.assert_called_with(
+                            request_id,
+                            SubtitleStatus.DOWNLOAD_IN_PROGRESS,
+                            source="downloader",
+                        )
+                        mock_client.download_subtitle.assert_called_once()
+                        mock_publisher.publish_event.assert_called_once()
+        finally:
+            # Clean up temp file
+            Path(video_url).unlink(missing_ok=True)
 
     @pytest.mark.asyncio
     async def test_worker_handles_missing_video_metadata(self):
@@ -770,3 +830,301 @@ class TestWorkerIntegration:
                     mock_client.search_subtitles.assert_called_once_with(
                         imdb_id=None, query=None, languages=["en"]
                     )
+
+
+class TestSubtitleSaveLocation:
+    """Test subtitle save location based on video path."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "video_type,expected_behavior",
+        [
+            ("local_file", "save_to_video_dir"),
+            ("remote_url", "publish_failed_event"),
+            ("nonexistent_local", "publish_failed_event"),
+        ],
+    )
+    async def test_subtitle_save_location_based_on_video_type(
+        self, video_type, expected_behavior
+    ):
+        """Test that subtitle save behavior is correct for different video path types."""
+        request_id = uuid4()
+        language = "en"
+
+        # Setup video_url based on test case
+        if video_type == "local_file":
+            # Create a temporary video file
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix=".mkv"
+            ) as tmp_file:
+                tmp_file.write(b"A" * (256 * 1024))  # 256KB file
+                video_url = tmp_file.name
+        elif video_type == "remote_url":
+            video_url = "http://jellyfin.local/videos/abc123"
+        else:  # nonexistent_local
+            video_url = "/path/to/nonexistent/video.mkv"
+
+        try:
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "video_url": video_url,
+                    "video_title": "Test Video",
+                    "language": language,
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
+
+            mock_search_results = [{"IDSubtitleFile": "123"}]
+
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
+
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
+                    # Mock both hash and query search methods
+                    mock_client.search_subtitles_by_hash = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.search_subtitles = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.download_subtitle = AsyncMock(
+                        return_value=Path("/fake/subtitle.srt")
+                    )
+
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
+
+                        await process_message(mock_message)
+
+                        if expected_behavior == "save_to_video_dir":
+                            # Should attempt to download with custom output_path
+                            mock_client.download_subtitle.assert_called_once()
+                            call_kwargs = mock_client.download_subtitle.call_args[1]
+                            assert "output_path" in call_kwargs
+                            assert call_kwargs["output_path"] is not None
+
+                            # Should publish SUBTITLE_READY event
+                            events = [
+                                call[0][0]
+                                for call in mock_publisher.publish_event.call_args_list
+                            ]
+                            subtitle_ready_events = [
+                                e
+                                for e in events
+                                if e.event_type == EventType.SUBTITLE_READY
+                            ]
+                            assert len(subtitle_ready_events) == 1
+
+                        elif expected_behavior == "publish_failed_event":
+                            # Should NOT attempt to download
+                            mock_client.download_subtitle.assert_not_called()
+
+                            # Should publish JOB_FAILED event
+                            events = [
+                                call[0][0]
+                                for call in mock_publisher.publish_event.call_args_list
+                            ]
+                            failed_events = [
+                                e
+                                for e in events
+                                if e.event_type == EventType.JOB_FAILED
+                            ]
+                            assert len(failed_events) == 1
+                            assert (
+                                "video is not a local file"
+                                in failed_events[0].payload["error_message"]
+                            )
+
+        finally:
+            # Clean up temp file if created
+            if video_type == "local_file":
+                Path(video_url).unlink(missing_ok=True)
+
+    @pytest.mark.asyncio
+    async def test_subtitle_filename_includes_language_code(self):
+        """Test that generated subtitle filename includes language code."""
+        request_id = uuid4()
+        language = "es"
+
+        # Create a temporary video file named "movie.mkv"
+        import tempfile
+
+        tmpdir = tempfile.mkdtemp()
+        video_path = Path(tmpdir) / "movie.mkv"
+        video_path.write_bytes(b"A" * (256 * 1024))
+
+        try:
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "video_url": str(video_path),
+                    "video_title": "Test Movie",
+                    "language": language,
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
+
+            mock_search_results = [{"IDSubtitleFile": "456"}]
+
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
+
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
+                    # Mock both hash and query search methods
+                    mock_client.search_subtitles_by_hash = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.search_subtitles = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.download_subtitle = AsyncMock(
+                        return_value=Path("/fake/subtitle.srt")
+                    )
+
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
+
+                        await process_message(mock_message)
+
+                        # Verify download_subtitle was called with correct output_path
+                        mock_client.download_subtitle.assert_called_once()
+                        call_kwargs = mock_client.download_subtitle.call_args[1]
+                        output_path = call_kwargs["output_path"]
+
+                        # Verify filename format: movie.es.srt
+                        assert output_path.name == f"movie.{language}.srt"
+                        assert output_path.parent == video_path.parent
+
+        finally:
+            # Clean up
+            video_path.unlink(missing_ok=True)
+            Path(tmpdir).rmdir()
+
+    @pytest.mark.asyncio
+    async def test_subtitle_saved_in_same_directory_as_video(self):
+        """Test that subtitle path is in the same directory as video file."""
+        request_id = uuid4()
+
+        # Create nested directory structure like in requirements
+        import tempfile
+
+        tmpdir = tempfile.mkdtemp()
+        video_dir = Path(tmpdir) / "media" / "movies" / "matrix"
+        video_dir.mkdir(parents=True)
+        video_path = video_dir / "matrix.mkv"
+        video_path.write_bytes(b"A" * (256 * 1024))
+
+        try:
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "video_url": str(video_path),
+                    "video_title": "The Matrix",
+                    "language": "en",
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
+
+            mock_search_results = [{"IDSubtitleFile": "789"}]
+
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
+
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
+                    # Mock both hash and query search methods
+                    mock_client.search_subtitles_by_hash = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.search_subtitles = AsyncMock(
+                        return_value=mock_search_results
+                    )
+                    mock_client.download_subtitle = AsyncMock(
+                        return_value=Path("/fake/subtitle.srt")
+                    )
+
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
+
+                        await process_message(mock_message)
+
+                        # Verify download_subtitle was called with correct directory
+                        mock_client.download_subtitle.assert_called_once()
+                        call_kwargs = mock_client.download_subtitle.call_args[1]
+                        output_path = call_kwargs["output_path"]
+
+                        # Verify path structure
+                        assert output_path.parent == video_dir
+                        assert output_path == video_dir / "matrix.en.srt"
+
+        finally:
+            # Clean up
+            video_path.unlink(missing_ok=True)
+            import shutil
+
+            shutil.rmtree(tmpdir)
+
+    @pytest.mark.asyncio
+    async def test_error_message_for_remote_url_is_clear(self):
+        """Test that error message for remote URLs is clear and informative."""
+        request_id = uuid4()
+        video_url = "http://server.local/stream/video.mp4"
+
+        mock_message = MagicMock()
+        mock_message.body = json.dumps(
+            {
+                "request_id": str(request_id),
+                "video_url": video_url,
+                "video_title": "Test Video",
+                "language": "en",
+            }
+        ).encode()
+        mock_message.routing_key = "subtitle.download"
+        mock_message.exchange = ""
+        mock_message.message_id = "test-message-id"
+        mock_message.timestamp = None
+
+        mock_search_results = [{"IDSubtitleFile": "123"}]
+
+        with patch("downloader.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+
+            with patch("downloader.worker.opensubtitles_client") as mock_client:
+                mock_client.search_subtitles = AsyncMock(
+                    return_value=mock_search_results
+                )
+
+                with patch("downloader.worker.event_publisher") as mock_publisher:
+                    mock_publisher.publish_event = AsyncMock()
+
+                    await process_message(mock_message)
+
+                    # Verify JOB_FAILED event with clear error
+                    events = [
+                        call[0][0]
+                        for call in mock_publisher.publish_event.call_args_list
+                    ]
+                    failed_events = [
+                        e for e in events if e.event_type == EventType.JOB_FAILED
+                    ]
+                    assert len(failed_events) == 1
+
+                    error_payload = failed_events[0].payload
+                    assert "error_message" in error_payload
+                    assert "video is not a local file" in error_payload["error_message"]
+                    assert error_payload["error_type"] == "invalid_video_path"
+                    assert error_payload["video_url"] == video_url

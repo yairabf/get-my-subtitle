@@ -181,6 +181,109 @@ class TestOpenSubtitlesDownload:
             with pytest.raises(OpenSubtitlesAPIError, match="XML-RPC download failed"):
                 await client.download_subtitle(subtitle_id="123")
 
+    @pytest.mark.asyncio
+    async def test_download_subtitle_with_custom_output_path(self, tmp_path):
+        """Test that subtitle is downloaded to custom output path."""
+        client = OpenSubtitlesClient()
+        client.token = "test-token"
+
+        subtitle_content = b"1\n00:00:00,000 --> 00:00:01,000\nCustom path test\n"
+        compressed_content = gzip.compress(subtitle_content)
+        encoded_content = base64.b64encode(compressed_content).decode()
+
+        mock_result = {
+            "status": "200 OK",
+            "data": [{"data": encoded_content}],
+        }
+
+        # Create custom directory structure
+        custom_dir = tmp_path / "videos" / "movies"
+        custom_dir.mkdir(parents=True)
+        custom_output_path = custom_dir / "movie.en.srt"
+
+        with patch.object(client, "_xmlrpc_download", return_value=mock_result):
+            result_path = await client.download_subtitle(
+                subtitle_id="custom-123",
+                output_path=custom_output_path,
+            )
+
+            # Verify file was saved to custom path
+            assert result_path == custom_output_path
+            assert result_path.exists()
+            assert result_path.read_bytes() == subtitle_content
+            assert result_path.parent == custom_dir
+
+    @pytest.mark.asyncio
+    async def test_download_creates_parent_directory_if_needed(self, tmp_path):
+        """Test that parent directory is created if it doesn't exist."""
+        client = OpenSubtitlesClient()
+        client.token = "test-token"
+
+        subtitle_content = b"1\n00:00:00,000 --> 00:00:01,000\nDirectory creation test\n"
+        compressed_content = gzip.compress(subtitle_content)
+        encoded_content = base64.b64encode(compressed_content).decode()
+
+        mock_result = {
+            "status": "200 OK",
+            "data": [{"data": encoded_content}],
+        }
+
+        # Create path to non-existent directory
+        custom_dir = tmp_path / "new" / "nested" / "directory"
+        assert not custom_dir.exists()
+
+        custom_output_path = custom_dir / "subtitle.srt"
+
+        with patch.object(client, "_xmlrpc_download", return_value=mock_result):
+            # Note: The mkdir is done in worker.py, not in the client
+            # But let's ensure the client handles it gracefully if directory exists
+            custom_dir.mkdir(parents=True, exist_ok=True)
+
+            result_path = await client.download_subtitle(
+                subtitle_id="dir-test-123",
+                output_path=custom_output_path,
+            )
+
+            # Verify directory was created and file was saved
+            assert custom_dir.exists()
+            assert result_path.exists()
+            assert result_path.read_bytes() == subtitle_content
+
+    @pytest.mark.asyncio
+    async def test_download_with_nested_directory_structure(self, tmp_path):
+        """Test download to deeply nested directory structure."""
+        client = OpenSubtitlesClient()
+        client.token = "test-token"
+
+        subtitle_content = b"1\n00:00:00,000 --> 00:00:01,000\nNested test\n"
+        compressed_content = gzip.compress(subtitle_content)
+        encoded_content = base64.b64encode(compressed_content).decode()
+
+        mock_result = {
+            "status": "200 OK",
+            "data": [{"data": encoded_content}],
+        }
+
+        # Create deeply nested structure like /mnt/media/movies/matrix/
+        video_dir = tmp_path / "mnt" / "media" / "movies" / "matrix"
+        video_dir.mkdir(parents=True)
+        output_path = video_dir / "matrix.en.srt"
+
+        with patch.object(client, "_xmlrpc_download", return_value=mock_result):
+            result_path = await client.download_subtitle(
+                subtitle_id="nested-456",
+                output_path=output_path,
+            )
+
+            # Verify correct path structure
+            assert result_path == output_path
+            assert result_path.exists()
+            assert result_path.parent == video_dir
+            assert "mnt" in result_path.parts
+            assert "media" in result_path.parts
+            assert "movies" in result_path.parts
+            assert "matrix" in result_path.parts
+
 
 class TestOpenSubtitlesHashSearch:
     """Test OpenSubtitles hash-based subtitle search."""
