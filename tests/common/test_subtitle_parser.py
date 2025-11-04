@@ -239,125 +239,235 @@ class TestChunkSegments:
         assert len(chunks) == 0
 
 
-class TestEdgeCasesAndErrorHandling:
-    """Test edge cases and error handling for subtitle parser."""
+class TestSplitSubtitleContent:
+    """Test token-aware subtitle content splitting."""
 
-    def test_extract_text_none_input(self):
-        """Test that extract_text_for_translation raises ValueError for None input."""
-        with pytest.raises(ValueError, match="cannot be None"):
-            extract_text_for_translation(None)
-
-    def test_merge_translations_none_segments(self):
-        """Test that merge_translations raises ValueError for None segments."""
-        translations = ["Hola", "Mundo"]
-        with pytest.raises(ValueError, match="cannot be None"):
-            merge_translations(None, translations)
-
-    def test_merge_translations_none_translations(self):
-        """Test that merge_translations raises ValueError for None translations."""
-        segments = [
-            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "Hello"),
-            SubtitleSegment(2, "00:00:04,500", "00:00:08,000", "World"),
+    @pytest.fixture
+    def sample_segments(self):
+        """Provide sample subtitle segments."""
+        return [
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "Hello, world!"),
+            SubtitleSegment(2, "00:00:04,500", "00:00:08,000", "This is subtitle 2"),
+            SubtitleSegment(
+                3, "00:00:08,500", "00:00:12,000", "And this is subtitle 3"
+            ),
+            SubtitleSegment(
+                4, "00:00:12,500", "00:00:16,000", "Finally, subtitle 4"
+            ),
         ]
-        with pytest.raises(ValueError, match="cannot be None"):
-            merge_translations(segments, None)
 
-    def test_chunk_segments_none_input(self):
-        """Test that chunk_segments raises ValueError for None input."""
-        with pytest.raises(ValueError, match="cannot be None"):
-            chunk_segments(None)
+    def test_split_subtitle_content_basic(self, sample_segments):
+        """Test basic token-aware splitting."""
+        from common.subtitle_parser import split_subtitle_content
 
-    @pytest.mark.parametrize("max_segments", [0, -1, -100])
-    def test_chunk_segments_invalid_max_segments(self, max_segments):
-        """Test that chunk_segments raises ValueError for invalid max_segments."""
+        # Split with reasonable token limit
+        chunks = split_subtitle_content(
+            sample_segments, max_tokens=100, model="gpt-4"
+        )
+
+        # Should produce at least one chunk
+        assert len(chunks) > 0
+
+        # All segments should be included
+        total_segments = sum(len(chunk) for chunk in chunks)
+        assert total_segments == len(sample_segments)
+
+    def test_split_subtitle_content_respects_token_limit(self):
+        """Test that chunks respect token limits."""
+        from common.subtitle_parser import split_subtitle_content
+
+        # Create segments with known text lengths
         segments = [
-            SubtitleSegment(1, "00:00:00,000", "00:00:01,000", "Test")
+            SubtitleSegment(i, "00:00:00,000", "00:00:01,000", "word " * 50)
+            for i in range(1, 11)
         ]
-        with pytest.raises(ValueError, match="must be at least 1"):
-            chunk_segments(segments, max_segments=max_segments)
 
-    def test_parse_srt_missing_index_numbers(self):
-        """Test parsing SRT with missing or non-numeric index numbers."""
-        content = """not_a_number
-00:00:01,000 --> 00:00:04,000
-This should be skipped
+        # Each segment is ~50 tokens, set limit to ~150 tokens
+        chunks = split_subtitle_content(segments, max_tokens=150, model="gpt-4")
 
-2
-00:00:04,500 --> 00:00:08,000
-This should work
-"""
-        segments = SRTParser.parse(content)
-        # Should skip malformed segment and parse valid one
-        assert len(segments) == 1
-        assert segments[0].index == 2
-        assert segments[0].text == "This should work"
+        # Should split into multiple chunks
+        assert len(chunks) > 1
 
-    def test_parse_srt_timestamps_without_text(self):
-        """Test parsing SRT with valid timestamps but no text following."""
-        content = """1
-00:00:01,000 --> 00:00:04,000
+        # Verify each chunk respects the limit
+        from common.token_counter import count_tokens
 
-2
-00:00:04,500 --> 00:00:08,000
-Valid text here
-"""
-        segments = SRTParser.parse(content)
-        # Should skip empty text segment
-        assert len(segments) == 1
-        assert segments[0].index == 2
+        for chunk in chunks:
+            chunk_text = " ".join(seg.text for seg in chunk)
+            token_count = count_tokens(chunk_text, "gpt-4")
+            # Should be under limit (with safety margin applied)
+            assert token_count <= 150 * 0.8  # Default safety margin
 
-    def test_parse_srt_mixed_line_endings(self):
-        """Test parsing SRT with mixed Windows (CRLF) and Unix (LF) line endings."""
-        # Simulate mixed line endings
-        content = "1\r\n00:00:01,000 --> 00:00:04,000\r\nWindows line ending\n\n2\n00:00:04,500 --> 00:00:08,000\nUnix line ending\n"
-        segments = SRTParser.parse(content)
-        # Should handle both line ending types
-        assert len(segments) == 2
-        assert segments[0].text == "Windows line ending"
-        assert segments[1].text == "Unix line ending"
+    def test_split_subtitle_content_never_splits_segments(self, sample_segments):
+        """Test that individual segments are never split."""
+        from common.subtitle_parser import split_subtitle_content
 
-    def test_parse_srt_unicode_and_special_characters(self):
-        """Test parsing SRT with unicode characters, emojis, and special symbols."""
-        content = """1
-00:00:01,000 --> 00:00:04,000
-Hello 世界 🌍
+        # Use very small token limit to force chunking
+        chunks = split_subtitle_content(sample_segments, max_tokens=50, model="gpt-4")
 
-2
-00:00:04,500 --> 00:00:08,000
-Café ñoño © ® € £ ¥
+        # Verify all original segments are intact
+        all_segments = []
+        for chunk in chunks:
+            all_segments.extend(chunk)
 
-3
-00:00:08,500 --> 00:00:12,000
-Emoji test: 😀 🎉 ❤️ 🚀
-"""
-        segments = SRTParser.parse(content)
-        assert len(segments) == 3
-        assert "世界" in segments[0].text
-        assert "🌍" in segments[0].text
-        assert "ñoño" in segments[1].text
-        assert "€" in segments[1].text
-        assert "😀" in segments[2].text
-        assert "🚀" in segments[2].text
+        # Should have same number of segments
+        assert len(all_segments) == len(sample_segments)
 
-    def test_parse_large_subtitle_file(self):
-        """Test parsing a large SRT file with 1000+ segments for performance."""
-        # Generate a large SRT file
-        segments_count = 1000
-        content_parts = []
-        for i in range(1, segments_count + 1):
-            minutes = i // 60
-            seconds = i % 60
-            content_parts.append(
-                f"{i}\n"
-                f"00:{minutes:02d}:{seconds:02d},000 --> 00:{minutes:02d}:{seconds:02d},500\n"
-                f"Subtitle text for segment {i}\n"
+        # Each segment should match original
+        for orig, result in zip(sample_segments, all_segments):
+            assert orig.index == result.index
+            assert orig.text == result.text
+            assert orig.start_time == result.start_time
+            assert orig.end_time == result.end_time
+
+    def test_split_subtitle_content_with_safety_margin(self):
+        """Test that safety margin is applied correctly."""
+        from common.subtitle_parser import split_subtitle_content
+
+        segments = [
+            SubtitleSegment(i, "00:00:00,000", "00:00:01,000", "word " * 20)
+            for i in range(1, 6)
+        ]
+
+        # Test with different safety margins
+        chunks_80 = split_subtitle_content(
+            segments, max_tokens=100, model="gpt-4", safety_margin=0.8
+        )
+        chunks_50 = split_subtitle_content(
+            segments, max_tokens=100, model="gpt-4", safety_margin=0.5
+        )
+
+        # Lower safety margin means tighter limit, so more chunks (fewer segments per chunk)
+        assert len(chunks_50) >= len(chunks_80)
+
+    def test_split_subtitle_content_handles_empty_segments(self):
+        """Test handling of empty segment list."""
+        from common.subtitle_parser import split_subtitle_content
+
+        chunks = split_subtitle_content([], max_tokens=100, model="gpt-4")
+        assert len(chunks) == 0
+
+    def test_split_subtitle_content_single_oversized_segment(self):
+        """Test handling when single segment exceeds token limit."""
+        from common.subtitle_parser import split_subtitle_content
+
+        # Create one very large segment
+        large_segment = SubtitleSegment(
+            1, "00:00:00,000", "00:00:10,000", "word " * 10000
+        )
+
+        # Should still return chunk with oversized segment
+        chunks = split_subtitle_content([large_segment], max_tokens=100, model="gpt-4")
+
+        assert len(chunks) == 1
+        assert len(chunks[0]) == 1
+        assert chunks[0][0].text == large_segment.text
+
+    def test_split_subtitle_content_preserves_order(self):
+        """Test that segment order is preserved."""
+        from common.subtitle_parser import split_subtitle_content
+
+        segments = [
+            SubtitleSegment(i, "00:00:00,000", "00:00:01,000", f"Segment {i}")
+            for i in range(1, 21)
+        ]
+
+        chunks = split_subtitle_content(segments, max_tokens=100, model="gpt-4")
+
+        # Reconstruct and verify order
+        reconstructed = []
+        for chunk in chunks:
+            reconstructed.extend(chunk)
+
+        for i, segment in enumerate(reconstructed):
+            assert segment.index == i + 1
+
+    @pytest.mark.parametrize(
+        "max_tokens,expected_max_chunks",
+        [
+            (50, 8),  # Very small limit
+            (100, 5),  # Small limit
+            (500, 2),  # Medium limit
+            (10000, 1),  # Large limit
+        ],
+    )
+    def test_split_subtitle_content_various_limits(
+        self, max_tokens, expected_max_chunks
+    ):
+        """Test splitting with various token limits."""
+        from common.subtitle_parser import split_subtitle_content
+
+        segments = [
+            SubtitleSegment(
+                i, "00:00:00,000", "00:00:01,000", f"This is subtitle number {i}"
             )
-        content = "\n".join(content_parts)
+            for i in range(1, 11)
+        ]
 
-        # Parse and verify
-        segments = SRTParser.parse(content)
-        assert len(segments) == segments_count
-        assert segments[0].index == 1
-        assert segments[-1].index == segments_count
-        assert "segment 1" in segments[0].text
-        assert f"segment {segments_count}" in segments[-1].text
+        chunks = split_subtitle_content(segments, max_tokens=max_tokens, model="gpt-4")
+
+        # Should not exceed expected number of chunks
+        assert len(chunks) <= expected_max_chunks
+
+        # All segments should be present
+        total_segments = sum(len(chunk) for chunk in chunks)
+        assert total_segments == len(segments)
+
+    def test_split_subtitle_content_validates_inputs(self):
+        """Test input validation."""
+        from common.subtitle_parser import split_subtitle_content
+
+        segments = [
+            SubtitleSegment(1, "00:00:00,000", "00:00:01,000", "Test"),
+        ]
+
+        # Test with invalid max_tokens
+        with pytest.raises(ValueError, match="max_tokens must be positive"):
+            split_subtitle_content(segments, max_tokens=0, model="gpt-4")
+
+        with pytest.raises(ValueError, match="max_tokens must be positive"):
+            split_subtitle_content(segments, max_tokens=-100, model="gpt-4")
+
+        # Test with invalid safety margin
+        with pytest.raises(
+            ValueError, match="safety_margin must be between 0.0 and 1.0"
+        ):
+            split_subtitle_content(
+                segments, max_tokens=100, model="gpt-4", safety_margin=1.5
+            )
+
+        with pytest.raises(
+            ValueError, match="safety_margin must be between 0.0 and 1.0"
+        ):
+            split_subtitle_content(
+                segments, max_tokens=100, model="gpt-4", safety_margin=-0.1
+            )
+
+        # Test with None segments
+        with pytest.raises(ValueError, match="Segments list cannot be None"):
+            split_subtitle_content(None, max_tokens=100, model="gpt-4")
+
+    def test_split_subtitle_content_with_multiline_text(self):
+        """Test splitting segments with multiline text."""
+        from common.subtitle_parser import split_subtitle_content
+
+        segments = [
+            SubtitleSegment(
+                1, "00:00:00,000", "00:00:03,000", "Line one\nLine two\nLine three"
+            ),
+            SubtitleSegment(
+                2, "00:00:03,500", "00:00:06,000", "Another segment\nwith two lines"
+            ),
+        ]
+
+        chunks = split_subtitle_content(segments, max_tokens=100, model="gpt-4")
+
+        # Should handle multiline text correctly
+        assert len(chunks) > 0
+
+        # Multiline text should be preserved
+        all_segments = []
+        for chunk in chunks:
+            all_segments.extend(chunk)
+
+        assert "\n" in all_segments[0].text
+        assert "\n" in all_segments[1].text

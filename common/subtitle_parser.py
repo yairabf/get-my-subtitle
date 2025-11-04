@@ -201,3 +201,100 @@ def chunk_segments(
 
     logger.info(f"Split {len(segments)} segments into {len(chunks)} chunks")
     return chunks
+
+
+def split_subtitle_content(
+    segments: List[SubtitleSegment],
+    max_tokens: int,
+    model: str = "gpt-4",
+    safety_margin: float = 0.8,
+) -> List[List[SubtitleSegment]]:
+    """
+    Split subtitle segments into token-safe chunks.
+
+    This function splits segments based on token count rather than segment count,
+    ensuring that translation requests stay within model token limits. Individual
+    subtitle segments are never split across chunks.
+
+    Args:
+        segments: List of subtitle segments to split
+        max_tokens: Maximum tokens per chunk
+        model: Model name for token counting (default: 'gpt-4')
+        safety_margin: Safety margin as fraction of max_tokens (default: 0.8)
+                      Example: 0.8 means use 80% of token limit
+
+    Returns:
+        List of segment chunks, each respecting token limits
+
+    Raises:
+        ValueError: If segments is None, max_tokens <= 0, or safety_margin invalid
+    """
+    from common.token_counter import count_tokens
+
+    # Validate inputs
+    if segments is None:
+        raise ValueError("Segments list cannot be None")
+
+    if max_tokens <= 0:
+        raise ValueError(f"max_tokens must be positive, got {max_tokens}")
+
+    if not (0.0 < safety_margin <= 1.0):
+        raise ValueError(
+            f"safety_margin must be between 0.0 and 1.0, got {safety_margin}"
+        )
+
+    if not segments:
+        return []
+
+    # Calculate effective token limit with safety margin
+    effective_limit = int(max_tokens * safety_margin)
+
+    chunks = []
+    current_chunk = []
+    current_token_count = 0
+
+    for segment in segments:
+        # Count tokens for this segment
+        segment_tokens = count_tokens(segment.text, model)
+
+        # Check if adding this segment would exceed limit
+        would_exceed_limit = (
+            current_token_count + segment_tokens > effective_limit
+            and len(current_chunk) > 0
+        )
+
+        if would_exceed_limit:
+            # Start new chunk
+            chunks.append(current_chunk)
+            logger.debug(
+                f"Created chunk with {len(current_chunk)} segments, "
+                f"~{current_token_count} tokens"
+            )
+            current_chunk = [segment]
+            current_token_count = segment_tokens
+        else:
+            # Add to current chunk
+            current_chunk.append(segment)
+            current_token_count += segment_tokens
+
+        # Warn if single segment exceeds limit
+        if segment_tokens > effective_limit:
+            logger.warning(
+                f"Segment {segment.index} has {segment_tokens} tokens, "
+                f"exceeds limit of {effective_limit}. Including anyway."
+            )
+
+    # Add final chunk
+    if current_chunk:
+        chunks.append(current_chunk)
+        logger.debug(
+            f"Created final chunk with {len(current_chunk)} segments, "
+            f"~{current_token_count} tokens"
+        )
+
+    logger.info(
+        f"Split {len(segments)} segments into {len(chunks)} token-aware chunks "
+        f"(limit: {effective_limit} tokens)"
+    )
+
+    return chunks

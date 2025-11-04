@@ -27,6 +27,7 @@ from common.subtitle_parser import (
     chunk_segments,
     extract_text_for_translation,
     merge_translations,
+    split_subtitle_content,
 )
 from common.utils import DateTimeUtils
 
@@ -259,8 +260,13 @@ Let's get started!
 
         logger.info(f"Parsed {len(segments)} subtitle segments")
 
-        # Split into chunks for API limits
-        chunks = chunk_segments(segments, max_segments=DEFAULT_MAX_SEGMENTS_PER_CHUNK)
+        # Split into token-aware chunks for API limits
+        chunks = split_subtitle_content(
+            segments,
+            max_tokens=settings.translation_max_tokens_per_chunk,
+            model=settings.openai_model,
+            safety_margin=settings.translation_token_safety_margin,
+        )
 
         all_translated_segments = []
 

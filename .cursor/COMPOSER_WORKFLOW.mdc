@@ -3,11 +3,15 @@ alwaysApply: true
 ---
 # Composer/Plan Mode Workflow - Setup Complete ✅
 
-## What Was Implemented
+# New Feature Plan Workflow
+
+When you (the agent) receive a request to **create a plan for a new feature** via Plan Mode, you must follow this workflow:
+
+1. ## What Was Implemented
 
 A complete task documentation system for Composer/Plan Mode that automatically creates structured documentation for every feature you develop.
 
-## Directory Structure Created
+2. ## Directory Structure Created
 
 ```
 .cursor/
@@ -17,11 +21,11 @@ A complete task documentation system for Composer/Plan Mode that automatically c
 │   ├── QUICK_REFERENCE.md             # ✅ Quick start guide
 │   └── _example-epic/                 # ✅ Example templates
 │       └── 000-example-task/
-│           ├── 000-example-task_plan.mdc
-│           └── 000-example-task_summary.mdc
+│           ├── 000-example-task_plan.plan.md - the original plan file
+│           └── 000-example-task_summary.md
 └── COMPOSER_WORKFLOW.md               # ✅ This file
 ```
-
+   - Write the generated plan and summary into those files.
 ## How It Works
 
 ### When You Start a New Task
@@ -38,7 +42,7 @@ I need to implement user login with JWT tokens.
 1. ✅ Checks if `.cursor/tasks/user-authentication/` exists
 2. ✅ Creates directory if needed (kebab-case)
 3. ✅ Creates task folder: `001-login-flow/`
-4. ✅ Creates plan document: `001-login-flow_plan.mdc`
+4. ✅ Creates plan document: `001-login-flow_plan.plan.md`
 5. ✅ Fills it with structured content:
    - Overview
    - Architecture
@@ -57,7 +61,7 @@ I need to implement user login with JWT tokens.
 ### After Implementation
 
 **AI creates:**
-- Summary document: `001-login-flow_summary.mdc`
+- Summary document: `001-login-flow_summary.md`
 - Documents what was implemented
 - Notes deviations from plan
 - Records lessons learned
@@ -69,8 +73,8 @@ I need to implement user login with JWT tokens.
 |-----------|--------|---------|
 | Epic | kebab-case | `user-authentication` |
 | Task Number | ###-name | `001-login-flow` |
-| Plan File | `###-name_plan.mdc` | `001-login-flow_plan.mdc` |
-| Summary File | `###-name_summary.mdc` | `001-login-flow_summary.mdc` |
+| Plan File | `###-name_plan.plan.md` | `001-login-flow_plan.plan.md` |
+| Summary File | `###-name_summary.md` | `001-login-flow_summary.md` |
 
 ## Complete Example Structure
 
@@ -78,22 +82,22 @@ I need to implement user login with JWT tokens.
 .cursor/tasks/
 ├── user-authentication/              # Epic 1
 │   ├── 001-login-flow/              # Task 1
-│   │   ├── 001-login-flow_plan.mdc
-│   │   └── 001-login-flow_summary.mdc
+│   │   ├── 001-login-flow_plan.plan.md
+│   │   └── 001-login-flow_summary.md
 │   ├── 002-password-reset/          # Task 2
-│   │   ├── 002-password-reset_plan.mdc
-│   │   └── 002-password-reset_summary.mdc
+│   │   ├── 002-password-reset_plan.plan.md
+│   │   └── 002-password-reset_summary.md
 │   └── 003-oauth-integration/       # Task 3
-│       ├── 003-oauth-integration_plan.mdc
-│       └── 003-oauth-integration_summary.mdc
+│       ├── 003-oauth-integration_plan.plan.md
+│       └── 003-oauth-integration_summary.md
 │
 └── subtitle-translation/             # Epic 2
     ├── 001-language-detection/      # Task 1
-    │   ├── 001-language-detection_plan.mdc
-    │   └── 001-language-detection_summary.mdc
+    │   ├── 001-language-detection_plan.plan.md
+    │   └── 001-language-detection_summary.md
     └── 002-improve-quality/         # Task 2
-        ├── 002-improve-quality_plan.mdc
-        └── 002-improve-quality_summary.mdc
+        ├── 002-improve-quality_plan.plan.md
+        └── 002-improve-quality_summary.md
 ```
 
 ## Rules Added to Coding Standards
@@ -157,8 +161,8 @@ That's it! The AI will handle the rest automatically.
 
 - **Full Guide**: `.cursor/tasks/README.md`
 - **Quick Reference**: `.cursor/tasks/QUICK_REFERENCE.md`
-- **Example Plan**: `.cursor/tasks/_example-epic/000-example-task/000-example-task_plan.mdc`
-- **Example Summary**: `.cursor/tasks/_example-epic/000-example-task/000-example-task_summary.mdc`
+- **Example Plan**: `.cursor/tasks/_example-epic/000-example-task/000-example-task_plan.plan.md`
+- **Example Summary**: `.cursor/tasks/_example-epic/000-example-task/000-example-task_summary.md`
 
 ## Git Integration
 
