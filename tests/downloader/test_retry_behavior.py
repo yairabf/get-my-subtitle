@@ -215,8 +215,8 @@ class TestOpenSubtitlesClientRetryBehavior:
             client, "_xmlrpc_download", side_effect=side_effect
         ) as mock_download:
             # Act
-            from pathlib import Path
             import tempfile
+            from pathlib import Path
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 output_path = Path(tmpdir) / "test.srt"
@@ -308,4 +308,3 @@ class TestOpenSubtitlesClientRetryBehavior:
 
             # Should only try once (no retries for permanent errors)
             assert mock_search.call_count == 1
-

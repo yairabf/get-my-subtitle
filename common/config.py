@@ -64,6 +64,14 @@ class Settings(BaseSettings):
         default=0.3, env="OPENAI_TEMPERATURE"
     )  # Lower for consistent translations
 
+    # Translation Token Limits
+    translation_max_tokens_per_chunk: int = Field(
+        default=8000, env="TRANSLATION_MAX_TOKENS_PER_CHUNK"
+    )  # Maximum tokens per translation chunk
+    translation_token_safety_margin: float = Field(
+        default=0.8, env="TRANSLATION_TOKEN_SAFETY_MARGIN"
+    )  # Safety margin (0.8 = 80% of limit)
+
     # File Storage
     subtitle_storage_path: str = Field(
         default="./storage/subtitles", env="SUBTITLE_STORAGE_PATH"

@@ -340,4 +340,3 @@ class TestRetryWithExponentialBackoff:
         mock_func.assert_called_once_with(
             "arg1", "arg2", kwarg1="value1", kwarg2="value2"
         )
-

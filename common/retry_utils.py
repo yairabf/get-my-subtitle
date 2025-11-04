@@ -46,7 +46,7 @@ def calculate_exponential_backoff_delay(
 def is_transient_error(error: Exception) -> bool:
     """
     Determine if an error is transient (should retry) or permanent (should not retry).
-    
+
     Checks both the error itself and its __cause__ chain for transient indicators.
 
     Args:
@@ -68,7 +68,11 @@ def is_transient_error(error: Exception) -> bool:
         if isinstance(error, OpenSubtitlesAuthenticationError):
             error_msg = str(error).lower()
             # Check if it's truly an auth error (not a wrapped network error)
-            if "401" in error_msg or "unauthorized" in error_msg or "invalid credentials" in error_msg:
+            if (
+                "401" in error_msg
+                or "unauthorized" in error_msg
+                or "invalid credentials" in error_msg
+            ):
                 return False
             # If it's wrapping a transient error, check the cause
             if error.__cause__:
@@ -83,14 +87,21 @@ def is_transient_error(error: Exception) -> bool:
         if isinstance(error, OpenSubtitlesAPIError):
             error_msg = str(error).lower()
             # Transient HTTP status codes
-            transient_indicators = ["503", "502", "504", "500", "timeout", "unavailable"]
+            transient_indicators = [
+                "503",
+                "502",
+                "504",
+                "500",
+                "timeout",
+                "unavailable",
+            ]
             if any(indicator in error_msg for indicator in transient_indicators):
                 return True
-            
+
             # Check if wrapping a transient error
             if error.__cause__:
                 return is_transient_error(error.__cause__)
-            
+
             # Default: treat as permanent
             return False
 
@@ -192,4 +203,3 @@ def retry_with_exponential_backoff(
         return wrapper
 
     return decorator
-

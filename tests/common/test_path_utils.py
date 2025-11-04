@@ -29,16 +29,16 @@ class TestGenerateSubtitlePathFromVideo:
         with tempfile.TemporaryDirectory() as tmpdir:
             video_dir = Path(tmpdir) / "videos"
             video_dir.mkdir()
-            
+
             # Create actual video file
             video_path = video_dir / video_filename
             video_path.write_text("fake video content")
-            
+
             # Generate subtitle path
             result = PathUtils.generate_subtitle_path_from_video(
                 str(video_path), language
             )
-            
+
             assert result is not None
             assert isinstance(result, Path)
             assert result.parent == video_dir
@@ -105,9 +105,11 @@ class TestGenerateSubtitlePathFromVideo:
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / video_filename
             video_path.write_text("fake video")
-            
-            result = PathUtils.generate_subtitle_path_from_video(str(video_path), language)
-            
+
+            result = PathUtils.generate_subtitle_path_from_video(
+                str(video_path), language
+            )
+
             assert result is not None
             assert result.name == expected_subtitle_name
 
@@ -127,9 +129,9 @@ class TestGenerateSubtitlePathFromVideo:
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / filename
             video_path.write_text("fake video")
-            
+
             result = PathUtils.generate_subtitle_path_from_video(str(video_path), "en")
-            
+
             assert result is not None
             # Extract stem (filename without extension)
             expected_stem = Path(filename).stem
@@ -141,12 +143,12 @@ class TestGenerateSubtitlePathFromVideo:
             # Create nested directory structure
             video_dir = Path(tmpdir) / "media" / "movies" / "matrix"
             video_dir.mkdir(parents=True)
-            
+
             video_path = video_dir / "matrix.mkv"
             video_path.write_text("fake video")
-            
+
             result = PathUtils.generate_subtitle_path_from_video(str(video_path), "en")
-            
+
             assert result is not None
             assert result.parent == video_dir
             assert result == video_dir / "matrix.en.srt"
@@ -156,13 +158,13 @@ class TestGenerateSubtitlePathFromVideo:
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "video.mp4"
             video_path.write_text("fake video")
-            
+
             # Test with absolute path
             result_abs = PathUtils.generate_subtitle_path_from_video(
                 str(video_path.absolute()), "en"
             )
             assert result_abs is not None
-            
+
             # Test with relative path (if video exists)
             # Note: Relative paths should also work if the file exists
             result_rel = PathUtils.generate_subtitle_path_from_video(
@@ -182,7 +184,7 @@ class TestGenerateSubtitlePathFromVideo:
             "C:\\Windows\\invalid\\on\\linux",
             "//network/share/video.mp4",  # Network path that doesn't exist
         ]
-        
+
         for invalid_path in invalid_paths:
             result = PathUtils.generate_subtitle_path_from_video(invalid_path, "en")
             assert result is None
@@ -192,12 +194,12 @@ class TestGenerateSubtitlePathFromVideo:
         with tempfile.TemporaryDirectory() as tmpdir:
             video_dir = Path(tmpdir) / "a" / "b" / "c"
             video_dir.mkdir(parents=True)
-            
+
             video_path = video_dir / "video.mp4"
             video_path.write_text("fake video")
-            
+
             result = PathUtils.generate_subtitle_path_from_video(str(video_path), "en")
-            
+
             assert result is not None
             # Verify the full path structure is preserved
             assert "a" in result.parts
@@ -210,9 +212,9 @@ class TestGenerateSubtitlePathFromVideo:
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "my.movie.title.2024.mkv"
             video_path.write_text("fake video")
-            
+
             result = PathUtils.generate_subtitle_path_from_video(str(video_path), "en")
-            
+
             assert result is not None
             # .stem only removes the last extension
             assert result.name == "my.movie.title.2024.en.srt"
@@ -223,15 +225,14 @@ class TestGenerateSubtitlePathFromVideo:
             # Simulate the directory structure from requirements
             video_dir = Path(tmpdir) / "mnt" / "media" / "movies" / "matrix"
             video_dir.mkdir(parents=True)
-            
+
             video_path = video_dir / "matrix.mkv"
             video_path.write_text("fake video")
-            
+
             result = PathUtils.generate_subtitle_path_from_video(str(video_path), "en")
-            
+
             assert result is not None
             assert result.name == "matrix.en.srt"
             assert result.parent == video_dir
             # Verify full expected path
             assert result == video_dir / "matrix.en.srt"
-

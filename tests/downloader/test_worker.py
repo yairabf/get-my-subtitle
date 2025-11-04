@@ -104,7 +104,10 @@ class TestSubtitleMissingEventPublishing:
                         event_call = mock_publisher.publish_event.call_args[0][0]
                         assert event_call.event_type == EventType.SUBTITLE_MISSING
                         assert event_call.payload["language"] == language
-                        assert event_call.payload["reason"] == "subtitle_not_found_no_translation"
+                        assert (
+                            event_call.payload["reason"]
+                            == "subtitle_not_found_no_translation"
+                        )
                         assert event_call.payload["video_url"] == video_url
                         assert event_call.payload["video_title"] == video_title
 
@@ -611,13 +614,13 @@ class TestWorkerHashSearchFallback:
                     await process_message(mock_message)
 
                     # Verify hash search was NOT called (remote URL)
-                    if hasattr(mock_client, 'search_subtitles_by_hash'):
+                    if hasattr(mock_client, "search_subtitles_by_hash"):
                         mock_client.search_subtitles_by_hash.assert_not_called()
                     # Verify query search was called
                     mock_client.search_subtitles.assert_called_once()
                     # Verify subtitle was NOT downloaded (remote URL not supported)
                     mock_client.download_subtitle.assert_not_called()
-                    
+
                     # Verify JOB_FAILED event was published
                     events = [
                         call[0][0]
@@ -627,7 +630,10 @@ class TestWorkerHashSearchFallback:
                         e for e in events if e.event_type == EventType.JOB_FAILED
                     ]
                     assert len(failed_events) == 1
-                    assert "video is not a local file" in failed_events[0].payload["error_message"]
+                    assert (
+                        "video is not a local file"
+                        in failed_events[0].payload["error_message"]
+                    )
 
     @pytest.mark.asyncio
     async def test_process_message_hash_calculation_failure(self):
@@ -668,12 +674,12 @@ class TestWorkerHashSearchFallback:
                     await process_message(mock_message)
 
                     # Hash calculation fails (file doesn't exist), should skip to query search
-                    if hasattr(mock_client, 'search_subtitles_by_hash'):
+                    if hasattr(mock_client, "search_subtitles_by_hash"):
                         mock_client.search_subtitles_by_hash.assert_not_called()
                     mock_client.search_subtitles.assert_called_once()
                     # Should NOT download subtitle (file doesn't exist - not a valid local file)
                     mock_client.download_subtitle.assert_not_called()
-                    
+
                     # Verify JOB_FAILED event was published
                     events = [
                         call[0][0]
@@ -761,9 +767,7 @@ class TestWorkerIntegration:
             mock_message.timestamp = None
 
             # Mock subtitle found and downloaded
-            mock_search_results = [
-                {"IDSubtitleFile": "123"}
-            ]
+            mock_search_results = [{"IDSubtitleFile": "123"}]
 
             with patch("downloader.worker.redis_client") as mock_redis:
                 mock_redis.update_phase = AsyncMock(return_value=True)
@@ -856,9 +860,7 @@ class TestSubtitleSaveLocation:
             # Create a temporary video file
             import tempfile
 
-            with tempfile.NamedTemporaryFile(
-                delete=False, suffix=".mkv"
-            ) as tmp_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mkv") as tmp_file:
                 tmp_file.write(b"A" * (256 * 1024))  # 256KB file
                 video_url = tmp_file.name
         elif video_type == "remote_url":

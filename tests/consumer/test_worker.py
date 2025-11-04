@@ -154,4 +154,3 @@ class TestConsumerEventRouting:
             assert hasattr(
                 consumer, handler_name
             ), f"Consumer missing handler: {handler_name} for {event_type}"
-
