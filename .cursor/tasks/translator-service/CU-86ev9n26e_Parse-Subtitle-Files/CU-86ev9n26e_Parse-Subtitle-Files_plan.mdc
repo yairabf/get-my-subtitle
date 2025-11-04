@@ -1,0 +1,170 @@
+# CU-86ev9n26e - Parse Subtitle Files
+
+**Epic:** Translator Service  
+**Task:** CU-86ev9n26e_Parse-Subtitle-Files  
+**Created:** November 4, 2025  
+**Status:** Validation & Enhancement
+
+## Overview
+
+The SRT subtitle parser is already implemented in `common/subtitle_parser.py` with the `SRTParser` class and supporting functions. This task focuses on validating the implementation meets all requirements and adding comprehensive test coverage for edge cases that are currently missing.
+
+- **Brief description**: Validate and enhance test coverage for SRT subtitle parsing functionality
+- **Problem it solves**: Ensures robust parsing of .srt files with proper error handling for malformed inputs
+- **User story**: As a translator service, I need to reliably parse subtitle files into structured segments so that translation can proceed without errors
+
+## Current Implementation
+
+### Existing Files
+- `common/subtitle_parser.py` - Contains complete SRT parser implementation (204 lines)
+  - `SubtitleSegment` dataclass (lines 16-26)
+  - `SRTParser` class with `parse()` and `format()` methods (lines 29-113)
+  - Helper functions: `extract_text_for_translation()`, `merge_translations()`, `chunk_segments()`
+- `tests/common/test_subtitle_parser.py` - Comprehensive tests (240 lines)
+- `translator/worker.py` - Uses the parser in production (line 255)
+
+### Current Test Coverage
+✅ Simple SRT parsing  
+✅ Multiline text handling  
+✅ Edge cases (empty content, invalid timestamps)  
+✅ Text extraction and translation merging  
+✅ Segment chunking  
+✅ Error handling for mismatched translation counts  
+✅ Whitespace handling in translations
+
+## Missing Test Coverage (To Be Added)
+
+### 1. None Input Validation Tests
+The implementation has error handling for `None` inputs, but tests are missing:
+- `extract_text_for_translation(None)` - Should raise ValueError
+- `merge_translations(None, translations)` - Should raise ValueError
+- `merge_translations(segments, None)` - Should raise ValueError
+- `chunk_segments(None)` - Should raise ValueError
+
+### 2. Invalid Parameter Tests
+- `chunk_segments(segments, max_segments=0)` - Should raise ValueError
+- `chunk_segments(segments, max_segments=-5)` - Should raise ValueError
+
+### 3. Malformed SRT Edge Cases
+- SRT with missing index numbers
+- SRT with only timestamps but no text
+- SRT with BOM (Byte Order Mark) characters
+- SRT with Windows line endings (CRLF) vs Unix (LF)
+
+### 4. Real-world Edge Cases
+- Very large subtitle files (1000+ segments)
+- Subtitles with special characters (unicode, emojis)
+- Empty text segments (valid timestamps but blank text)
+
+## Implementation Steps
+
+### Phase 1: Add None Input Validation Tests
+Create parameterized tests for all functions that validate None inputs:
+```python
+@pytest.mark.parametrize("segments", [None])
+def test_extract_text_none_input(segments):
+    with pytest.raises(ValueError, match="cannot be None"):
+        extract_text_for_translation(segments)
+```
+
+### Phase 2: Add Invalid Parameter Tests
+Test boundary conditions for `chunk_segments()`:
+```python
+@pytest.mark.parametrize("max_segments", [0, -1, -100])
+def test_chunk_segments_invalid_max(max_segments):
+    segments = [SubtitleSegment(1, "00:00:00,000", "00:00:01,000", "Test")]
+    with pytest.raises(ValueError, match="must be at least 1"):
+        chunk_segments(segments, max_segments=max_segments)
+```
+
+### Phase 3: Add Malformed SRT Tests
+Test parser robustness with real-world malformed inputs:
+- Missing components (index, timestamp, text)
+- Mixed valid and invalid segments
+- Unusual formatting variations
+
+### Phase 4: Add Real-world Edge Cases
+Test practical scenarios the translator service will encounter:
+- Large files (performance validation)
+- Unicode and special characters
+- Empty but valid segments
+
+### Phase 5: Create Task Documentation
+Following the Composer workflow:
+1. Create epic directory: `.cursor/tasks/translator-service/`
+2. Create task directory: `CU-86ev9n26e_Parse-Subtitle-Files/`
+3. Create plan document (based on this plan)
+4. After validation, create summary document
+
+## Testing Strategy
+
+### New Unit Tests to Add
+
+**File:** `tests/common/test_subtitle_parser.py`
+
+Add new test class: `TestEdgeCasesAndErrorHandling`
+- 4 tests for None input validation
+- 2 tests for invalid max_segments
+- 3 tests for malformed SRT edge cases
+- 2 tests for real-world scenarios
+
+**Total New Tests:** ~11 tests  
+**Expected Coverage Increase:** 95%+ (currently ~85%)
+
+### Test Execution
+```bash
+# Run specific parser tests
+pytest tests/common/test_subtitle_parser.py -v
+
+# Run with coverage
+pytest tests/common/test_subtitle_parser.py --cov=common.subtitle_parser --cov-report=term-missing
+```
+
+## Success Criteria
+
+### Functional Requirements
+- [x] SRT parser correctly extracts ID, timestamps, and text
+- [x] Parser handles multiline subtitle text
+- [x] Helper functions work correctly (extract, merge, chunk)
+- [ ] All None input cases raise appropriate errors
+- [ ] Invalid parameters raise appropriate errors
+- [ ] Malformed SRT files are handled gracefully
+
+### Test Coverage Requirements
+- [ ] Add 11 new unit tests for edge cases
+- [ ] All tests pass with 100% success rate
+- [ ] Code coverage reaches 95%+ for `subtitle_parser.py`
+- [ ] No regressions in existing tests
+
+### Documentation Requirements
+- [x] Create task plan document in proper directory structure
+- [ ] Create task summary document after validation
+- [ ] Document any findings or improvements discovered
+
+### Non-Functional Requirements
+- [ ] Parser performance acceptable for large files (1000+ segments < 1 second)
+- [ ] No memory leaks with large subtitle files
+- [ ] Error messages are clear and actionable
+
+## Files to Modify
+
+### Test Files
+- `tests/common/test_subtitle_parser.py` - Add new test class with ~11 new tests
+
+### Documentation Files (To Create)
+- `.cursor/tasks/translator-service/CU-86ev9n26e_Parse-Subtitle-Files/CU-86ev9n26e_Parse-Subtitle-Files_plan.mdc` (this file)
+- `.cursor/tasks/translator-service/CU-86ev9n26e_Parse-Subtitle-Files/CU-86ev9n26e_Parse-Subtitle-Files_summary.mdc` (after completion)
+
+## Notes
+
+### Implementation Already Complete
+The core parsing logic is fully implemented and working in production (used by `translator/worker.py`). This task focuses on validation and test enhancement only.
+
+### No Code Changes Required to Parser
+Unless validation reveals bugs, no changes needed to `common/subtitle_parser.py`.
+
+### Test Organization
+New tests will be added as a separate test class to keep them organized and focused on edge cases/error handling.
+
+### Performance Considerations
+The parser currently processes segments sequentially. For very large files (5000+ segments), consider testing performance and potentially adding batch processing if needed.

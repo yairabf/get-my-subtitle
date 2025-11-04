@@ -237,3 +237,127 @@ class TestChunkSegments:
         """Test chunking with empty segment list."""
         chunks = chunk_segments([])
         assert len(chunks) == 0
+
+
+class TestEdgeCasesAndErrorHandling:
+    """Test edge cases and error handling for subtitle parser."""
+
+    def test_extract_text_none_input(self):
+        """Test that extract_text_for_translation raises ValueError for None input."""
+        with pytest.raises(ValueError, match="cannot be None"):
+            extract_text_for_translation(None)
+
+    def test_merge_translations_none_segments(self):
+        """Test that merge_translations raises ValueError for None segments."""
+        translations = ["Hola", "Mundo"]
+        with pytest.raises(ValueError, match="cannot be None"):
+            merge_translations(None, translations)
+
+    def test_merge_translations_none_translations(self):
+        """Test that merge_translations raises ValueError for None translations."""
+        segments = [
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "Hello"),
+            SubtitleSegment(2, "00:00:04,500", "00:00:08,000", "World"),
+        ]
+        with pytest.raises(ValueError, match="cannot be None"):
+            merge_translations(segments, None)
+
+    def test_chunk_segments_none_input(self):
+        """Test that chunk_segments raises ValueError for None input."""
+        with pytest.raises(ValueError, match="cannot be None"):
+            chunk_segments(None)
+
+    @pytest.mark.parametrize("max_segments", [0, -1, -100])
+    def test_chunk_segments_invalid_max_segments(self, max_segments):
+        """Test that chunk_segments raises ValueError for invalid max_segments."""
+        segments = [
+            SubtitleSegment(1, "00:00:00,000", "00:00:01,000", "Test")
+        ]
+        with pytest.raises(ValueError, match="must be at least 1"):
+            chunk_segments(segments, max_segments=max_segments)
+
+    def test_parse_srt_missing_index_numbers(self):
+        """Test parsing SRT with missing or non-numeric index numbers."""
+        content = """not_a_number
+00:00:01,000 --> 00:00:04,000
+This should be skipped
+
+2
+00:00:04,500 --> 00:00:08,000
+This should work
+"""
+        segments = SRTParser.parse(content)
+        # Should skip malformed segment and parse valid one
+        assert len(segments) == 1
+        assert segments[0].index == 2
+        assert segments[0].text == "This should work"
+
+    def test_parse_srt_timestamps_without_text(self):
+        """Test parsing SRT with valid timestamps but no text following."""
+        content = """1
+00:00:01,000 --> 00:00:04,000
+
+2
+00:00:04,500 --> 00:00:08,000
+Valid text here
+"""
+        segments = SRTParser.parse(content)
+        # Should skip empty text segment
+        assert len(segments) == 1
+        assert segments[0].index == 2
+
+    def test_parse_srt_mixed_line_endings(self):
+        """Test parsing SRT with mixed Windows (CRLF) and Unix (LF) line endings."""
+        # Simulate mixed line endings
+        content = "1\r\n00:00:01,000 --> 00:00:04,000\r\nWindows line ending\n\n2\n00:00:04,500 --> 00:00:08,000\nUnix line ending\n"
+        segments = SRTParser.parse(content)
+        # Should handle both line ending types
+        assert len(segments) == 2
+        assert segments[0].text == "Windows line ending"
+        assert segments[1].text == "Unix line ending"
+
+    def test_parse_srt_unicode_and_special_characters(self):
+        """Test parsing SRT with unicode characters, emojis, and special symbols."""
+        content = """1
+00:00:01,000 --> 00:00:04,000
+Hello 世界 🌍
+
+2
+00:00:04,500 --> 00:00:08,000
+Café ñoño © ® € £ ¥
+
+3
+00:00:08,500 --> 00:00:12,000
+Emoji test: 😀 🎉 ❤️ 🚀
+"""
+        segments = SRTParser.parse(content)
+        assert len(segments) == 3
+        assert "世界" in segments[0].text
+        assert "🌍" in segments[0].text
+        assert "ñoño" in segments[1].text
+        assert "€" in segments[1].text
+        assert "😀" in segments[2].text
+        assert "🚀" in segments[2].text
+
+    def test_parse_large_subtitle_file(self):
+        """Test parsing a large SRT file with 1000+ segments for performance."""
+        # Generate a large SRT file
+        segments_count = 1000
+        content_parts = []
+        for i in range(1, segments_count + 1):
+            minutes = i // 60
+            seconds = i % 60
+            content_parts.append(
+                f"{i}\n"
+                f"00:{minutes:02d}:{seconds:02d},000 --> 00:{minutes:02d}:{seconds:02d},500\n"
+                f"Subtitle text for segment {i}\n"
+            )
+        content = "\n".join(content_parts)
+
+        # Parse and verify
+        segments = SRTParser.parse(content)
+        assert len(segments) == segments_count
+        assert segments[0].index == 1
+        assert segments[-1].index == segments_count
+        assert "segment 1" in segments[0].text
+        assert f"segment {segments_count}" in segments[-1].text
