@@ -125,4 +125,3 @@ def count_tokens(text: str, model: str = "gpt-4") -> int:
         _token_counter_instance = TokenCounter()
 
     return _token_counter_instance.count_tokens(text, model)
-

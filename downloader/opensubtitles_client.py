@@ -95,6 +95,7 @@ class OpenSubtitlesClient:
         Raises:
             OpenSubtitlesAuthenticationError: If authentication fails
         """
+
         # Wrap the authentication logic with retry decorator
         @self._create_retry_decorator()
         async def _do_authenticate():

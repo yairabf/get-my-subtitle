@@ -7,18 +7,18 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 from uuid import UUID
+
 import aio_pika
 from aio_pika.abc import AbstractIncomingMessage
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from common.utils import PathUtils
 from common.config import settings
 from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus
-from common.utils import DateTimeUtils
+from common.utils import DateTimeUtils, PathUtils
 from downloader.opensubtitles_client import (
     OpenSubtitlesAPIError,
     OpenSubtitlesAuthenticationError,
@@ -164,7 +164,9 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                         )
                         await event_publisher.publish_event(event)
 
-                    logger.info("✅ Message processed (skipped due to invalid video path)")
+                    logger.info(
+                        "✅ Message processed (skipped due to invalid video path)"
+                    )
                 else:
                     logger.info(f"📁 Will save subtitle to: {output_path}")
 

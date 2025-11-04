@@ -219,7 +219,9 @@ class TestOpenSubtitlesDownload:
         client = OpenSubtitlesClient()
         client.token = "test-token"
 
-        subtitle_content = b"1\n00:00:00,000 --> 00:00:01,000\nDirectory creation test\n"
+        subtitle_content = (
+            b"1\n00:00:00,000 --> 00:00:01,000\nDirectory creation test\n"
+        )
         compressed_content = gzip.compress(subtitle_content)
         encoded_content = base64.b64encode(compressed_content).decode()
 

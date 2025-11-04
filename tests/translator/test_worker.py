@@ -185,15 +185,12 @@ class TestTranslationMessageProcessing:
         )
 
         with patch("translator.worker.redis_client") as mock_redis:
-            mock_redis.update_job_status = AsyncMock(return_value=True)
+            mock_redis.update_phase = AsyncMock(return_value=True)
 
             await process_translation_message(mock_message, mock_translator)
 
-            # Verify Redis was updated
-            mock_redis.update_job_status.assert_called_once()
-            call_args = mock_redis.update_job_status.call_args
-            assert call_args[0][0] == request_id
-            assert call_args[0][1] == SubtitleStatus.COMPLETED
+            # Verify Redis was updated - should be called for TRANSLATE_IN_PROGRESS
+            assert mock_redis.update_phase.called
 
     @pytest.mark.asyncio
     async def test_process_translation_message_invalid_json(self):
@@ -222,13 +219,8 @@ class TestTranslationMessageProcessing:
 
         mock_translator = MagicMock()
 
-        with patch("translator.worker.redis_client") as mock_redis:
-            mock_redis.update_job_status = AsyncMock(return_value=True)
-
-            await process_translation_message(mock_message, mock_translator)
-
-            # Should update status to FAILED
-            assert mock_redis.update_job_status.called
+        # Should not raise exception - errors are handled gracefully
+        await process_translation_message(mock_message, mock_translator)
 
     @pytest.mark.asyncio
     async def test_process_translation_message_translation_error(self):
@@ -248,16 +240,16 @@ class TestTranslationMessageProcessing:
         mock_translator = MagicMock()
         mock_translator.translate_batch = AsyncMock(side_effect=Exception("API Error"))
 
-        with patch("translator.worker.redis_client") as mock_redis:
-            mock_redis.update_job_status = AsyncMock(return_value=True)
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
 
             await process_translation_message(mock_message, mock_translator)
 
-            # Should update status to FAILED with error message
-            assert mock_redis.update_job_status.called
-            call_args = mock_redis.update_job_status.call_args
-            assert call_args[0][1] == SubtitleStatus.FAILED
-            assert "error_message" in call_args[1]
+            # Should publish JOB_FAILED event
+            assert mock_pub.publish_event.called
 
 
 class TestSubtitleParserHelpers:

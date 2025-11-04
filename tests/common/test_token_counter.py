@@ -230,4 +230,3 @@ class TestTokenCounterEdgeCases:
         assert result1 > 0
         assert result2 > 0
         assert result3 > 0
-

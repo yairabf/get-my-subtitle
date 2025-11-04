@@ -251,9 +251,7 @@ class TestSplitSubtitleContent:
             SubtitleSegment(
                 3, "00:00:08,500", "00:00:12,000", "And this is subtitle 3"
             ),
-            SubtitleSegment(
-                4, "00:00:12,500", "00:00:16,000", "Finally, subtitle 4"
-            ),
+            SubtitleSegment(4, "00:00:12,500", "00:00:16,000", "Finally, subtitle 4"),
         ]
 
     def test_split_subtitle_content_basic(self, sample_segments):
@@ -261,9 +259,7 @@ class TestSplitSubtitleContent:
         from common.subtitle_parser import split_subtitle_content
 
         # Split with reasonable token limit
-        chunks = split_subtitle_content(
-            sample_segments, max_tokens=100, model="gpt-4"
-        )
+        chunks = split_subtitle_content(sample_segments, max_tokens=100, model="gpt-4")
 
         # Should produce at least one chunk
         assert len(chunks) > 0
