@@ -55,6 +55,64 @@ def is_transient_error(error: Exception) -> bool:
     Returns:
         True if error is transient and should be retried, False otherwise
     """
+    # Check OpenAI errors first (most common for translation service)
+    try:
+        from openai import (
+            APIConnectionError,
+            APITimeoutError,
+            APIError,
+            RateLimitError,
+        )
+
+        # OpenAI rate limit errors - transient (should retry)
+        if isinstance(error, RateLimitError):
+            return True
+
+        # OpenAI connection/timeout errors - transient
+        if isinstance(error, (APIConnectionError, APITimeoutError)):
+            return True
+
+        # OpenAI API errors - check status code
+        if isinstance(error, APIError):
+            # Check status code if available
+            if hasattr(error, "status_code"):
+                status_code = error.status_code
+                # Transient status codes: 429 (rate limit), 500, 502, 503, 504
+                if status_code in (429, 500, 502, 503, 504):
+                    return True
+                # Permanent status codes: 400, 401, 403, 404
+                if status_code in (400, 401, 403, 404):
+                    return False
+
+            # Check error message for transient indicators
+            error_msg = str(error).lower()
+            transient_indicators = [
+                "429",
+                "rate limit",
+                "rate_limit",
+                "overloaded",
+                "503",
+                "502",
+                "504",
+                "500",
+                "timeout",
+                "unavailable",
+                "connection",
+            ]
+            if any(indicator in error_msg for indicator in transient_indicators):
+                return True
+
+            # Check if wrapping a transient error
+            if error.__cause__:
+                return is_transient_error(error.__cause__)
+
+            # Default: treat as permanent for APIError
+            return False
+
+    except ImportError:
+        # OpenAI SDK not available - skip OpenAI error checks
+        pass
+
     # Import here to avoid circular dependencies
     try:
         from downloader.opensubtitles_client import (
