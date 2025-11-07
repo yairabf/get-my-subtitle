@@ -178,10 +178,18 @@ class TestIsTransientError:
     def test_identifies_openai_rate_limit_error_as_transient(self):
         """Should identify OpenAI RateLimitError as transient."""
         try:
+            import httpx
             from openai import RateLimitError
 
-            # Arrange
-            error = RateLimitError("Rate limit exceeded", response=None, body=None)
+            # Arrange - Create mock httpx objects
+            mock_request = httpx.Request(
+                "POST", "https://api.openai.com/v1/chat/completions"
+            )
+            mock_response = httpx.Response(429, request=mock_request)
+            mock_response.headers = httpx.Headers()
+            error = RateLimitError(
+                "Rate limit exceeded", response=mock_response, body=None
+            )
 
             # Act
             result = is_transient_error(error)
@@ -210,10 +218,14 @@ class TestIsTransientError:
     def test_identifies_openai_api_timeout_error_as_transient(self):
         """Should identify OpenAI APITimeoutError as transient."""
         try:
+            import httpx
             from openai import APITimeoutError
 
-            # Arrange
-            error = APITimeoutError(message="Request timed out", request=None)
+            # Arrange - Create mock httpx objects
+            mock_request = httpx.Request(
+                "POST", "https://api.openai.com/v1/chat/completions"
+            )
+            error = APITimeoutError(request=mock_request)
 
             # Act
             result = is_transient_error(error)
@@ -226,15 +238,21 @@ class TestIsTransientError:
     def test_identifies_openai_api_error_with_429_status_as_transient(self):
         """Should identify OpenAI APIError with 429 status as transient."""
         try:
+            import httpx
             from openai import APIError
 
-            # Arrange
+            # Arrange - Create mock httpx objects
+            mock_request = httpx.Request(
+                "POST", "https://api.openai.com/v1/chat/completions"
+            )
+            mock_response = httpx.Response(429, request=mock_request)
+            mock_response.headers = httpx.Headers()
             error = APIError(
                 message="Rate limit exceeded",
-                request=None,
+                request=mock_request,
                 body=None,
-                status_code=429,
             )
+            error.status_code = 429
 
             # Act
             result = is_transient_error(error)
@@ -247,15 +265,21 @@ class TestIsTransientError:
     def test_identifies_openai_api_error_with_500_status_as_transient(self):
         """Should identify OpenAI APIError with 500 status as transient."""
         try:
+            import httpx
             from openai import APIError
 
-            # Arrange
+            # Arrange - Create mock httpx objects
+            mock_request = httpx.Request(
+                "POST", "https://api.openai.com/v1/chat/completions"
+            )
+            mock_response = httpx.Response(500, request=mock_request)
+            mock_response.headers = httpx.Headers()
             error = APIError(
                 message="Internal server error",
-                request=None,
+                request=mock_request,
                 body=None,
-                status_code=500,
             )
+            error.status_code = 500
 
             # Act
             result = is_transient_error(error)
@@ -268,15 +292,21 @@ class TestIsTransientError:
     def test_identifies_openai_api_error_with_503_status_as_transient(self):
         """Should identify OpenAI APIError with 503 status as transient."""
         try:
+            import httpx
             from openai import APIError
 
-            # Arrange
+            # Arrange - Create mock httpx objects
+            mock_request = httpx.Request(
+                "POST", "https://api.openai.com/v1/chat/completions"
+            )
+            mock_response = httpx.Response(503, request=mock_request)
+            mock_response.headers = httpx.Headers()
             error = APIError(
                 message="Service unavailable",
-                request=None,
+                request=mock_request,
                 body=None,
-                status_code=503,
             )
+            error.status_code = 503
 
             # Act
             result = is_transient_error(error)
@@ -289,15 +319,21 @@ class TestIsTransientError:
     def test_identifies_openai_api_error_with_400_status_as_permanent(self):
         """Should identify OpenAI APIError with 400 status as permanent."""
         try:
+            import httpx
             from openai import APIError
 
-            # Arrange
+            # Arrange - Create mock httpx objects
+            mock_request = httpx.Request(
+                "POST", "https://api.openai.com/v1/chat/completions"
+            )
+            mock_response = httpx.Response(400, request=mock_request)
+            mock_response.headers = httpx.Headers()
             error = APIError(
                 message="Bad request",
-                request=None,
+                request=mock_request,
                 body=None,
-                status_code=400,
             )
+            error.status_code = 400
 
             # Act
             result = is_transient_error(error)
@@ -310,15 +346,21 @@ class TestIsTransientError:
     def test_identifies_openai_api_error_with_401_status_as_permanent(self):
         """Should identify OpenAI APIError with 401 status as permanent."""
         try:
+            import httpx
             from openai import APIError
 
-            # Arrange
+            # Arrange - Create mock httpx objects
+            mock_request = httpx.Request(
+                "POST", "https://api.openai.com/v1/chat/completions"
+            )
+            mock_response = httpx.Response(401, request=mock_request)
+            mock_response.headers = httpx.Headers()
             error = APIError(
                 message="Unauthorized",
-                request=None,
+                request=mock_request,
                 body=None,
-                status_code=401,
             )
+            error.status_code = 401
 
             # Act
             result = is_transient_error(error)
@@ -371,11 +413,20 @@ class TestIsTransientError:
     def test_identifies_wrapped_openai_error_in_cause_chain(self):
         """Should identify OpenAI errors wrapped in cause chain."""
         try:
+            import httpx
             from openai import RateLimitError
 
             # Arrange - Wrap RateLimitError in a generic Exception
-            rate_limit_error = RateLimitError("Rate limit", response=None, body=None)
-            wrapped_error = Exception("Wrapper error") from rate_limit_error
+            mock_request = httpx.Request(
+                "POST", "https://api.openai.com/v1/chat/completions"
+            )
+            mock_response = httpx.Response(429, request=mock_request)
+            mock_response.headers = httpx.Headers()
+            rate_limit_error = RateLimitError(
+                "Rate limit", response=mock_response, body=None
+            )
+            wrapped_error = Exception("Wrapper error")
+            wrapped_error.__cause__ = rate_limit_error
 
             # Act
             result = is_transient_error(wrapped_error)

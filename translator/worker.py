@@ -123,9 +123,7 @@ class SubtitleTranslator:
         """
         # Prepare the prompt for GPT-5-nano
         # Formatting preservation is maintained through this prompt structure
-        prompt = self._build_translation_prompt(
-            texts, source_language, target_language
-        )
+        prompt = self._build_translation_prompt(texts, source_language, target_language)
 
         logger.info(
             f"Translating {len(texts)} segments from {source_language} to {target_language}"
@@ -334,11 +332,13 @@ async def process_translation_message(
         translated_srt = SRTParser.format(all_translated_segments)
 
         # Save translated file
-        output_path = Path(f"{subtitle_file_path.replace('.srt', '')}.{target_language}.srt")
-        
+        output_path = Path(
+            f"{subtitle_file_path.replace('.srt', '')}.{target_language}.srt"
+        )
+
         # Ensure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Write translated content to file
         output_path.write_text(translated_srt, encoding="utf-8")
         logger.info(f"✅ Saved translated subtitle to: {output_path}")

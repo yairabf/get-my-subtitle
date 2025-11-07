@@ -57,12 +57,7 @@ def is_transient_error(error: Exception) -> bool:
     """
     # Check OpenAI errors first (most common for translation service)
     try:
-        from openai import (
-            APIConnectionError,
-            APITimeoutError,
-            APIError,
-            RateLimitError,
-        )
+        from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError
 
         # OpenAI rate limit errors - transient (should retry)
         if isinstance(error, RateLimitError):
@@ -174,6 +169,10 @@ def is_transient_error(error: Exception) -> bool:
     if isinstance(error, OSError):
         # Connection refused, network unreachable, etc.
         return True
+
+    # Check if error wraps a transient error in __cause__
+    if error.__cause__:
+        return is_transient_error(error.__cause__)
 
     # Default: treat unknown errors as permanent to avoid infinite retries
     return False

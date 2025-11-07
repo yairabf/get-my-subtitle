@@ -124,7 +124,7 @@ Thank you for watching!
 
     # Return Docker container path (translator runs in Docker)
     container_path = f"/app/storage/subtitles/{srt_file.name}"
-    
+
     print(f"✅ Created test SRT file: {srt_file.absolute()}")
     print(f"   File size: {srt_file.stat().st_size} bytes")
     print(f"   Container path: {container_path}")
@@ -263,16 +263,22 @@ def check_output_file(subtitle_path: str, target_language: str):
         # Container path - check in host storage directory
         container_path = Path(subtitle_path)
         host_storage = Path("storage/subtitles")
-        output_path = host_storage / f"{container_path.stem}.{target_language}{container_path.suffix}"
+        output_path = (
+            host_storage
+            / f"{container_path.stem}.{target_language}{container_path.suffix}"
+        )
     else:
         # Host path
         original_path = Path(subtitle_path)
-        output_path = original_path.parent / f"{original_path.stem}.{target_language}{original_path.suffix}"
+        output_path = (
+            original_path.parent
+            / f"{original_path.stem}.{target_language}{original_path.suffix}"
+        )
 
     if output_path.exists():
         print(f"✅ Output file found: {output_path}")
         print(f"   File size: {output_path.stat().st_size} bytes")
-        
+
         # Read and display first few lines
         content = output_path.read_text(encoding="utf-8")
         lines = content.split("\n")[:20]  # First 20 lines
@@ -281,7 +287,7 @@ def check_output_file(subtitle_path: str, target_language: str):
         for i, line in enumerate(lines, 1):
             print(f"   {i:2d}: {line}")
         print("   " + "-" * 60)
-        
+
         return True
     else:
         print(f"❌ Output file not found: {output_path}")
@@ -367,4 +373,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

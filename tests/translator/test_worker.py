@@ -339,8 +339,8 @@ class TestSubtitleTranslatorRetryBehavior:
         translator, mock_client_class = translator_with_api_key
 
         try:
-            from openai import RateLimitError
             import httpx
+            from openai import RateLimitError
         except ImportError:
             pytest.skip("OpenAI SDK not available")
 
@@ -353,13 +353,19 @@ class TestSubtitleTranslatorRetryBehavior:
         # Mock the API response
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "[1]\nHola mundo\n\n[2]\n¿Cómo estás?"
+        mock_response.choices[0].message.content = (
+            "[1]\nHola mundo\n\n[2]\n¿Cómo estás?"
+        )
 
         translator.client = AsyncMock()
         translator.client.chat.completions.create = AsyncMock(
             side_effect=[
-                RateLimitError("Rate limit exceeded", response=mock_http_response, body=None),
-                RateLimitError("Rate limit exceeded", response=mock_http_response, body=None),
+                RateLimitError(
+                    "Rate limit exceeded", response=mock_http_response, body=None
+                ),
+                RateLimitError(
+                    "Rate limit exceeded", response=mock_http_response, body=None
+                ),
                 mock_response,  # Success on third attempt
             ]
         )
@@ -378,8 +384,8 @@ class TestSubtitleTranslatorRetryBehavior:
         translator, mock_client_class = translator_with_api_key
 
         try:
-            from openai import APIError
             import httpx
+            from openai import APIError
         except ImportError:
             pytest.skip("OpenAI SDK not available")
 
@@ -419,8 +425,8 @@ class TestSubtitleTranslatorRetryBehavior:
         translator, mock_client_class = translator_with_api_key
 
         try:
-            from openai import APIError
             import httpx
+            from openai import APIError
         except ImportError:
             pytest.skip("OpenAI SDK not available")
 
@@ -434,7 +440,9 @@ class TestSubtitleTranslatorRetryBehavior:
             body=None,
         )
         error_instance.status_code = 401
-        translator.client.chat.completions.create = AsyncMock(side_effect=error_instance)
+        translator.client.chat.completions.create = AsyncMock(
+            side_effect=error_instance
+        )
 
         texts = ["Hello"]
         with pytest.raises(APIError):
@@ -449,8 +457,8 @@ class TestSubtitleTranslatorRetryBehavior:
         translator, mock_client_class = translator_with_api_key
 
         try:
-            from openai import RateLimitError
             import httpx
+            from openai import RateLimitError
         except ImportError:
             pytest.skip("OpenAI SDK not available")
 
@@ -462,7 +470,9 @@ class TestSubtitleTranslatorRetryBehavior:
 
         translator.client = AsyncMock()
         translator.client.chat.completions.create = AsyncMock(
-            side_effect=RateLimitError("Rate limit exceeded", response=mock_http_response, body=None)
+            side_effect=RateLimitError(
+                "Rate limit exceeded", response=mock_http_response, body=None
+            )
         )
 
         texts = ["Hello"]
@@ -478,8 +488,8 @@ class TestSubtitleTranslatorRetryBehavior:
         translator, mock_client_class = translator_with_api_key
 
         try:
-            from openai import RateLimitError
             import httpx
+            from openai import RateLimitError
         except ImportError:
             pytest.skip("OpenAI SDK not available")
 
@@ -499,7 +509,9 @@ class TestSubtitleTranslatorRetryBehavior:
         translator.client = AsyncMock()
         translator.client.chat.completions.create = AsyncMock(
             side_effect=[
-                RateLimitError("Rate limit exceeded", response=mock_http_response, body=None),
+                RateLimitError(
+                    "Rate limit exceeded", response=mock_http_response, body=None
+                ),
                 mock_response,  # Success on second attempt
             ]
         )
@@ -556,8 +568,8 @@ class TestSubtitleTranslatorRetryBehavior:
         translator, mock_client_class = translator_with_api_key
 
         try:
-            from openai import RateLimitError
             import httpx
+            from openai import RateLimitError
         except ImportError:
             pytest.skip("OpenAI SDK not available")
 
@@ -575,8 +587,12 @@ class TestSubtitleTranslatorRetryBehavior:
         translator.client = AsyncMock()
         translator.client.chat.completions.create = AsyncMock(
             side_effect=[
-                RateLimitError("Rate limit exceeded", response=mock_http_response, body=None),
-                RateLimitError("Rate limit exceeded", response=mock_http_response, body=None),
+                RateLimitError(
+                    "Rate limit exceeded", response=mock_http_response, body=None
+                ),
+                RateLimitError(
+                    "Rate limit exceeded", response=mock_http_response, body=None
+                ),
                 mock_response,  # Success on third attempt
             ]
         )
