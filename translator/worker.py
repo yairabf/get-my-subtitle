@@ -21,6 +21,7 @@ from common.schemas import EventType, SubtitleEvent, SubtitleStatus
 from common.subtitle_parser import (
     SRTParser,
     extract_text_for_translation,
+    merge_translated_chunks,
     merge_translations,
     split_subtitle_content,
 )
@@ -195,8 +196,15 @@ async def process_translation_message(
                     )
                     # Continue translation even if checkpoint save fails
 
+        # Merge and renumber translated segments
+        merged_segments = merge_translated_chunks(all_translated_segments)
+        logger.info(
+            f"✅ Merged {len(all_translated_segments)} segments into "
+            f"{len(merged_segments)} sequentially numbered segments"
+        )
+
         # Format back to SRT
-        translated_srt = SRTParser.format(all_translated_segments)
+        translated_srt = SRTParser.format(merged_segments)
 
         # Save translated file
         output_path = Path(

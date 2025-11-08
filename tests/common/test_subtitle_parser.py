@@ -8,6 +8,7 @@ from common.subtitle_parser import (
     SubtitleSegment,
     chunk_segments,
     extract_text_for_translation,
+    merge_translated_chunks,
     merge_translations,
 )
 
@@ -467,3 +468,204 @@ class TestSplitSubtitleContent:
 
         assert "\n" in all_segments[0].text
         assert "\n" in all_segments[1].text
+
+
+class TestMergeTranslatedChunks:
+    """Test merging translated chunks functionality."""
+
+    def test_merge_translated_chunks_sequential_numbering(self):
+        """Test that merged chunks have sequential numbering starting from 1."""
+        # Simulate segments from multiple translated chunks
+        chunk1_segments = [
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "Hola"),
+            SubtitleSegment(2, "00:00:04,500", "00:00:08,000", "Mundo"),
+        ]
+        chunk2_segments = [
+            SubtitleSegment(3, "00:00:08,500", "00:00:12,000", "Prueba"),
+            SubtitleSegment(4, "00:00:12,500", "00:00:16,000", "Final"),
+        ]
+
+        # Merge all segments
+        all_segments = chunk1_segments + chunk2_segments
+        merged = merge_translated_chunks(all_segments)
+
+        # Verify sequential numbering
+        assert len(merged) == 4
+        assert merged[0].index == 1
+        assert merged[1].index == 2
+        assert merged[2].index == 3
+        assert merged[3].index == 4
+
+    def test_merge_translated_chunks_preserves_timestamps(self):
+        """Test that timestamps are preserved during merge."""
+        segments = [
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "Hello"),
+            SubtitleSegment(2, "00:00:04,500", "00:00:08,000", "World"),
+        ]
+
+        merged = merge_translated_chunks(segments)
+
+        assert merged[0].start_time == "00:00:01,000"
+        assert merged[0].end_time == "00:00:04,000"
+        assert merged[1].start_time == "00:00:04,500"
+        assert merged[1].end_time == "00:00:08,000"
+
+    def test_merge_translated_chunks_preserves_text(self):
+        """Test that translated text is preserved during merge."""
+        segments = [
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "Hola"),
+            SubtitleSegment(2, "00:00:04,500", "00:00:08,000", "Mundo"),
+        ]
+
+        merged = merge_translated_chunks(segments)
+
+        assert merged[0].text == "Hola"
+        assert merged[1].text == "Mundo"
+
+    def test_merge_translated_chunks_sorts_by_index(self):
+        """Test that segments are sorted by original index."""
+        # Segments out of order
+        segments = [
+            SubtitleSegment(3, "00:00:08,500", "00:00:12,000", "Third"),
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "First"),
+            SubtitleSegment(2, "00:00:04,500", "00:00:08,000", "Second"),
+        ]
+
+        merged = merge_translated_chunks(segments)
+
+        # Should be sorted by original index
+        assert merged[0].text == "First"
+        assert merged[1].text == "Second"
+        assert merged[2].text == "Third"
+        # But renumbered sequentially
+        assert merged[0].index == 1
+        assert merged[1].index == 2
+        assert merged[2].index == 3
+
+    def test_merge_translated_chunks_empty_list(self):
+        """Test merging empty segment list."""
+        merged = merge_translated_chunks([])
+        assert len(merged) == 0
+
+    def test_merge_translated_chunks_single_segment(self):
+        """Test merging single segment."""
+        segments = [
+            SubtitleSegment(5, "00:00:01,000", "00:00:04,000", "Single"),
+        ]
+
+        merged = merge_translated_chunks(segments)
+
+        assert len(merged) == 1
+        assert merged[0].index == 1  # Renumbered to 1
+        assert merged[0].text == "Single"
+
+    def test_merge_translated_chunks_non_sequential_indices(self):
+        """Test merging segments with non-sequential original indices."""
+        # Original indices are 10, 20, 30
+        segments = [
+            SubtitleSegment(10, "00:00:01,000", "00:00:04,000", "First"),
+            SubtitleSegment(20, "00:00:04,500", "00:00:08,000", "Second"),
+            SubtitleSegment(30, "00:00:08,500", "00:00:12,000", "Third"),
+        ]
+
+        merged = merge_translated_chunks(segments)
+
+        # Should be renumbered sequentially
+        assert merged[0].index == 1
+        assert merged[1].index == 2
+        assert merged[2].index == 3
+        # But sorted by original index
+        assert merged[0].text == "First"
+        assert merged[1].text == "Second"
+        assert merged[2].text == "Third"
+
+
+class TestSRTFormatting:
+    """Test enhanced SRT formatting with proper spacing."""
+
+    def test_format_with_proper_spacing(self):
+        """Test that formatted SRT has proper spacing between entries."""
+        segments = [
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "Hello"),
+            SubtitleSegment(2, "00:00:04,500", "00:00:08,000", "World"),
+        ]
+
+        formatted = SRTParser.format(segments)
+
+        # Should have blank line between entries
+        lines = formatted.split("\n")
+        # Find the blank line between entries
+        assert "" in lines
+
+        # Verify structure: index, timestamp, text, blank line, index, timestamp, text
+        assert lines[0] == "1"
+        assert lines[1] == "00:00:01,000 --> 00:00:04,000"
+        assert lines[2] == "Hello"
+        assert lines[3] == ""  # Blank line
+        assert lines[4] == "2"
+        assert lines[5] == "00:00:04,500 --> 00:00:08,000"
+        assert lines[6] == "World"
+
+    def test_format_no_trailing_blank_lines(self):
+        """Test that formatted SRT has no trailing blank lines."""
+        segments = [
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "Hello"),
+        ]
+
+        formatted = SRTParser.format(segments)
+
+        # Should not end with blank line
+        assert not formatted.endswith("\n\n")
+        # Should end with single newline after text
+        assert formatted.endswith("\n")
+        # Single segment: index, timestamp, text, final newline = 3 newlines
+        assert formatted.count("\n") == 3
+
+    def test_format_single_segment(self):
+        """Test formatting single segment."""
+        segments = [
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "Hello"),
+        ]
+
+        formatted = SRTParser.format(segments)
+
+        assert "1" in formatted
+        assert "00:00:01,000 --> 00:00:04,000" in formatted
+        assert "Hello" in formatted
+        # Should not have blank line at end
+        assert not formatted.endswith("\n\n")
+
+    def test_format_empty_list(self):
+        """Test formatting empty segment list."""
+        formatted = SRTParser.format([])
+        assert formatted == ""
+
+    def test_format_multiline_text(self):
+        """Test formatting segments with multiline text."""
+        segments = [
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "Line one\nLine two"),
+            SubtitleSegment(2, "00:00:04,500", "00:00:08,000", "Another"),
+        ]
+
+        formatted = SRTParser.format(segments)
+
+        # Multiline text should be preserved
+        assert "Line one" in formatted
+        assert "Line two" in formatted
+        # Should have blank line between entries
+        assert "\n\n" in formatted or formatted.count("\n\n") >= 1
+
+    def test_format_preserves_sequential_numbering(self):
+        """Test that formatted output uses sequential numbering."""
+        segments = [
+            SubtitleSegment(1, "00:00:01,000", "00:00:04,000", "First"),
+            SubtitleSegment(2, "00:00:04,500", "00:00:08,000", "Second"),
+            SubtitleSegment(3, "00:00:08,500", "00:00:12,000", "Third"),
+        ]
+
+        formatted = SRTParser.format(segments)
+
+        # Should contain sequential numbers
+        assert "1\n" in formatted or formatted.startswith("1\n")
+        assert "\n2\n" in formatted or "\n\n2\n" in formatted
+        assert "\n3\n" in formatted or "\n\n3\n" in formatted
