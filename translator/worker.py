@@ -1,16 +1,14 @@
-"""Translator worker for subtitle translation using OpenAI GPT-5-nano."""
+"""Translator worker for processing translation messages from RabbitMQ."""
 
 import asyncio
 import json
 import logging
 import sys
 from pathlib import Path
-from typing import List
 from uuid import UUID
 
 import aio_pika
 from aio_pika.abc import AbstractIncomingMessage
-from openai import AsyncOpenAI
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,225 +17,20 @@ from common.config import settings
 from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
-from common.retry_utils import retry_with_exponential_backoff
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus
 from common.subtitle_parser import (
-    DEFAULT_MAX_SEGMENTS_PER_CHUNK,
     SRTParser,
-    SubtitleSegment,
-    chunk_segments,
     extract_text_for_translation,
     merge_translations,
     split_subtitle_content,
 )
 from common.utils import DateTimeUtils
+from translator.checkpoint_manager import CheckpointManager
+from translator.translation_service import SubtitleTranslator
 
 # Configure logging
 service_logger = setup_service_logging("translator", enable_file_logging=True)
 logger = service_logger.logger
-
-
-class SubtitleTranslator:
-    """Handles subtitle translation using OpenAI GPT-5-nano."""
-
-    def __init__(self):
-        """Initialize the translator with OpenAI async client."""
-        self.client = None
-        if settings.openai_api_key:
-            # Initialize AsyncOpenAI client with proper configuration
-            # Note: Retry logic is handled by retry_with_exponential_backoff decorator
-            # Setting max_retries=0 to let our decorator handle all retries
-            self.client = AsyncOpenAI(
-                api_key=settings.openai_api_key,
-                timeout=60.0,  # 60 second timeout for translation requests
-                max_retries=0,  # Let retry decorator handle retries
-            )
-            logger.info(
-                f"Initialized OpenAI async client with model: {settings.openai_model}"
-            )
-        else:
-            logger.warning(
-                "OpenAI API key not configured - translator will run in mock mode"
-            )
-
-    @property
-    def _retry_decorator(self):
-        """
-        Get retry decorator with OpenAI-specific configuration.
-
-        Returns:
-            Decorator function configured with settings from config
-        """
-        return retry_with_exponential_backoff(
-            max_retries=settings.openai_max_retries,
-            initial_delay=settings.openai_retry_initial_delay,
-            exponential_base=settings.openai_retry_exponential_base,
-            max_delay=settings.openai_retry_max_delay,
-        )
-
-    async def translate_batch(
-        self, texts: List[str], source_language: str, target_language: str
-    ) -> List[str]:
-        """
-        Translate a batch of subtitle texts using GPT-5-nano.
-
-        This method is decorated with retry logic that handles rate limits
-        and transient API failures with exponential backoff. Formatting is
-        preserved through retry cycles via the translation prompt.
-
-        Args:
-            texts: List of subtitle text strings to translate
-            source_language: Source language code (e.g., 'en')
-            target_language: Target language code (e.g., 'es')
-
-        Returns:
-            List of translated text strings
-        """
-        if not self.client:
-            logger.warning(
-                "Mock mode: Returning original texts with [TRANSLATED] prefix"
-            )
-            return [f"[TRANSLATED to {target_language}] {text}" for text in texts]
-
-        # Apply retry decorator dynamically to handle rate limits and API failures
-        decorated_method = self._retry_decorator(self._translate_batch_impl)
-        return await decorated_method(texts, source_language, target_language)
-
-    async def _translate_batch_impl(
-        self, texts: List[str], source_language: str, target_language: str
-    ) -> List[str]:
-        """
-        Internal implementation of batch translation.
-
-        This method contains the actual translation logic and is wrapped
-        by the retry decorator. Formatting preservation is ensured through
-        the translation prompt which remains consistent across retries.
-
-        Args:
-            texts: List of subtitle text strings to translate
-            source_language: Source language code (e.g., 'en')
-            target_language: Target language code (e.g., 'es')
-
-        Returns:
-            List of translated text strings
-        """
-        # Prepare the prompt for GPT-5-nano
-        # Formatting preservation is maintained through this prompt structure
-        prompt = self._build_translation_prompt(texts, source_language, target_language)
-
-        logger.info(
-            f"Translating {len(texts)} segments from {source_language} to {target_language}"
-        )
-
-        # Build API request parameters
-        # Some models (like gpt-5-nano) only support default temperature (1)
-        # Only include temperature if model supports custom values
-        api_params = {
-            "model": settings.openai_model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        f"You are a professional subtitle translator. "
-                        f"Translate subtitles from {source_language} to {target_language}. "
-                        f"Maintain the same tone, style, and timing suitability. "
-                        f"Keep translations concise for subtitle display. "
-                        f"Preserve formatting like line breaks."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "max_completion_tokens": settings.openai_max_tokens,  # Use max_completion_tokens for newer models
-            "timeout": 60.0,  # Per-request timeout override
-        }
-
-        # Only include temperature if model supports it (not nano models)
-        # Nano models only support default temperature (1)
-        if "nano" not in settings.openai_model.lower():
-            api_params["temperature"] = settings.openai_temperature
-
-        # Call OpenAI Chat Completions API with proper async configuration
-        response = await self.client.chat.completions.create(**api_params)
-
-        # Parse the response
-        translations = self._parse_translation_response(
-            response.choices[0].message.content, len(texts)
-        )
-
-        logger.info(f"Successfully translated {len(translations)} segments")
-        return translations
-
-    def _build_translation_prompt(
-        self, texts: List[str], source_language: str, target_language: str
-    ) -> str:
-        """
-        Build the translation prompt for GPT-5-nano.
-
-        Args:
-            texts: List of texts to translate
-            source_language: Source language code
-            target_language: Target language code
-
-        Returns:
-            Formatted prompt string
-        """
-        # Number each text for easy parsing
-        numbered_texts = []
-        for i, text in enumerate(texts, 1):
-            numbered_texts.append(f"[{i}]\n{text}")
-
-        prompt = (
-            f"Translate the following {len(texts)} subtitle segments "
-            f"from {source_language} to {target_language}.\n\n"
-            f"Return ONLY the translations, numbered the same way, "
-            f"with no additional commentary.\n\n"
-            f"Format your response exactly like this:\n"
-            f"[1]\nTranslated text\n\n"
-            f"[2]\nTranslated text\n\n"
-            f"etc.\n\n"
-            f"Subtitles to translate:\n\n" + "\n\n".join(numbered_texts)
-        )
-
-        return prompt
-
-    def _parse_translation_response(
-        self, response: str, expected_count: int
-    ) -> List[str]:
-        """
-        Parse GPT-5-nano's translation response.
-
-        Args:
-            response: Raw response from GPT-5-nano
-            expected_count: Expected number of translations
-
-        Returns:
-            List of translated texts
-        """
-        translations = []
-
-        # Split by numbered segments
-        segments = response.split("[")
-
-        for segment in segments:
-            if not segment.strip():
-                continue
-
-            # Extract number and text
-            parts = segment.split("]", 1)
-            if len(parts) == 2:
-                try:
-                    number = int(parts[0].strip())
-                    text = parts[1].strip()
-                    translations.append(text)
-                except ValueError:
-                    continue
-
-        if len(translations) != expected_count:
-            logger.warning(
-                f"Expected {expected_count} translations but got {len(translations)}"
-            )
-
-        return translations
 
 
 async def process_translation_message(
@@ -280,6 +73,52 @@ async def process_translation_message(
             request_id, SubtitleStatus.TRANSLATE_IN_PROGRESS, source="translator"
         )
 
+        # Initialize checkpoint manager
+        checkpoint_manager = CheckpointManager()
+
+        # Check for existing checkpoint
+        checkpoint = None
+        all_translated_segments = []
+        start_chunk_idx = 0
+
+        if settings.checkpoint_enabled:
+            try:
+                checkpoint = await checkpoint_manager.load_checkpoint(
+                    request_id, target_language
+                )
+                if checkpoint:
+                    logger.info(
+                        f"📂 Found checkpoint: {len(checkpoint.completed_chunks)}/"
+                        f"{checkpoint.total_chunks} chunks completed"
+                    )
+
+                    # Validate checkpoint matches current request
+                    if (
+                        checkpoint.subtitle_file_path == subtitle_file_path
+                        and checkpoint.source_language == source_language
+                        and checkpoint.target_language == target_language
+                    ):
+                        # Deserialize segments from checkpoint
+                        all_translated_segments = (
+                            checkpoint_manager.deserialize_segments_from_checkpoint(
+                                checkpoint
+                            )
+                        )
+                        start_chunk_idx = len(checkpoint.completed_chunks)
+                        logger.info(
+                            f"🔄 Resuming translation from chunk {start_chunk_idx + 1}"
+                        )
+                    else:
+                        logger.warning(
+                            "⚠️  Checkpoint metadata mismatch, starting fresh translation"
+                        )
+                        checkpoint = None
+            except Exception as e:
+                logger.warning(
+                    f"⚠️  Failed to load checkpoint, starting fresh translation: {e}"
+                )
+                checkpoint = None
+
         # Read subtitle file
         logger.info(f"Reading subtitle file: {subtitle_file_path}")
 
@@ -308,12 +147,21 @@ async def process_translation_message(
             safety_margin=settings.translation_token_safety_margin,
         )
 
-        all_translated_segments = []
+        # If checkpoint exists, validate total chunks match
+        if checkpoint and checkpoint.total_chunks != len(chunks):
+            logger.warning(
+                f"⚠️  Checkpoint total_chunks ({checkpoint.total_chunks}) doesn't match "
+                f"current chunks ({len(chunks)}), starting fresh translation"
+            )
+            checkpoint = None
+            all_translated_segments = []
+            start_chunk_idx = 0
 
-        # Translate each chunk
-        for chunk_idx, chunk in enumerate(chunks, 1):
+        # Translate remaining chunks
+        for chunk_idx in range(start_chunk_idx, len(chunks)):
+            chunk = chunks[chunk_idx]
             logger.info(
-                f"Translating chunk {chunk_idx}/{len(chunks)} ({len(chunk)} segments)"
+                f"Translating chunk {chunk_idx + 1}/{len(chunks)} ({len(chunk)} segments)"
             )
 
             # Extract text from segments
@@ -327,6 +175,25 @@ async def process_translation_message(
             # Merge translations back
             translated_chunk = merge_translations(chunk, translations)
             all_translated_segments.extend(translated_chunk)
+
+            # Save checkpoint after each successful chunk translation
+            if settings.checkpoint_enabled:
+                try:
+                    completed_chunks = list(range(chunk_idx + 1))
+                    await checkpoint_manager.save_checkpoint(
+                        request_id=request_id,
+                        subtitle_file_path=subtitle_file_path,
+                        source_language=source_language,
+                        target_language=target_language,
+                        total_chunks=len(chunks),
+                        completed_chunks=completed_chunks,
+                        translated_segments=all_translated_segments,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"⚠️  Failed to save checkpoint after chunk {chunk_idx + 1}: {e}"
+                    )
+                    # Continue translation even if checkpoint save fails
 
         # Format back to SRT
         translated_srt = SRTParser.format(all_translated_segments)
@@ -359,6 +226,13 @@ async def process_translation_message(
             },
         )
         logger.info(f"✅ Updated job {request_id} status to COMPLETED")
+
+        # Clean up checkpoint after successful completion
+        if settings.checkpoint_enabled and settings.checkpoint_cleanup_on_success:
+            try:
+                await checkpoint_manager.cleanup_checkpoint(request_id, target_language)
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to cleanup checkpoint after completion: {e}")
 
         # Publish SUBTITLE_TRANSLATED event
         if request_id:

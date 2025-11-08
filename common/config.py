@@ -91,6 +91,17 @@ class Settings(BaseSettings):
         default="./storage/subtitles", env="SUBTITLE_STORAGE_PATH"
     )
 
+    # Checkpoint Configuration
+    checkpoint_enabled: bool = Field(
+        default=True, env="CHECKPOINT_ENABLED"
+    )  # Enable/disable checkpointing
+    checkpoint_cleanup_on_success: bool = Field(
+        default=True, env="CHECKPOINT_CLEANUP_ON_SUCCESS"
+    )  # Auto-cleanup checkpoint files after successful completion
+    checkpoint_storage_path: Optional[str] = Field(
+        default=None, env="CHECKPOINT_STORAGE_PATH"
+    )  # Override checkpoint location (defaults to {subtitle_storage_path}/checkpoints)
+
     # Jellyfin Integration
     jellyfin_default_source_language: str = Field(
         default="en", env="JELLYFIN_DEFAULT_SOURCE_LANGUAGE"

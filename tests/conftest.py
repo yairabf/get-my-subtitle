@@ -1,6 +1,5 @@
 """Pytest configuration and shared fixtures."""
 
-import asyncio
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
@@ -12,14 +11,6 @@ import pytest_asyncio
 
 from common.redis_client import RedisJobClient
 from common.schemas import SubtitleRequest, SubtitleResponse, SubtitleStatus
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest_asyncio.fixture
