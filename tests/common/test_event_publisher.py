@@ -254,6 +254,7 @@ class TestEventPublisherEventPublishing:
             EventType.SUBTITLE_READY,
             EventType.SUBTITLE_TRANSLATE_REQUESTED,
             EventType.SUBTITLE_TRANSLATED,
+            EventType.TRANSLATION_COMPLETED,
             EventType.JOB_FAILED,
         ],
     )
