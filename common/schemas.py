@@ -174,3 +174,54 @@ class SubtitleEvent(BaseModel):
                 "metadata": None,
             }
         }
+
+
+class TranslationCheckpoint(BaseModel):
+    """Checkpoint data for resuming translation after interruption."""
+
+    request_id: UUID = Field(
+        ..., description="Unique identifier for the translation request"
+    )
+    subtitle_file_path: str = Field(..., description="Path to the source subtitle file")
+    source_language: str = Field(..., description="Source language code")
+    target_language: str = Field(..., description="Target language code")
+    total_chunks: int = Field(..., description="Total number of chunks to translate")
+    completed_chunks: List[int] = Field(
+        default_factory=list, description="List of completed chunk indices (0-based)"
+    )
+    translated_segments: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of translated SubtitleSegment objects as dictionaries",
+    )
+    checkpoint_path: str = Field(..., description="Path to the checkpoint file")
+    created_at: datetime = Field(
+        default_factory=DateTimeUtils.get_current_utc_datetime,
+        description="When the checkpoint was created",
+    )
+    updated_at: datetime = Field(
+        default_factory=DateTimeUtils.get_current_utc_datetime,
+        description="When the checkpoint was last updated",
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "request_id": "123e4567-e89b-12d3-a456-426614174000",
+                "subtitle_file_path": "/path/to/subtitle.srt",
+                "source_language": "en",
+                "target_language": "es",
+                "total_chunks": 10,
+                "completed_chunks": [0, 1, 2, 3],
+                "translated_segments": [
+                    {
+                        "index": 1,
+                        "start_time": "00:00:01,000",
+                        "end_time": "00:00:04,000",
+                        "text": "Hola mundo",
+                    }
+                ],
+                "checkpoint_path": "/path/to/checkpoint.json",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:05:00Z",
+            }
+        }
