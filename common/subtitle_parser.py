@@ -102,15 +102,29 @@ class SRTParser:
     @staticmethod
     def format(segments: List[SubtitleSegment]) -> str:
         """
-        Format subtitle segments back to SRT format.
+        Format subtitle segments back to SRT format with proper spacing.
+
+        Ensures:
+        - One blank line between subtitle entries
+        - No trailing blank lines at end of file
+        - Proper newline handling
 
         Args:
             segments: List of SubtitleSegment objects
 
         Returns:
-            Formatted SRT content
+            Formatted SRT content string
         """
-        return "\n".join(str(segment) for segment in segments)
+        if not segments:
+            return ""
+
+        # Join segments with double newline for proper spacing
+        # Each segment's __str__ ends with a newline, so joining with \n\n
+        # gives us: segment1\n\nsegment2\n\nsegment3
+        formatted = "\n\n".join(str(segment).rstrip() for segment in segments)
+
+        # Add final newline (but not double newline)
+        return formatted + "\n"
 
 
 def extract_text_for_translation(segments: List[SubtitleSegment]) -> List[str]:
@@ -168,6 +182,50 @@ def merge_translations(
         )
 
     return translated_segments
+
+
+def merge_translated_chunks(
+    translated_segments: List[SubtitleSegment],
+) -> List[SubtitleSegment]:
+    """
+    Merge translated segments from multiple chunks into a single list.
+
+    Ensures:
+    - Segments are sorted by original index (chronological order)
+    - Sequential numbering starting from 1
+    - All timestamps and text preserved
+
+    Args:
+        translated_segments: List of translated SubtitleSegment objects
+
+    Returns:
+        List of SubtitleSegment objects with sequential numbering
+
+    Raises:
+        ValueError: If translated_segments is None
+    """
+    if translated_segments is None:
+        raise ValueError("Translated segments list cannot be None")
+
+    if not translated_segments:
+        return []
+
+    # Sort segments by original index to ensure chronological order
+    sorted_segments = sorted(translated_segments, key=lambda seg: seg.index)
+
+    # Renumber segments sequentially starting from 1
+    merged_segments = []
+    for new_index, segment in enumerate(sorted_segments, start=1):
+        merged_segments.append(
+            SubtitleSegment(
+                index=new_index,
+                start_time=segment.start_time,
+                end_time=segment.end_time,
+                text=segment.text,
+            )
+        )
+
+    return merged_segments
 
 
 def chunk_segments(
