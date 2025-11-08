@@ -72,6 +72,20 @@ class Settings(BaseSettings):
         default=0.8, env="TRANSLATION_TOKEN_SAFETY_MARGIN"
     )  # Safety margin (0.8 = 80% of limit)
 
+    # OpenAI Retry Configuration
+    openai_max_retries: int = Field(
+        default=3, env="OPENAI_MAX_RETRIES"
+    )  # Maximum number of retry attempts after initial try
+    openai_retry_initial_delay: float = Field(
+        default=2.0, env="OPENAI_RETRY_INITIAL_DELAY"
+    )  # Initial delay in seconds before first retry
+    openai_retry_max_delay: float = Field(
+        default=60.0, env="OPENAI_RETRY_MAX_DELAY"
+    )  # Maximum delay in seconds (backoff cap)
+    openai_retry_exponential_base: int = Field(
+        default=2, env="OPENAI_RETRY_EXPONENTIAL_BASE"
+    )  # Exponential base for backoff (2 = double each time)
+
     # File Storage
     subtitle_storage_path: str = Field(
         default="./storage/subtitles", env="SUBTITLE_STORAGE_PATH"

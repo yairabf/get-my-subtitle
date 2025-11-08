@@ -19,6 +19,7 @@ from common.config import settings
 from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
+from common.retry_utils import retry_with_exponential_backoff
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus
 from common.subtitle_parser import (
     DEFAULT_MAX_SEGMENTS_PER_CHUNK,
@@ -44,10 +45,12 @@ class SubtitleTranslator:
         self.client = None
         if settings.openai_api_key:
             # Initialize AsyncOpenAI client with proper configuration
+            # Note: Retry logic is handled by retry_with_exponential_backoff decorator
+            # Setting max_retries=0 to let our decorator handle all retries
             self.client = AsyncOpenAI(
                 api_key=settings.openai_api_key,
                 timeout=60.0,  # 60 second timeout for translation requests
-                max_retries=2,  # Retry failed requests up to 2 times
+                max_retries=0,  # Let retry decorator handle retries
             )
             logger.info(
                 f"Initialized OpenAI async client with model: {settings.openai_model}"
@@ -57,11 +60,30 @@ class SubtitleTranslator:
                 "OpenAI API key not configured - translator will run in mock mode"
             )
 
+    @property
+    def _retry_decorator(self):
+        """
+        Get retry decorator with OpenAI-specific configuration.
+
+        Returns:
+            Decorator function configured with settings from config
+        """
+        return retry_with_exponential_backoff(
+            max_retries=settings.openai_max_retries,
+            initial_delay=settings.openai_retry_initial_delay,
+            exponential_base=settings.openai_retry_exponential_base,
+            max_delay=settings.openai_retry_max_delay,
+        )
+
     async def translate_batch(
         self, texts: List[str], source_language: str, target_language: str
     ) -> List[str]:
         """
         Translate a batch of subtitle texts using GPT-5-nano.
+
+        This method is decorated with retry logic that handles rate limits
+        and transient API failures with exponential backoff. Formatting is
+        preserved through retry cycles via the translation prompt.
 
         Args:
             texts: List of subtitle text strings to translate
@@ -77,48 +99,73 @@ class SubtitleTranslator:
             )
             return [f"[TRANSLATED to {target_language}] {text}" for text in texts]
 
-        try:
-            # Prepare the prompt for GPT-5-nano
-            prompt = self._build_translation_prompt(
-                texts, source_language, target_language
-            )
+        # Apply retry decorator dynamically to handle rate limits and API failures
+        decorated_method = self._retry_decorator(self._translate_batch_impl)
+        return await decorated_method(texts, source_language, target_language)
 
-            logger.info(
-                f"Translating {len(texts)} segments from {source_language} to {target_language}"
-            )
+    async def _translate_batch_impl(
+        self, texts: List[str], source_language: str, target_language: str
+    ) -> List[str]:
+        """
+        Internal implementation of batch translation.
 
-            # Call OpenAI Chat Completions API with proper async configuration
-            response = await self.client.chat.completions.create(
-                model=settings.openai_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            f"You are a professional subtitle translator. "
-                            f"Translate subtitles from {source_language} to {target_language}. "
-                            f"Maintain the same tone, style, and timing suitability. "
-                            f"Keep translations concise for subtitle display. "
-                            f"Preserve formatting like line breaks."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=settings.openai_temperature,
-                max_tokens=settings.openai_max_tokens,
-                timeout=60.0,  # Per-request timeout override
-            )
+        This method contains the actual translation logic and is wrapped
+        by the retry decorator. Formatting preservation is ensured through
+        the translation prompt which remains consistent across retries.
 
-            # Parse the response
-            translations = self._parse_translation_response(
-                response.choices[0].message.content, len(texts)
-            )
+        Args:
+            texts: List of subtitle text strings to translate
+            source_language: Source language code (e.g., 'en')
+            target_language: Target language code (e.g., 'es')
 
-            logger.info(f"Successfully translated {len(translations)} segments")
-            return translations
+        Returns:
+            List of translated text strings
+        """
+        # Prepare the prompt for GPT-5-nano
+        # Formatting preservation is maintained through this prompt structure
+        prompt = self._build_translation_prompt(texts, source_language, target_language)
 
-        except Exception as e:
-            logger.error(f"Translation error: {e}")
-            raise
+        logger.info(
+            f"Translating {len(texts)} segments from {source_language} to {target_language}"
+        )
+
+        # Build API request parameters
+        # Some models (like gpt-5-nano) only support default temperature (1)
+        # Only include temperature if model supports custom values
+        api_params = {
+            "model": settings.openai_model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"You are a professional subtitle translator. "
+                        f"Translate subtitles from {source_language} to {target_language}. "
+                        f"Maintain the same tone, style, and timing suitability. "
+                        f"Keep translations concise for subtitle display. "
+                        f"Preserve formatting like line breaks."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "max_completion_tokens": settings.openai_max_tokens,  # Use max_completion_tokens for newer models
+            "timeout": 60.0,  # Per-request timeout override
+        }
+
+        # Only include temperature if model supports it (not nano models)
+        # Nano models only support default temperature (1)
+        if "nano" not in settings.openai_model.lower():
+            api_params["temperature"] = settings.openai_temperature
+
+        # Call OpenAI Chat Completions API with proper async configuration
+        response = await self.client.chat.completions.create(**api_params)
+
+        # Parse the response
+        translations = self._parse_translation_response(
+            response.choices[0].message.content, len(texts)
+        )
+
+        logger.info(f"Successfully translated {len(translations)} segments")
+        return translations
 
     def _build_translation_prompt(
         self, texts: List[str], source_language: str, target_language: str
@@ -236,24 +283,17 @@ async def process_translation_message(
         # Read subtitle file
         logger.info(f"Reading subtitle file: {subtitle_file_path}")
 
-        # For now, simulate reading a file (in production, read from storage)
-        # You would replace this with actual file reading from settings.subtitle_storage_path
-        sample_srt_content = """1
-00:00:01,000 --> 00:00:04,000
-Welcome to this video
+        # Read the actual subtitle file
+        subtitle_path = Path(subtitle_file_path)
+        if not subtitle_path.exists():
+            raise FileNotFoundError(f"Subtitle file not found: {subtitle_file_path}")
 
-2
-00:00:04,500 --> 00:00:08,000
-Today we're going to learn something new
-
-3
-00:00:08,500 --> 00:00:12,000
-Let's get started!
-"""
+        srt_content = subtitle_path.read_text(encoding="utf-8")
+        logger.info(f"Read {len(srt_content)} characters from subtitle file")
 
         # Parse SRT content
         logger.info("Parsing SRT content...")
-        segments = SRTParser.parse(sample_srt_content)
+        segments = SRTParser.parse(srt_content)
 
         if not segments:
             raise ValueError("No subtitle segments found in file")
@@ -291,12 +331,34 @@ Let's get started!
         # Format back to SRT
         translated_srt = SRTParser.format(all_translated_segments)
 
-        # Save translated file (in production, save to storage)
-        output_path = f"{subtitle_file_path.replace('.srt', '')}.{target_language}.srt"
+        # Save translated file
+        output_path = Path(
+            f"{subtitle_file_path.replace('.srt', '')}.{target_language}.srt"
+        )
+
+        # Ensure output directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write translated content to file
+        output_path.write_text(translated_srt, encoding="utf-8")
+        logger.info(f"✅ Saved translated subtitle to: {output_path}")
+        logger.info(f"   File size: {output_path.stat().st_size} bytes")
+
         download_url = (
             f"https://example.com/subtitles/{request_id}.{target_language}.srt"
         )
-        logger.info(f"Would save translated subtitle to: {output_path}")
+
+        # Update status to COMPLETED after successful translation
+        await redis_client.update_phase(
+            request_id,
+            SubtitleStatus.COMPLETED,
+            source="translator",
+            metadata={
+                "translated_path": str(output_path),
+                "download_url": download_url,
+            },
+        )
+        logger.info(f"✅ Updated job {request_id} status to COMPLETED")
 
         # Publish SUBTITLE_TRANSLATED event
         if request_id:
@@ -362,7 +424,7 @@ async def consume_translation_messages() -> None:
 
         # Connect to RabbitMQ
         logger.info("🔌 Connecting to RabbitMQ...")
-        connection = await aio_pika.connect_robust("amqp://guest:guest@localhost:5672/")
+        connection = await aio_pika.connect_robust(settings.rabbitmq_url)
 
         # Create channel
         channel = await connection.channel()

@@ -311,3 +311,300 @@ class TestSubtitleParserHelpers:
         assert len(chunks) == 2
         assert len(chunks[0]) == 50
         assert len(chunks[1]) == 50
+
+
+class TestSubtitleTranslatorRetryBehavior:
+    """Test retry behavior for SubtitleTranslator."""
+
+    @pytest.fixture
+    def translator_with_api_key(self):
+        """Create translator with mocked API key."""
+        with patch("translator.worker.settings") as mock_settings:
+            mock_settings.openai_api_key = "sk-test-key"
+            mock_settings.openai_model = "gpt-5-nano"
+            mock_settings.openai_temperature = 0.3
+            mock_settings.openai_max_tokens = 4096
+            mock_settings.openai_max_retries = 3
+            mock_settings.openai_retry_initial_delay = 0.1  # Small delay for testing
+            mock_settings.openai_retry_max_delay = 60.0
+            mock_settings.openai_retry_exponential_base = 2
+
+            with patch("translator.worker.AsyncOpenAI") as mock_client:
+                translator = SubtitleTranslator()
+                return translator, mock_client
+
+    @pytest.mark.asyncio
+    async def test_retries_on_rate_limit_error(self, translator_with_api_key):
+        """Should retry on OpenAI rate limit errors."""
+        translator, mock_client_class = translator_with_api_key
+
+        try:
+            import httpx
+            from openai import RateLimitError
+        except ImportError:
+            pytest.skip("OpenAI SDK not available")
+
+        # Create mock httpx.Response for RateLimitError
+        mock_http_response = MagicMock(spec=httpx.Response)
+        mock_http_response.status_code = 429
+        mock_http_response.headers = MagicMock()
+        mock_http_response.headers.get = MagicMock(return_value=None)
+
+        # Mock the API response
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = (
+            "[1]\nHola mundo\n\n[2]\n¿Cómo estás?"
+        )
+
+        translator.client = AsyncMock()
+        translator.client.chat.completions.create = AsyncMock(
+            side_effect=[
+                RateLimitError(
+                    "Rate limit exceeded", response=mock_http_response, body=None
+                ),
+                RateLimitError(
+                    "Rate limit exceeded", response=mock_http_response, body=None
+                ),
+                mock_response,  # Success on third attempt
+            ]
+        )
+
+        texts = ["Hello world", "How are you?"]
+        translations = await translator.translate_batch(texts, "en", "es")
+
+        # Should succeed after retries
+        assert len(translations) == 2
+        assert "Hola mundo" in translations[0]
+        assert translator.client.chat.completions.create.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_retries_on_transient_api_error(self, translator_with_api_key):
+        """Should retry on transient API errors."""
+        translator, mock_client_class = translator_with_api_key
+
+        try:
+            import httpx
+            from openai import APIError
+        except ImportError:
+            pytest.skip("OpenAI SDK not available")
+
+        # Create mock httpx.Request and Response for APIError
+        mock_http_request = MagicMock(spec=httpx.Request)
+        mock_http_response = MagicMock(spec=httpx.Response)
+        mock_http_response.status_code = 503
+
+        # Mock the API response
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "[1]\nBonjour\n\n[2]\nAu revoir"
+
+        # Create error instance with status_code attribute
+        error_instance = APIError(
+            message="Service unavailable",
+            request=mock_http_request,
+            body=None,
+        )
+        error_instance.status_code = 503
+
+        translator.client = AsyncMock()
+        translator.client.chat.completions.create = AsyncMock(
+            side_effect=[error_instance, mock_response]  # Success on second attempt
+        )
+
+        texts = ["Hello", "Goodbye"]
+        translations = await translator.translate_batch(texts, "en", "fr")
+
+        # Should succeed after retry
+        assert len(translations) == 2
+        assert translator.client.chat.completions.create.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_fails_immediately_on_permanent_error(self, translator_with_api_key):
+        """Should fail immediately on permanent errors without retrying."""
+        translator, mock_client_class = translator_with_api_key
+
+        try:
+            import httpx
+            from openai import APIError
+        except ImportError:
+            pytest.skip("OpenAI SDK not available")
+
+        # Create mock httpx.Request for APIError
+        mock_http_request = MagicMock(spec=httpx.Request)
+
+        translator.client = AsyncMock()
+        error_instance = APIError(
+            message="Invalid API key",
+            request=mock_http_request,
+            body=None,
+        )
+        error_instance.status_code = 401
+        translator.client.chat.completions.create = AsyncMock(
+            side_effect=error_instance
+        )
+
+        texts = ["Hello"]
+        with pytest.raises(APIError):
+            await translator.translate_batch(texts, "en", "es")
+
+        # Should fail immediately without retries
+        assert translator.client.chat.completions.create.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_fails_after_max_retries_exhausted(self, translator_with_api_key):
+        """Should fail after exhausting all retry attempts."""
+        translator, mock_client_class = translator_with_api_key
+
+        try:
+            import httpx
+            from openai import RateLimitError
+        except ImportError:
+            pytest.skip("OpenAI SDK not available")
+
+        # Create mock httpx.Response for RateLimitError
+        mock_http_response = MagicMock(spec=httpx.Response)
+        mock_http_response.status_code = 429
+        mock_http_response.headers = MagicMock()
+        mock_http_response.headers.get = MagicMock(return_value=None)
+
+        translator.client = AsyncMock()
+        translator.client.chat.completions.create = AsyncMock(
+            side_effect=RateLimitError(
+                "Rate limit exceeded", response=mock_http_response, body=None
+            )
+        )
+
+        texts = ["Hello"]
+        with pytest.raises(RateLimitError):
+            await translator.translate_batch(texts, "en", "es")
+
+        # Should try initial + 3 retries = 4 total attempts
+        assert translator.client.chat.completions.create.call_count == 4
+
+    @pytest.mark.asyncio
+    async def test_preserves_formatting_through_retries(self, translator_with_api_key):
+        """Should preserve formatting even when retrying."""
+        translator, mock_client_class = translator_with_api_key
+
+        try:
+            import httpx
+            from openai import RateLimitError
+        except ImportError:
+            pytest.skip("OpenAI SDK not available")
+
+        # Create mock httpx.Response for RateLimitError
+        mock_http_response = MagicMock(spec=httpx.Response)
+        mock_http_response.status_code = 429
+        mock_http_response.headers = MagicMock()
+        mock_http_response.headers.get = MagicMock(return_value=None)
+
+        # Mock the API response with formatted content
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = (
+            "[1]\nHola\nmundo\n\n[2]\n¿Cómo\nestás?"
+        )
+
+        translator.client = AsyncMock()
+        translator.client.chat.completions.create = AsyncMock(
+            side_effect=[
+                RateLimitError(
+                    "Rate limit exceeded", response=mock_http_response, body=None
+                ),
+                mock_response,  # Success on second attempt
+            ]
+        )
+
+        texts = ["Hello\nworld", "How\nare you?"]
+        translations = await translator.translate_batch(texts, "en", "es")
+
+        # Formatting should be preserved
+        assert len(translations) == 2
+        assert "\n" in translations[0]  # Line breaks preserved
+        assert "\n" in translations[1]
+
+    @pytest.mark.asyncio
+    async def test_successful_translation_after_retries(self, translator_with_api_key):
+        """Should successfully translate after retrying transient errors."""
+        translator, mock_client_class = translator_with_api_key
+
+        try:
+            from openai import APIConnectionError
+        except ImportError:
+            pytest.skip("OpenAI SDK not available")
+
+        # Mock the API response
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = (
+            "[1]\nCiao\n\n[2]\nArrivederci\n\n[3]\nGrazie"
+        )
+
+        translator.client = AsyncMock()
+        translator.client.chat.completions.create = AsyncMock(
+            side_effect=[
+                APIConnectionError(message="Connection failed", request=None),
+                APIConnectionError(message="Connection failed", request=None),
+                mock_response,  # Success on third attempt
+            ]
+        )
+
+        texts = ["Hello", "Goodbye", "Thank you"]
+        translations = await translator.translate_batch(texts, "en", "it")
+
+        # Should succeed after retries
+        assert len(translations) == 3
+        assert "Ciao" in translations[0]
+        assert "Arrivederci" in translations[1]
+        assert "Grazie" in translations[2]
+        assert translator.client.chat.completions.create.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_retry_with_exponential_backoff_delays(self, translator_with_api_key):
+        """Should wait with exponential backoff between retries."""
+        import asyncio
+
+        translator, mock_client_class = translator_with_api_key
+
+        try:
+            import httpx
+            from openai import RateLimitError
+        except ImportError:
+            pytest.skip("OpenAI SDK not available")
+
+        # Create mock httpx.Response for RateLimitError
+        mock_http_response = MagicMock(spec=httpx.Response)
+        mock_http_response.status_code = 429
+        mock_http_response.headers = MagicMock()
+        mock_http_response.headers.get = MagicMock(return_value=None)
+
+        # Mock the API response
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "[1]\nSuccess"
+
+        translator.client = AsyncMock()
+        translator.client.chat.completions.create = AsyncMock(
+            side_effect=[
+                RateLimitError(
+                    "Rate limit exceeded", response=mock_http_response, body=None
+                ),
+                RateLimitError(
+                    "Rate limit exceeded", response=mock_http_response, body=None
+                ),
+                mock_response,  # Success on third attempt
+            ]
+        )
+
+        texts = ["Test"]
+        start_time = asyncio.get_event_loop().time()
+        translations = await translator.translate_batch(texts, "en", "es")
+        end_time = asyncio.get_event_loop().time()
+        elapsed = end_time - start_time
+
+        # Should have waited with exponential backoff
+        # First retry: ~0.1s, second retry: ~0.2s = ~0.3s minimum
+        assert elapsed >= 0.3
+        assert len(translations) == 1
+        assert "Success" in translations[0]

@@ -79,6 +79,7 @@ services:
     volumes:
       - ./common:/app/common
       - ./translator:/app/translator
+      - ./storage:/app/storage
     env_file:
       - .env
     environment:
