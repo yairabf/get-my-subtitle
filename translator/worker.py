@@ -250,10 +250,10 @@ async def process_translation_message(
 
         # Calculate translation duration
         translation_end_time = DateTimeUtils.get_current_utc_datetime()
-        duration_seconds = (translation_end_time - translation_start_time).total_seconds()
-        logger.info(
-            f"✅ Translation completed in {duration_seconds:.2f} seconds"
-        )
+        duration_seconds = (
+            translation_end_time - translation_start_time
+        ).total_seconds()
+        logger.info(f"✅ Translation completed in {duration_seconds:.2f} seconds")
 
         # Publish TRANSLATION_COMPLETED event
         if request_id:

@@ -1045,8 +1045,8 @@ How are you?
         self, sample_srt_file, mock_translator, tmp_path, monkeypatch
     ):
         """Test that TRANSLATION_COMPLETED event includes correct duration."""
-        from uuid import uuid4
         import asyncio
+        from uuid import uuid4
 
         request_id = uuid4()
 
@@ -1109,6 +1109,7 @@ How are you?
     ):
         """Test that TRANSLATION_COMPLETED event has correct payload structure."""
         from uuid import uuid4
+
         from common.schemas import EventType
 
         request_id = uuid4()
@@ -1182,6 +1183,7 @@ How are you?
     ):
         """Test that TRANSLATION_COMPLETED event is published before SUBTITLE_TRANSLATED event."""
         from uuid import uuid4
+
         from common.schemas import EventType
 
         request_id = uuid4()
@@ -1235,7 +1237,10 @@ How are you?
                 elif event_type == EventType.SUBTITLE_TRANSLATED:
                     subtitle_translated_index = i
 
-            if translation_completed_index is not None and subtitle_translated_index is not None:
+            if (
+                translation_completed_index is not None
+                and subtitle_translated_index is not None
+            ):
                 assert (
                     translation_completed_index < subtitle_translated_index
                 ), "TRANSLATION_COMPLETED should be published before SUBTITLE_TRANSLATED"
