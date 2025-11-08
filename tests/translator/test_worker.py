@@ -949,3 +949,298 @@ Goodbye!
 
             # Should translate all chunks (started fresh)
             assert mock_translator.translate_batch.call_count >= 1
+
+
+class TestTranslationCompletedEvent:
+    """Test TRANSLATION_COMPLETED event publishing and duration tracking."""
+
+    @pytest.fixture
+    def sample_srt_file(self, tmp_path):
+        """Create a sample SRT file for testing."""
+        srt_content = """1
+00:00:01,000 --> 00:00:04,000
+Hello world
+
+2
+00:00:05,000 --> 00:00:08,000
+How are you?
+"""
+        srt_file = tmp_path / "test.srt"
+        srt_file.write_text(srt_content, encoding="utf-8")
+        return str(srt_file)
+
+    @pytest.fixture
+    def mock_translator(self):
+        """Create a mock translator."""
+        translator = MagicMock()
+        translator.translate_batch = AsyncMock(
+            return_value=["Hola mundo", "¿Cómo estás?"]
+        )
+        return translator
+
+    @pytest.mark.asyncio
+    async def test_translation_completed_event_published(
+        self, sample_srt_file, mock_translator, tmp_path, monkeypatch
+    ):
+        """Test that TRANSLATION_COMPLETED event is published after successful translation."""
+        from uuid import uuid4
+
+        request_id = uuid4()
+
+        # Mock settings
+        mock_settings = MagicMock()
+        mock_settings.checkpoint_enabled = False
+        mock_settings.checkpoint_cleanup_on_success = False
+        mock_settings.subtitle_storage_path = str(tmp_path)
+        mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.openai_model = "gpt-5-nano"
+        mock_settings.translation_token_safety_margin = 0.8
+
+        monkeypatch.setattr("translator.worker.settings", mock_settings)
+
+        # Mock Redis and event publisher
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
+
+            # Mock message
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": sample_srt_file,
+                    "source_language": "en",
+                    "target_language": "es",
+                }
+            ).encode()
+
+            # Process translation message
+            await process_translation_message(mock_message, mock_translator)
+
+            # Verify TRANSLATION_COMPLETED event was published
+            publish_calls = mock_pub.publish_event.call_args_list
+            translation_completed_calls = [
+                call
+                for call in publish_calls
+                if call[0][0].event_type.value == "translation.completed"
+            ]
+
+            assert len(translation_completed_calls) == 1
+            event = translation_completed_calls[0][0][0]
+            assert event.job_id == request_id
+            assert event.source == "translator"
+            assert "duration_seconds" in event.payload
+            assert isinstance(event.payload["duration_seconds"], float)
+            assert event.payload["duration_seconds"] > 0
+            assert event.payload["source_language"] == "en"
+            assert event.payload["target_language"] == "es"
+            assert event.payload["subtitle_file_path"] == sample_srt_file
+            assert "file_path" in event.payload
+            assert "translated_path" in event.payload
+
+    @pytest.mark.asyncio
+    async def test_translation_completed_event_includes_duration(
+        self, sample_srt_file, mock_translator, tmp_path, monkeypatch
+    ):
+        """Test that TRANSLATION_COMPLETED event includes correct duration."""
+        import asyncio
+        from uuid import uuid4
+
+        request_id = uuid4()
+
+        # Mock settings
+        mock_settings = MagicMock()
+        mock_settings.checkpoint_enabled = False
+        mock_settings.checkpoint_cleanup_on_success = False
+        mock_settings.subtitle_storage_path = str(tmp_path)
+        mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.openai_model = "gpt-5-nano"
+        mock_settings.translation_token_safety_margin = 0.8
+
+        monkeypatch.setattr("translator.worker.settings", mock_settings)
+
+        # Mock Redis and event publisher
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
+
+            # Mock message
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": sample_srt_file,
+                    "source_language": "en",
+                    "target_language": "es",
+                }
+            ).encode()
+
+            # Add small delay to ensure duration > 0
+            async def delayed_translate(*args, **kwargs):
+                await asyncio.sleep(0.1)
+                return ["Hola mundo", "¿Cómo estás?"]
+
+            mock_translator.translate_batch = AsyncMock(side_effect=delayed_translate)
+
+            # Process translation message
+            await process_translation_message(mock_message, mock_translator)
+
+            # Verify duration is included and reasonable
+            publish_calls = mock_pub.publish_event.call_args_list
+            translation_completed_calls = [
+                call
+                for call in publish_calls
+                if call[0][0].event_type.value == "translation.completed"
+            ]
+
+            assert len(translation_completed_calls) == 1
+            event = translation_completed_calls[0][0][0]
+            duration = event.payload["duration_seconds"]
+            assert isinstance(duration, float)
+            assert duration >= 0.1  # Should be at least the delay we added
+
+    @pytest.mark.asyncio
+    async def test_translation_completed_event_payload_structure(
+        self, sample_srt_file, mock_translator, tmp_path, monkeypatch
+    ):
+        """Test that TRANSLATION_COMPLETED event has correct payload structure."""
+        from uuid import uuid4
+
+        from common.schemas import EventType
+
+        request_id = uuid4()
+
+        # Mock settings
+        mock_settings = MagicMock()
+        mock_settings.checkpoint_enabled = False
+        mock_settings.checkpoint_cleanup_on_success = False
+        mock_settings.subtitle_storage_path = str(tmp_path)
+        mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.openai_model = "gpt-5-nano"
+        mock_settings.translation_token_safety_margin = 0.8
+
+        monkeypatch.setattr("translator.worker.settings", mock_settings)
+
+        # Mock Redis and event publisher
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
+
+            # Mock message
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": sample_srt_file,
+                    "source_language": "en",
+                    "target_language": "es",
+                }
+            ).encode()
+
+            # Process translation message
+            await process_translation_message(mock_message, mock_translator)
+
+            # Verify event payload structure
+            publish_calls = mock_pub.publish_event.call_args_list
+            translation_completed_calls = [
+                call
+                for call in publish_calls
+                if call[0][0].event_type == EventType.TRANSLATION_COMPLETED
+            ]
+
+            assert len(translation_completed_calls) == 1
+            event = translation_completed_calls[0][0][0]
+
+            # Verify all required fields are present
+            required_fields = [
+                "file_path",
+                "duration_seconds",
+                "source_language",
+                "target_language",
+                "subtitle_file_path",
+                "translated_path",
+            ]
+            for field in required_fields:
+                assert field in event.payload, f"Missing required field: {field}"
+
+            # Verify field types
+            assert isinstance(event.payload["file_path"], str)
+            assert isinstance(event.payload["duration_seconds"], float)
+            assert isinstance(event.payload["source_language"], str)
+            assert isinstance(event.payload["target_language"], str)
+            assert isinstance(event.payload["subtitle_file_path"], str)
+            assert isinstance(event.payload["translated_path"], str)
+
+    @pytest.mark.asyncio
+    async def test_translation_completed_event_before_subtitle_translated(
+        self, sample_srt_file, mock_translator, tmp_path, monkeypatch
+    ):
+        """Test that TRANSLATION_COMPLETED event is published before SUBTITLE_TRANSLATED event."""
+        from uuid import uuid4
+
+        from common.schemas import EventType
+
+        request_id = uuid4()
+
+        # Mock settings
+        mock_settings = MagicMock()
+        mock_settings.checkpoint_enabled = False
+        mock_settings.checkpoint_cleanup_on_success = False
+        mock_settings.subtitle_storage_path = str(tmp_path)
+        mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.openai_model = "gpt-5-nano"
+        mock_settings.translation_token_safety_margin = 0.8
+
+        monkeypatch.setattr("translator.worker.settings", mock_settings)
+
+        # Track event order
+        event_order = []
+
+        def track_event_order(event):
+            event_order.append(event.event_type)
+            return True
+
+        # Mock Redis and event publisher
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(side_effect=track_event_order)
+
+            # Mock message
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": sample_srt_file,
+                    "source_language": "en",
+                    "target_language": "es",
+                }
+            ).encode()
+
+            # Process translation message
+            await process_translation_message(mock_message, mock_translator)
+
+            # Verify TRANSLATION_COMPLETED comes before SUBTITLE_TRANSLATED
+            translation_completed_index = None
+            subtitle_translated_index = None
+
+            for i, event_type in enumerate(event_order):
+                if event_type == EventType.TRANSLATION_COMPLETED:
+                    translation_completed_index = i
+                elif event_type == EventType.SUBTITLE_TRANSLATED:
+                    subtitle_translated_index = i
+
+            if (
+                translation_completed_index is not None
+                and subtitle_translated_index is not None
+            ):
+                assert (
+                    translation_completed_index < subtitle_translated_index
+                ), "TRANSLATION_COMPLETED should be published before SUBTITLE_TRANSLATED"

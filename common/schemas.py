@@ -35,6 +35,7 @@ class EventType(str, Enum):
     SUBTITLE_MISSING = "subtitle.missing"
     SUBTITLE_TRANSLATE_REQUESTED = "subtitle.translate.requested"
     SUBTITLE_TRANSLATED = "subtitle.translated"
+    TRANSLATION_COMPLETED = "translation.completed"
     JOB_FAILED = "job.failed"
 
 

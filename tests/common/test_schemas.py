@@ -85,6 +85,66 @@ class TestSubtitleMissingEnums:
         assert event.event_type == EventType.SUBTITLE_MISSING
 
 
+class TestTranslationCompletedEvent:
+    """Test TRANSLATION_COMPLETED event type."""
+
+    def test_translation_completed_event_type_exists(self):
+        """Test that TRANSLATION_COMPLETED event type exists in EventType enum."""
+        assert hasattr(EventType, "TRANSLATION_COMPLETED")
+        assert EventType.TRANSLATION_COMPLETED.value == "translation.completed"
+
+    def test_translation_completed_event_with_payload(self):
+        """Test creating SubtitleEvent with TRANSLATION_COMPLETED type and full payload."""
+        job_id = uuid4()
+        event = SubtitleEvent(
+            event_type=EventType.TRANSLATION_COMPLETED,
+            job_id=job_id,
+            timestamp=datetime.now(timezone.utc),
+            source="translator",
+            payload={
+                "file_path": "/path/to/translated.srt",
+                "duration_seconds": 45.67,
+                "source_language": "en",
+                "target_language": "es",
+                "subtitle_file_path": "/path/to/original.srt",
+                "translated_path": "/path/to/translated.srt",
+            },
+        )
+
+        assert event.event_type == EventType.TRANSLATION_COMPLETED
+        assert event.job_id == job_id
+        assert event.source == "translator"
+        assert event.payload["file_path"] == "/path/to/translated.srt"
+        assert event.payload["duration_seconds"] == 45.67
+        assert event.payload["source_language"] == "en"
+        assert event.payload["target_language"] == "es"
+        assert event.payload["subtitle_file_path"] == "/path/to/original.srt"
+        assert event.payload["translated_path"] == "/path/to/translated.srt"
+
+    def test_translation_completed_event_validates_correctly(self):
+        """Test that SubtitleEvent with TRANSLATION_COMPLETED passes validation."""
+        event_data = {
+            "event_type": "translation.completed",
+            "job_id": str(uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "translator",
+            "payload": {
+                "file_path": "/path/to/translated.srt",
+                "duration_seconds": 30.5,
+                "source_language": "en",
+                "target_language": "es",
+                "subtitle_file_path": "/path/to/original.srt",
+                "translated_path": "/path/to/translated.srt",
+            },
+        }
+
+        # Should not raise validation error
+        event = SubtitleEvent.model_validate(event_data)
+        assert event.event_type == EventType.TRANSLATION_COMPLETED
+        assert isinstance(event.payload["duration_seconds"], float)
+        assert event.payload["duration_seconds"] == 30.5
+
+
 class TestUtilityFunctions:
     """Test common utility functions."""
 

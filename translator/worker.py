@@ -69,6 +69,12 @@ async def process_translation_message(
 
         request_id = UUID(request_id_str)
 
+        # Track translation start time for duration calculation
+        translation_start_time = DateTimeUtils.get_current_utc_datetime()
+        logger.info(
+            f"🕐 Translation started at {DateTimeUtils.format_timestamp_for_logging(translation_start_time)}"
+        )
+
         # Update status to TRANSLATE_IN_PROGRESS
         await redis_client.update_phase(
             request_id, SubtitleStatus.TRANSLATE_IN_PROGRESS, source="translator"
@@ -241,6 +247,36 @@ async def process_translation_message(
                 await checkpoint_manager.cleanup_checkpoint(request_id, target_language)
             except Exception as e:
                 logger.warning(f"⚠️  Failed to cleanup checkpoint after completion: {e}")
+
+        # Calculate translation duration
+        translation_end_time = DateTimeUtils.get_current_utc_datetime()
+        duration_seconds = (
+            translation_end_time - translation_start_time
+        ).total_seconds()
+        logger.info(f"✅ Translation completed in {duration_seconds:.2f} seconds")
+
+        # Publish TRANSLATION_COMPLETED event
+        if request_id:
+            translation_completed_event = SubtitleEvent(
+                event_type=EventType.TRANSLATION_COMPLETED,
+                job_id=request_id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="translator",
+                payload={
+                    "file_path": str(output_path),
+                    "duration_seconds": duration_seconds,
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "subtitle_file_path": subtitle_file_path,
+                    "translated_path": str(output_path),
+                },
+            )
+            await event_publisher.publish_event(translation_completed_event)
+
+            logger.info(
+                f"📤 Published TRANSLATION_COMPLETED event for job {request_id} "
+                f"(duration: {duration_seconds:.2f}s)"
+            )
 
         # Publish SUBTITLE_TRANSLATED event
         if request_id:
