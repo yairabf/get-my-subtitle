@@ -1,9 +1,9 @@
 """Configuration management for the subtitle management system."""
 
 import os
-from typing import Optional
+from typing import List, Optional, Union
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -110,6 +110,39 @@ class Settings(BaseSettings):
         default=None, env="JELLYFIN_DEFAULT_TARGET_LANGUAGE"
     )
     jellyfin_auto_translate: bool = Field(default=True, env="JELLYFIN_AUTO_TRANSLATE")
+
+    # Scanner Configuration
+    scanner_media_path: str = Field(default="/media", env="SCANNER_MEDIA_PATH")
+    scanner_watch_recursive: bool = Field(default=True, env="SCANNER_WATCH_RECURSIVE")
+    scanner_media_extensions: List[str] = Field(
+        default=[".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm"],
+        env="SCANNER_MEDIA_EXTENSIONS",
+    )
+    scanner_debounce_seconds: float = Field(default=2.0, env="SCANNER_DEBOUNCE_SECONDS")
+    scanner_default_source_language: str = Field(
+        default="en", env="SCANNER_DEFAULT_SOURCE_LANGUAGE"
+    )
+    scanner_default_target_language: Optional[str] = Field(
+        default=None, env="SCANNER_DEFAULT_TARGET_LANGUAGE"
+    )
+    scanner_auto_translate: bool = Field(default=False, env="SCANNER_AUTO_TRANSLATE")
+
+    @field_validator("scanner_media_extensions", mode="before")
+    @classmethod
+    def parse_media_extensions(cls, v: Union[str, List[str]]) -> List[str]:
+        """
+        Parse comma-separated string or return list as-is.
+
+        Args:
+            v: String with comma-separated extensions or list of extensions
+
+        Returns:
+            List of extension strings
+        """
+        if isinstance(v, str):
+            # Split by comma and strip whitespace
+            return [ext.strip() for ext in v.split(",") if ext.strip()]
+        return v
 
     class Config:
         env_file = ".env"

@@ -65,13 +65,14 @@ class EventConsumer:
         queue = await self.channel.declare_queue(self.queue_name, durable=True)
 
         # Bind queue to exchange with routing patterns
-        # Listen to all subtitle.* and job.* events
+        # Listen to all subtitle.*, job.*, and media.* events
         await queue.bind(exchange, routing_key="subtitle.*")
         await queue.bind(exchange, routing_key="job.*")
+        await queue.bind(exchange, routing_key="media.*")
 
         logger.info(
             f"Queue '{self.queue_name}' bound to exchange '{self.exchange_name}' "
-            f"with patterns: subtitle.*, job.*"
+            f"with patterns: subtitle.*, job.*, media.*"
         )
 
         return queue
@@ -219,6 +220,30 @@ class EventConsumer:
                 f"❌ Error handling TRANSLATE_REQUESTED for job {event.job_id}: {e}"
             )
 
+    async def handle_media_file_detected(self, event: SubtitleEvent) -> None:
+        """
+        Handle media.file.detected event.
+
+        Args:
+            event: SubtitleEvent containing media file detection information
+        """
+        logger.info(f"📥 Handling MEDIA_FILE_DETECTED for job {event.job_id}")
+
+        try:
+            # Record the event for audit trail
+            await redis_client.record_event(
+                event.job_id, event.event_type.value, event.payload, source="consumer"
+            )
+
+            logger.info(
+                f"✅ Successfully recorded MEDIA_FILE_DETECTED for job {event.job_id}"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"❌ Error handling MEDIA_FILE_DETECTED for job {event.job_id}: {e}"
+            )
+
     async def handle_subtitle_missing(self, event: SubtitleEvent) -> None:
         """
         Handle subtitle.missing event.
@@ -286,6 +311,8 @@ class EventConsumer:
                 await self.handle_download_requested(event)
             elif event.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED:
                 await self.handle_translate_requested(event)
+            elif event.event_type == EventType.MEDIA_FILE_DETECTED:
+                await self.handle_media_file_detected(event)
             else:
                 logger.warning(f"⚠️  Unknown event type: {event.event_type}")
 
