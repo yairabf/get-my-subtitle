@@ -32,6 +32,33 @@ Environment variables:
 - `SCANNER_DEFAULT_TARGET_LANGUAGE`: Default target language (optional)
 - `SCANNER_AUTO_TRANSLATE`: Auto-translate after download (default: `false`)
 
+## Architecture
+
+The scanner service is organized into modular components:
+
+- **`worker.py`**: Main entry point - initializes and runs the scanner service
+- **`scanner.py`**: `MediaScanner` class - manages the file system observer lifecycle and service connections
+- **`event_handler.py`**: `MediaFileEventHandler` class - handles file system events and processes media files
+
+### Module Responsibilities
+
+**worker.py**
+- Service entry point
+- Signal handling for graceful shutdown
+- Main event loop
+
+**scanner.py (MediaScanner)**
+- Observer lifecycle management (start/stop)
+- Service connections (Redis, RabbitMQ, orchestrator)
+- Configuration and initialization
+
+**event_handler.py (MediaFileEventHandler)**
+- File system event handling (on_created, on_modified)
+- File filtering and validation
+- Debouncing logic
+- Media file processing
+- Job creation and event publishing
+
 ## Usage
 
 ### Running with Docker Compose
