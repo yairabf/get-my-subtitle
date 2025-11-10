@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     )
     scanner_auto_translate: bool = Field(default=False, env="SCANNER_AUTO_TRANSLATE")
 
+    # Scanner Webhook Configuration
+    scanner_webhook_host: str = Field(default="0.0.0.0", env="SCANNER_WEBHOOK_HOST")
+    scanner_webhook_port: int = Field(default=8001, env="SCANNER_WEBHOOK_PORT")
+
     @field_validator("scanner_media_extensions", mode="before")
     @classmethod
     def parse_media_extensions(cls, v: Union[str, List[str]]) -> List[str]:

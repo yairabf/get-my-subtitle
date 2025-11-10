@@ -24,6 +24,8 @@ async def main() -> None:
     def signal_handler(signum, frame):
         logger.info(f"Received signal {signum}, shutting down...")
         scanner.stop()
+        # Schedule async cleanup
+        asyncio.create_task(scanner.stop_webhook_server())
         asyncio.create_task(scanner.disconnect())
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -36,8 +38,13 @@ async def main() -> None:
         # Start file system watcher
         scanner.start()
 
+        # Start webhook server
+        await scanner.start_webhook_server()
+
         # Keep running until stopped
         logger.info("🚀 Scanner service running. Press Ctrl+C to stop.")
+        logger.info("   - File system watcher: active")
+        logger.info("   - Webhook server: active")
         while scanner.is_running():
             await asyncio.sleep(1)
 
@@ -47,6 +54,7 @@ async def main() -> None:
         logger.error(f"Fatal error: {e}", exc_info=True)
     finally:
         scanner.stop()
+        await scanner.stop_webhook_server()
         await scanner.disconnect()
         logger.info("👋 Scanner service stopped")
 
