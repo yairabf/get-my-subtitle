@@ -121,6 +121,8 @@ services:
     build:
       context: .
       dockerfile: ./scanner/Dockerfile
+    ports:
+      - "8001:8001"
     volumes:
       - ./common:/app/common
       - ./scanner:/app/scanner
@@ -135,7 +137,7 @@ services:
       manager:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import redis; import sys; r = redis.Redis(host='redis', port=6379); r.ping(); sys.exit(0)"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 10s
       timeout: 5s
       retries: 3

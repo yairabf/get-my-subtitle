@@ -1,9 +1,11 @@
 """Media file scanner that monitors directory for new/updated files."""
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
 
+from fastapi import FastAPI
 from watchdog.observers import Observer
 
 from common.config import settings
@@ -12,6 +14,7 @@ from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
 from manager.orchestrator import orchestrator
 from scanner.event_handler import MediaFileEventHandler
+from scanner.webhook_handler import JellyfinWebhookHandler
 
 # Configure logging
 service_logger = setup_service_logging("scanner", enable_file_logging=True)
@@ -26,6 +29,9 @@ class MediaScanner:
         self.observer: Optional[Observer] = None
         self.event_handler: Optional[MediaFileEventHandler] = None
         self.running = False
+        self.webhook_app: Optional[FastAPI] = None
+        self.webhook_server_task: Optional[asyncio.Task] = None
+        self.webhook_handler = JellyfinWebhookHandler()
 
     async def connect(self) -> None:
         """Connect to Redis, RabbitMQ, and orchestrator."""
@@ -103,3 +109,82 @@ class MediaScanner:
             True if scanner is running, False otherwise
         """
         return self.running
+
+    def _create_webhook_app(self) -> FastAPI:
+        """
+        Create FastAPI application for webhook endpoint.
+
+        Returns:
+            FastAPI application instance
+        """
+        app = FastAPI(
+            title="Scanner Webhook API",
+            description="Webhook endpoint for Jellyfin notifications",
+            version="1.0.0",
+        )
+
+        @app.post("/webhooks/jellyfin")
+        async def handle_jellyfin_webhook(payload: dict):
+            """Handle webhook notifications from Jellyfin."""
+            from manager.schemas import JellyfinWebhookPayload
+
+            # FastAPI receives payload as dict, convert to Pydantic model for validation
+            webhook_payload = JellyfinWebhookPayload(**payload)
+
+            result = await self.webhook_handler.process_webhook(webhook_payload)
+            return result.model_dump()
+
+        @app.get("/health")
+        async def health_check():
+            """Health check endpoint."""
+            return {"status": "healthy", "service": "scanner"}
+
+        return app
+
+    async def start_webhook_server(self) -> None:
+        """Start the webhook HTTP server."""
+        if self.webhook_app is not None:
+            logger.warning("Webhook server is already running")
+            return
+
+        logger.info(
+            f"🌐 Starting webhook server on {settings.scanner_webhook_host}:{settings.scanner_webhook_port}"
+        )
+
+        self.webhook_app = self._create_webhook_app()
+
+        # Import uvicorn here to avoid import errors if not installed
+        import uvicorn
+
+        # Create server config
+        config = uvicorn.Config(
+            app=self.webhook_app,
+            host=settings.scanner_webhook_host,
+            port=settings.scanner_webhook_port,
+            log_config=None,  # Use our own logging
+        )
+        server = uvicorn.Server(config)
+
+        # Run server in background task
+        self.webhook_server_task = asyncio.create_task(server.serve())
+
+        logger.info("✅ Webhook server started")
+
+    async def stop_webhook_server(self) -> None:
+        """Stop the webhook HTTP server."""
+        if self.webhook_server_task is None:
+            return
+
+        logger.info("🛑 Stopping webhook server...")
+
+        # Cancel the server task
+        self.webhook_server_task.cancel()
+        try:
+            await self.webhook_server_task
+        except asyncio.CancelledError:
+            pass
+
+        self.webhook_app = None
+        self.webhook_server_task = None
+
+        logger.info("✅ Webhook server stopped")
