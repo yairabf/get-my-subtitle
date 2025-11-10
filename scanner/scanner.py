@@ -72,7 +72,9 @@ class MediaScanner:
         self.event_handler = MediaFileEventHandler(self)
         self.observer = Observer()
         self.observer.schedule(
-            self.event_handler, str(media_path), recursive=settings.scanner_watch_recursive
+            self.event_handler,
+            str(media_path),
+            recursive=settings.scanner_watch_recursive,
         )
         self.observer.start()
         self.running = True
@@ -101,4 +103,3 @@ class MediaScanner:
             True if scanner is running, False otherwise
         """
         return self.running
-

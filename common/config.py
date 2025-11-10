@@ -118,9 +118,7 @@ class Settings(BaseSettings):
         default=[".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm"],
         env="SCANNER_MEDIA_EXTENSIONS",
     )
-    scanner_debounce_seconds: float = Field(
-        default=2.0, env="SCANNER_DEBOUNCE_SECONDS"
-    )
+    scanner_debounce_seconds: float = Field(default=2.0, env="SCANNER_DEBOUNCE_SECONDS")
     scanner_default_source_language: str = Field(
         default="en", env="SCANNER_DEFAULT_SOURCE_LANGUAGE"
     )

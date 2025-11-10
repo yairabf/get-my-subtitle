@@ -222,7 +222,9 @@ class MediaFileEventHandler(FileSystemEventHandler):
                 )
 
         except Exception as e:
-            logger.error(f"❌ Error processing media file {file_path}: {e}", exc_info=True)
+            logger.error(
+                f"❌ Error processing media file {file_path}: {e}", exc_info=True
+            )
 
     def on_created(self, event: FileSystemEvent) -> None:
         """
@@ -287,10 +289,7 @@ class MediaFileEventHandler(FileSystemEventHandler):
     def _cleanup_completed_tasks(self) -> None:
         """Remove completed tasks from pending_files dictionary."""
         completed = [
-            file_path
-            for file_path, task in self.pending_files.items()
-            if task.done()
+            file_path for file_path, task in self.pending_files.items() if task.done()
         ]
         for file_path in completed:
             del self.pending_files[file_path]
-

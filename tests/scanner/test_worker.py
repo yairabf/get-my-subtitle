@@ -96,7 +96,9 @@ class TestMediaFileEventHandler:
                 mock_publisher.publish_event = AsyncMock()
 
                 with patch("scanner.event_handler.orchestrator") as mock_orchestrator:
-                    mock_orchestrator.enqueue_download_task = AsyncMock(return_value=True)
+                    mock_orchestrator.enqueue_download_task = AsyncMock(
+                        return_value=True
+                    )
 
                     await event_handler._process_media_file(str(test_file))
 
@@ -313,9 +315,7 @@ class TestScannerIntegration:
     """Integration tests for scanner service."""
 
     @pytest.mark.asyncio
-    async def test_full_flow_file_detection_to_job_creation(
-        self, tmp_path
-    ):
+    async def test_full_flow_file_detection_to_job_creation(self, tmp_path):
         """Test full flow from file detection to job creation."""
         test_file = tmp_path / "integration_test.mp4"
         test_file.write_text("test content")
@@ -347,15 +347,21 @@ class TestScannerIntegration:
                         await scanner.connect()
 
                         # Now mock the actual processing dependencies
-                        with patch("scanner.event_handler.redis_client") as mock_redis_handler:
+                        with patch(
+                            "scanner.event_handler.redis_client"
+                        ) as mock_redis_handler:
                             mock_redis_handler.save_job = AsyncMock()
 
-                            with patch("scanner.event_handler.event_publisher") as mock_publisher_handler:
+                            with patch(
+                                "scanner.event_handler.event_publisher"
+                            ) as mock_publisher_handler:
                                 mock_publisher_handler.publish_event = AsyncMock()
 
-                                with patch("scanner.event_handler.orchestrator") as mock_orchestrator_handler:
-                                    mock_orchestrator_handler.enqueue_download_task = AsyncMock(
-                                        return_value=True
+                                with patch(
+                                    "scanner.event_handler.orchestrator"
+                                ) as mock_orchestrator_handler:
+                                    mock_orchestrator_handler.enqueue_download_task = (
+                                        AsyncMock(return_value=True)
                                     )
 
                                     # Manually trigger processing (simulating file detection)
@@ -367,10 +373,19 @@ class TestScannerIntegration:
 
                                     # Verify event was published
                                     assert mock_publisher_handler.publish_event.called
-                                    event = mock_publisher_handler.publish_event.call_args[0][0]
-                                    assert event.event_type == EventType.MEDIA_FILE_DETECTED
+                                    event = (
+                                        mock_publisher_handler.publish_event.call_args[
+                                            0
+                                        ][0]
+                                    )
+                                    assert (
+                                        event.event_type
+                                        == EventType.MEDIA_FILE_DETECTED
+                                    )
 
                                     # Verify download task was enqueued
-                                    assert mock_orchestrator_handler.enqueue_download_task.called
+                                    assert (
+                                        mock_orchestrator_handler.enqueue_download_task.called
+                                    )
 
                         await scanner.disconnect()
