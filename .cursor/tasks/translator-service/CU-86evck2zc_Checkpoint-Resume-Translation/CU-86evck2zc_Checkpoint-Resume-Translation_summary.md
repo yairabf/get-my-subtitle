@@ -226,3 +226,5 @@ No significant deviations from the original plan. The implementation follows the
 - Worker integration: `translator/worker.py`
 - Test files: `tests/translator/test_checkpoint_manager.py`, `tests/translator/test_worker.py`
 
+
+
