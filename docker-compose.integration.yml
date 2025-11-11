@@ -1,0 +1,150 @@
+version: "3.8"
+
+services:
+  # Core infrastructure services
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - integration-test-network
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - integration-test-network
+
+  # Manager service (required for orchestration)
+  manager:
+    build:
+      context: .
+      dockerfile: ./manager/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./common:/app/common
+      - ./manager:/app/manager
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      LOG_LEVEL: INFO
+      ENVIRONMENT: integration-test
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks:
+      - integration-test-network
+
+  # Downloader worker (consumes download tasks)
+  downloader:
+    build:
+      context: .
+      dockerfile: ./downloader/Dockerfile
+    volumes:
+      - ./common:/app/common
+      - ./downloader:/app/downloader
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      LOG_LEVEL: INFO
+      ENVIRONMENT: integration-test
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r = redis.Redis(host='redis', port=6379); r.ping()"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks:
+      - integration-test-network
+
+  # Translator worker (consumes translation tasks)
+  translator:
+    build:
+      context: .
+      dockerfile: ./translator/Dockerfile
+    volumes:
+      - ./common:/app/common
+      - ./translator:/app/translator
+      - ./storage:/app/storage
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      LOG_LEVEL: INFO
+      ENVIRONMENT: integration-test
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r = redis.Redis(host='redis', port=6379); r.ping()"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks:
+      - integration-test-network
+
+  # Scanner service (publishes SUBTITLE_REQUESTED events)
+  scanner:
+    build:
+      context: .
+      dockerfile: ./scanner/Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./common:/app/common
+      - ./scanner:/app/scanner
+      - ./manager:/app/manager
+      - ./test-media:/media:ro  # Mount test media directory
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      LOG_LEVEL: INFO
+      ENVIRONMENT: integration-test
+      SCANNER_ENABLED: "false"  # Disable automatic scanning in tests
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks:
+      - integration-test-network
+
+networks:
+  integration-test-network:
+    driver: bridge
+    name: integration-test-network
+

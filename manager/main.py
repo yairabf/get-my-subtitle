@@ -1,5 +1,6 @@
 """FastAPI application for the subtitle management system."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List
@@ -13,6 +14,7 @@ from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
 from common.schemas import SubtitleStatus
 from common.utils import StatusProgressCalculator
+from manager.event_consumer import event_consumer
 from manager.orchestrator import orchestrator
 from manager.schemas import (
     HealthResponse,
@@ -29,20 +31,47 @@ from manager.schemas import (
 service_logger = setup_service_logging("manager", enable_file_logging=True)
 logger = service_logger.logger
 
+# Global variable to hold the event consumer task
+consumer_task = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan events."""
+    global consumer_task
+
     # Startup
     logger.info("Starting subtitle management API...")
     await redis_client.connect()
     await orchestrator.connect()
+
+    # Connect and start event consumer
+    logger.info("Starting event consumer for SUBTITLE_REQUESTED events...")
+    await event_consumer.connect()
+    consumer_task = asyncio.create_task(event_consumer.start_consuming())
+
     logger.info("API startup complete")
 
     yield
 
     # Shutdown
     logger.info("Shutting down subtitle management API...")
+
+    # Stop event consumer
+    if consumer_task:
+        logger.info("Stopping event consumer...")
+        event_consumer.stop()
+        try:
+            await asyncio.wait_for(consumer_task, timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Event consumer task did not stop gracefully, cancelling...")
+            consumer_task.cancel()
+            try:
+                await consumer_task
+            except asyncio.CancelledError:
+                pass
+
+    await event_consumer.disconnect()
     await orchestrator.disconnect()
     await redis_client.disconnect()
     logger.info("API shutdown complete")
@@ -79,6 +108,18 @@ async def health_check():
         )
 
     return health_status
+
+
+@app.get("/health/consumer", response_model=Dict[str, Any])
+async def consumer_health_check():
+    """Check event consumer health status."""
+    return {
+        "status": "consuming" if event_consumer.is_consuming else "not_consuming",
+        "connected": event_consumer.connection is not None
+        and not event_consumer.connection.is_closed,
+        "queue_name": event_consumer.queue_name,
+        "routing_key": event_consumer.routing_key,
+    }
 
 
 @app.get("/", response_model=Dict[str, str])

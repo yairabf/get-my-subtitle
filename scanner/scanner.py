@@ -12,7 +12,6 @@ from common.config import settings
 from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
-from manager.orchestrator import orchestrator
 from scanner.event_handler import MediaFileEventHandler
 from scanner.webhook_handler import JellyfinWebhookHandler
 from scanner.websocket_client import JellyfinWebSocketClient
@@ -37,12 +36,9 @@ class MediaScanner:
         self.fallback_sync_task: Optional[asyncio.Task] = None
 
     async def connect(self) -> None:
-        """Connect to Redis, RabbitMQ, orchestrator, and Jellyfin WebSocket."""
+        """Connect to Redis, event publisher, and Jellyfin WebSocket."""
         logger.info("🔌 Connecting to Redis...")
         await redis_client.connect()
-
-        logger.info("🔌 Connecting to RabbitMQ...")
-        await orchestrator.connect()
 
         logger.info("🔌 Connecting to event publisher...")
         await event_publisher.connect()
@@ -73,7 +69,6 @@ class MediaScanner:
             except asyncio.CancelledError:
                 pass
 
-        await orchestrator.disconnect()
         await event_publisher.disconnect()
         await redis_client.disconnect()
         logger.info("✅ All connections closed")

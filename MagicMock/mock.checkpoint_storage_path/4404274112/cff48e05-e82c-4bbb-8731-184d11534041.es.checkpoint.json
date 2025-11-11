@@ -1,0 +1,21 @@
+{
+  "request_id": "cff48e05-e82c-4bbb-8731-184d11534041",
+  "subtitle_file_path": "/private/var/folders/td/wxzpd5x12ks3hx8_lt0g14bw0000gn/T/pytest-of-yairabramovitch/pytest-6/test_resume_from_checkpoint0/test.srt",
+  "source_language": "en",
+  "target_language": "es",
+  "total_chunks": 3,
+  "completed_chunks": [
+    0
+  ],
+  "translated_segments": [
+    {
+      "index": 1,
+      "start_time": "00:00:01,000",
+      "end_time": "00:00:04,000",
+      "text": "Hola mundo"
+    }
+  ],
+  "checkpoint_path": "MagicMock/mock.checkpoint_storage_path/4404274112/cff48e05-e82c-4bbb-8731-184d11534041.es.checkpoint.json",
+  "created_at": "2025-11-11T20:28:44.879137Z",
+  "updated_at": "2025-11-11T20:28:44.879140Z"
+}

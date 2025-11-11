@@ -38,6 +38,7 @@ class EventType(str, Enum):
     TRANSLATION_COMPLETED = "translation.completed"
     JOB_FAILED = "job.failed"
     MEDIA_FILE_DETECTED = "media.file.detected"
+    SUBTITLE_REQUESTED = "subtitle.requested"
 
 
 class SubtitleRequest(BaseModel):
