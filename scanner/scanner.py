@@ -15,6 +15,7 @@ from common.redis_client import redis_client
 from manager.orchestrator import orchestrator
 from scanner.event_handler import MediaFileEventHandler
 from scanner.webhook_handler import JellyfinWebhookHandler
+from scanner.websocket_client import JellyfinWebSocketClient
 
 # Configure logging
 service_logger = setup_service_logging("scanner", enable_file_logging=True)
@@ -32,9 +33,11 @@ class MediaScanner:
         self.webhook_app: Optional[FastAPI] = None
         self.webhook_server_task: Optional[asyncio.Task] = None
         self.webhook_handler = JellyfinWebhookHandler()
+        self.websocket_client = JellyfinWebSocketClient()
+        self.fallback_sync_task: Optional[asyncio.Task] = None
 
     async def connect(self) -> None:
-        """Connect to Redis, RabbitMQ, and orchestrator."""
+        """Connect to Redis, RabbitMQ, orchestrator, and Jellyfin WebSocket."""
         logger.info("🔌 Connecting to Redis...")
         await redis_client.connect()
 
@@ -44,11 +47,32 @@ class MediaScanner:
         logger.info("🔌 Connecting to event publisher...")
         await event_publisher.connect()
 
+        # Connect to Jellyfin WebSocket (if configured)
+        try:
+            await self.websocket_client.connect()
+        except Exception as e:
+            logger.warning(
+                f"Failed to connect to Jellyfin WebSocket: {e}. "
+                "Continuing with webhook and file system watcher."
+            )
+
         logger.info("✅ All connections established")
 
     async def disconnect(self) -> None:
         """Disconnect from services."""
         logger.info("🔌 Disconnecting from services...")
+        
+        # Disconnect WebSocket client
+        await self.websocket_client.disconnect()
+        
+        # Cancel fallback sync task
+        if self.fallback_sync_task and not self.fallback_sync_task.done():
+            self.fallback_sync_task.cancel()
+            try:
+                await self.fallback_sync_task
+            except asyncio.CancelledError:
+                pass
+        
         await orchestrator.disconnect()
         await event_publisher.disconnect()
         await redis_client.disconnect()
@@ -188,3 +212,48 @@ class MediaScanner:
         self.webhook_server_task = None
 
         logger.info("✅ Webhook server stopped")
+
+    async def start_fallback_sync(self) -> None:
+        """Start periodic fallback sync task."""
+        if not settings.jellyfin_fallback_sync_enabled:
+            logger.info("📅 Fallback sync is disabled")
+            return
+
+        if self.fallback_sync_task is not None:
+            logger.warning("Fallback sync is already running")
+            return
+
+        logger.info(
+            f"📅 Starting fallback sync "
+            f"(interval: {settings.jellyfin_fallback_sync_interval_hours} hours)"
+        )
+
+        self.fallback_sync_task = asyncio.create_task(self._fallback_sync_loop())
+
+    async def _fallback_sync_loop(self) -> None:
+        """Periodic fallback sync loop."""
+        try:
+            # Convert hours to seconds
+            interval_seconds = settings.jellyfin_fallback_sync_interval_hours * 3600
+
+            while self.running:
+                # Wait for interval
+                await asyncio.sleep(interval_seconds)
+
+                # Check if WebSocket is connected
+                if self.websocket_client.is_connected():
+                    logger.debug(
+                        "WebSocket is connected, skipping fallback sync"
+                    )
+                    continue
+
+                # WebSocket not connected, log warning and rely on webhook
+                logger.warning(
+                    "⚠️ Fallback sync triggered - WebSocket disconnected. "
+                    "Relying on webhook and file system watcher."
+                )
+
+        except asyncio.CancelledError:
+            logger.debug("Fallback sync loop cancelled")
+        except Exception as e:
+            logger.error(f"Error in fallback sync loop: {e}", exc_info=True)

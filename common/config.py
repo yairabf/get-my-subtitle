@@ -131,6 +131,25 @@ class Settings(BaseSettings):
     scanner_webhook_host: str = Field(default="0.0.0.0", env="SCANNER_WEBHOOK_HOST")
     scanner_webhook_port: int = Field(default=8001, env="SCANNER_WEBHOOK_PORT")
 
+    # Jellyfin WebSocket Configuration
+    jellyfin_url: Optional[str] = Field(default=None, env="JELLYFIN_URL")
+    jellyfin_api_key: Optional[str] = Field(default=None, env="JELLYFIN_API_KEY")
+    jellyfin_websocket_enabled: bool = Field(
+        default=True, env="JELLYFIN_WEBSOCKET_ENABLED"
+    )
+    jellyfin_websocket_reconnect_delay: float = Field(
+        default=2.0, env="JELLYFIN_WEBSOCKET_RECONNECT_DELAY"
+    )
+    jellyfin_websocket_max_reconnect_delay: float = Field(
+        default=300.0, env="JELLYFIN_WEBSOCKET_MAX_RECONNECT_DELAY"
+    )
+    jellyfin_fallback_sync_enabled: bool = Field(
+        default=True, env="JELLYFIN_FALLBACK_SYNC_ENABLED"
+    )
+    jellyfin_fallback_sync_interval_hours: int = Field(
+        default=24, env="JELLYFIN_FALLBACK_SYNC_INTERVAL_HOURS"
+    )
+
     @field_validator("scanner_media_extensions", mode="before")
     @classmethod
     def parse_media_extensions(cls, v: Union[str, List[str]]) -> List[str]:
