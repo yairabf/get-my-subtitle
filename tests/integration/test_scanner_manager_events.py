@@ -1,4 +1,8 @@
-"""Integration tests for Scanner → Manager event flow via RabbitMQ."""
+"""Integration tests for Scanner → Manager event flow via RabbitMQ.
+
+Note: These tests require actual RabbitMQ and Redis services to be running.
+In CI, these services should be started via docker-compose before running tests.
+"""
 
 import asyncio
 from uuid import uuid4
@@ -13,22 +17,38 @@ from manager.event_consumer import event_consumer
 from manager.orchestrator import orchestrator
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 async def setup_services():
     """Set up Redis, RabbitMQ, orchestrator, and event consumer for testing."""
-    # Connect services
-    await redis_client.connect()
-    await orchestrator.connect()
-    await event_publisher.connect()
-    await event_consumer.connect()
+    # Connect services with timeout
+    try:
+        await asyncio.wait_for(redis_client.connect(), timeout=5.0)
+        await asyncio.wait_for(orchestrator.connect(), timeout=5.0)
+        await asyncio.wait_for(event_publisher.connect(), timeout=5.0)
+        await asyncio.wait_for(event_consumer.connect(), timeout=5.0)
+    except asyncio.TimeoutError:
+        pytest.fail(
+            "Timeout connecting to services. Ensure RabbitMQ and Redis are running."
+        )
+
+    # Verify actual connections (not mock mode)
+    if event_publisher.connection is None or redis_client.client is None:
+        pytest.skip(
+            "Integration tests require RabbitMQ and Redis services. "
+            "Services are in mock mode - connections failed."
+        )
 
     yield
 
-    # Disconnect services
-    await event_consumer.disconnect()
-    await event_publisher.disconnect()
-    await orchestrator.disconnect()
-    await redis_client.disconnect()
+    # Disconnect services with timeout
+    try:
+        await asyncio.wait_for(event_consumer.disconnect(), timeout=3.0)
+        await asyncio.wait_for(event_publisher.disconnect(), timeout=3.0)
+        await asyncio.wait_for(orchestrator.disconnect(), timeout=3.0)
+        await asyncio.wait_for(redis_client.disconnect(), timeout=3.0)
+    except asyncio.TimeoutError:
+        # Log but don't fail on disconnect timeout
+        pass
 
 
 @pytest.mark.asyncio
