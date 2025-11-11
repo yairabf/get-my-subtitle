@@ -8,6 +8,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from common.config import settings
 from common.logging_config import setup_service_logging
 from scanner.scanner import MediaScanner
 
@@ -41,10 +42,19 @@ async def main() -> None:
         # Start webhook server
         await scanner.start_webhook_server()
 
+        # Start fallback sync
+        await scanner.start_fallback_sync()
+
         # Keep running until stopped
         logger.info("🚀 Scanner service running. Press Ctrl+C to stop.")
         logger.info("   - File system watcher: active")
         logger.info("   - Webhook server: active")
+        logger.info(
+            f"   - WebSocket client: {'connected' if scanner.websocket_client.is_connected() else 'disconnected'}"
+        )
+        logger.info(
+            f"   - Fallback sync: {'enabled' if settings.jellyfin_fallback_sync_enabled else 'disabled'}"
+        )
         while scanner.is_running():
             await asyncio.sleep(1)
 
