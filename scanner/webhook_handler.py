@@ -16,7 +16,6 @@ from common.schemas import (
     SubtitleStatus,
 )
 from common.utils import DateTimeUtils
-from manager.orchestrator import orchestrator
 from manager.schemas import JellyfinWebhookPayload, WebhookAcknowledgement
 
 # Configure logging
@@ -94,8 +93,8 @@ class JellyfinWebhookHandler:
                 f"✅ Created job {subtitle_response.id} for {payload.item_name}"
             )
 
-            # Publish MEDIA_FILE_DETECTED event (same as file system events)
-            event = SubtitleEvent(
+            # Publish MEDIA_FILE_DETECTED event (for observability)
+            media_detected_event = SubtitleEvent(
                 event_type=EventType.MEDIA_FILE_DETECTED,
                 job_id=subtitle_response.id,
                 timestamp=DateTimeUtils.get_current_utc_datetime(),
@@ -109,36 +108,28 @@ class JellyfinWebhookHandler:
                     "source": "jellyfin_webhook",
                 },
             )
-            await event_publisher.publish_event(event)
+            await event_publisher.publish_event(media_detected_event)
 
-            # Enqueue download task
-            if settings.jellyfin_auto_translate and subtitle_request.target_language:
-                success = await orchestrator.enqueue_download_with_translation(
-                    subtitle_request, subtitle_response.id
-                )
-            else:
-                success = await orchestrator.enqueue_download_task(
-                    subtitle_request, subtitle_response.id
-                )
-
-            if not success:
-                logger.error(
-                    f"Failed to enqueue download task for job {subtitle_response.id}"
-                )
-                await redis_client.update_phase(
-                    subtitle_response.id,
-                    SubtitleStatus.FAILED,
-                    source="scanner",
-                    metadata={"error_message": "Failed to enqueue download task"},
-                )
-                return WebhookAcknowledgement(
-                    status="error",
-                    job_id=subtitle_response.id,
-                    message="Failed to enqueue subtitle processing task",
-                )
+            # Publish SUBTITLE_REQUESTED event (for workflow triggering)
+            subtitle_requested_event = SubtitleEvent(
+                event_type=EventType.SUBTITLE_REQUESTED,
+                job_id=subtitle_response.id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="scanner",
+                payload={
+                    "video_url": subtitle_request.video_url,
+                    "video_title": subtitle_request.video_title,
+                    "language": subtitle_request.language,
+                    "target_language": subtitle_request.target_language,
+                    "preferred_sources": subtitle_request.preferred_sources,
+                    "auto_translate": settings.jellyfin_auto_translate
+                    and subtitle_request.target_language is not None,
+                },
+            )
+            await event_publisher.publish_event(subtitle_requested_event)
 
             logger.info(
-                f"✅ Successfully enqueued download task for job {subtitle_response.id}"
+                f"✅ Published SUBTITLE_REQUESTED event for job {subtitle_response.id}"
             )
             return WebhookAcknowledgement(
                 status="received",
