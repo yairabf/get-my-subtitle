@@ -8,16 +8,23 @@ import asyncio
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 
 from common.event_publisher import event_publisher
 from common.redis_client import redis_client
-from common.schemas import EventType, SubtitleEvent, SubtitleRequest, SubtitleStatus
+from common.schemas import (
+    EventType,
+    SubtitleEvent,
+    SubtitleRequest,
+    SubtitleResponse,
+    SubtitleStatus,
+)
 from common.utils import DateTimeUtils
 from manager.event_consumer import SubtitleEventConsumer
 from manager.orchestrator import orchestrator
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def setup_services():
     """Set up Redis, RabbitMQ, and orchestrator for testing."""
     # Connect services with timeout
@@ -49,38 +56,48 @@ async def setup_services():
         pass
 
 
-@pytest.fixture(scope="function")
-async def event_consumer():
+@pytest_asyncio.fixture(scope="function")
+async def consumer():
     """Create a fresh event consumer instance for each test."""
-    consumer = SubtitleEventConsumer()
+    event_consumer = SubtitleEventConsumer()
     try:
-        await asyncio.wait_for(consumer.connect(), timeout=5.0)
+        await asyncio.wait_for(event_consumer.connect(), timeout=5.0)
     except asyncio.TimeoutError:
         pytest.fail("Timeout connecting event consumer to RabbitMQ")
 
-    yield consumer
+    yield event_consumer
 
     # Cleanup
-    consumer.stop()
+    event_consumer.stop()
     try:
-        await asyncio.wait_for(consumer.disconnect(), timeout=3.0)
+        await asyncio.wait_for(event_consumer.disconnect(), timeout=3.0)
     except asyncio.TimeoutError:
         pass
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_scanner_publishes_manager_consumes_end_to_end(
-    setup_services, event_consumer
-):
+async def test_scanner_publishes_manager_consumes_end_to_end(setup_services, consumer):
     """
     Test end-to-end event flow:
-    1. Scanner publishes SUBTITLE_REQUESTED event
+    1. Scanner creates job in Redis and publishes SUBTITLE_REQUESTED event
     2. Manager consumes event from RabbitMQ
     3. Manager enqueues download task
     4. Job status is updated in Redis
     """
     job_id = uuid4()
+
+    # Create the job in Redis first (as Scanner would do via SubtitleResponse)
+    job = SubtitleResponse(
+        id=job_id,
+        video_url="/media/movies/integration_test.mp4",
+        video_title="Integration Test Movie",
+        language="en",
+        target_language="es",
+        status=SubtitleStatus.PENDING,
+        source="scanner",
+    )
+    await redis_client.save_job(job)
 
     # Create a SUBTITLE_REQUESTED event (as Scanner would publish)
     subtitle_requested_event = SubtitleEvent(
@@ -103,7 +120,7 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
     assert success is True
 
     # Start consumer in background
-    consumer_task = asyncio.create_task(event_consumer.start_consuming())
+    consumer_task = asyncio.create_task(consumer.start_consuming())
 
     try:
         # Wait for message to be processed (give it up to 5 seconds)
@@ -128,7 +145,7 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
 
     finally:
         # Stop consumer
-        event_consumer.stop()
+        consumer.stop()
         try:
             await asyncio.wait_for(consumer_task, timeout=2.0)
         except asyncio.TimeoutError:
@@ -141,15 +158,28 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_multiple_events_processed_sequentially(setup_services, event_consumer):
+async def test_multiple_events_processed_sequentially(setup_services, consumer):
     """
     Test that multiple SUBTITLE_REQUESTED events are processed in order.
     """
     job_ids = [uuid4() for _ in range(3)]
     events = []
 
-    # Create multiple events
+    # Create multiple jobs and events
     for i, job_id in enumerate(job_ids):
+        # Create job in Redis
+        job = SubtitleResponse(
+            id=job_id,
+            video_url=f"/media/movies/test_movie_{i}.mp4",
+            video_title=f"Test Movie {i}",
+            language="en",
+            target_language="es",
+            status=SubtitleStatus.PENDING,
+            source="scanner",
+        )
+        await redis_client.save_job(job)
+
+        # Create event
         event = SubtitleEvent(
             event_type=EventType.SUBTITLE_REQUESTED,
             job_id=job_id,
@@ -171,7 +201,7 @@ async def test_multiple_events_processed_sequentially(setup_services, event_cons
         await event_publisher.publish_event(event)
 
     # Start consumer
-    consumer_task = asyncio.create_task(event_consumer.start_consuming())
+    consumer_task = asyncio.create_task(consumer.start_consuming())
 
     try:
         # Wait for all messages to be processed
@@ -201,7 +231,7 @@ async def test_multiple_events_processed_sequentially(setup_services, event_cons
 
     finally:
         # Stop consumer
-        event_consumer.stop()
+        consumer.stop()
         try:
             await asyncio.wait_for(consumer_task, timeout=2.0)
         except asyncio.TimeoutError:
@@ -214,9 +244,7 @@ async def test_multiple_events_processed_sequentially(setup_services, event_cons
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_consumer_ignores_non_subtitle_requested_events(
-    setup_services, event_consumer
-):
+async def test_consumer_ignores_non_subtitle_requested_events(setup_services, consumer):
     """
     Test that consumer only processes SUBTITLE_REQUESTED events and ignores others.
     """
@@ -239,7 +267,7 @@ async def test_consumer_ignores_non_subtitle_requested_events(
     await event_publisher.publish_event(media_detected_event)
 
     # Start consumer
-    consumer_task = asyncio.create_task(event_consumer.start_consuming())
+    consumer_task = asyncio.create_task(consumer.start_consuming())
 
     try:
         # Wait a bit to ensure event would be processed if it was going to be
@@ -251,7 +279,7 @@ async def test_consumer_ignores_non_subtitle_requested_events(
 
     finally:
         # Stop consumer
-        event_consumer.stop()
+        consumer.stop()
         try:
             await asyncio.wait_for(consumer_task, timeout=2.0)
         except asyncio.TimeoutError:
@@ -264,9 +292,7 @@ async def test_consumer_ignores_non_subtitle_requested_events(
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_consumer_handles_malformed_events_gracefully(
-    setup_services, event_consumer
-):
+async def test_consumer_handles_malformed_events_gracefully(setup_services, consumer):
     """
     Test that consumer handles malformed events without crashing.
     """
@@ -288,7 +314,7 @@ async def test_consumer_handles_malformed_events_gracefully(
     await event_publisher.publish_event(incomplete_event)
 
     # Start consumer
-    consumer_task = asyncio.create_task(event_consumer.start_consuming())
+    consumer_task = asyncio.create_task(consumer.start_consuming())
 
     try:
         # Wait for processing
@@ -313,7 +339,7 @@ async def test_consumer_handles_malformed_events_gracefully(
 
     finally:
         # Stop consumer
-        event_consumer.stop()
+        consumer.stop()
         try:
             await asyncio.wait_for(consumer_task, timeout=2.0)
         except asyncio.TimeoutError:
