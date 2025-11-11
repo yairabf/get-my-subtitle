@@ -393,9 +393,7 @@ class JellyfinWebSocketClient:
                 )
 
         except Exception as e:
-            logger.error(
-                f"Error processing media item {item_name}: {e}", exc_info=True
-            )
+            logger.error(f"Error processing media item {item_name}: {e}", exc_info=True)
 
     async def _schedule_reconnect(self) -> None:
         """Schedule automatic reconnection with exponential backoff."""
@@ -426,7 +424,9 @@ class JellyfinWebSocketClient:
             if not self.running:
                 return
 
-            logger.info(f"🔄 Attempting to reconnect (attempt {self.reconnect_attempts})...")
+            logger.info(
+                f"🔄 Attempting to reconnect (attempt {self.reconnect_attempts})..."
+            )
 
             # Close existing connection if any
             if self.websocket:
@@ -453,4 +453,3 @@ class JellyfinWebSocketClient:
             True if connected, False otherwise
         """
         return self.running and self.websocket is not None and self.websocket.open
-

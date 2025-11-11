@@ -49,8 +49,12 @@ async def main() -> None:
         logger.info("🚀 Scanner service running. Press Ctrl+C to stop.")
         logger.info("   - File system watcher: active")
         logger.info("   - Webhook server: active")
-        logger.info(f"   - WebSocket client: {'connected' if scanner.websocket_client.is_connected() else 'disconnected'}")
-        logger.info(f"   - Fallback sync: {'enabled' if settings.jellyfin_fallback_sync_enabled else 'disabled'}")
+        logger.info(
+            f"   - WebSocket client: {'connected' if scanner.websocket_client.is_connected() else 'disconnected'}"
+        )
+        logger.info(
+            f"   - Fallback sync: {'enabled' if settings.jellyfin_fallback_sync_enabled else 'disabled'}"
+        )
         while scanner.is_running():
             await asyncio.sleep(1)
 

@@ -37,9 +37,7 @@ def mock_settings():
 class TestWebSocketClientConfiguration:
     """Test WebSocket client configuration and URL building."""
 
-    def test_is_configured_when_settings_present(
-        self, websocket_client, mock_settings
-    ):
+    def test_is_configured_when_settings_present(self, websocket_client, mock_settings):
         """Test that client is configured when all settings are present."""
         assert websocket_client._is_configured() is True
 
@@ -48,9 +46,7 @@ class TestWebSocketClientConfiguration:
         mock_settings.jellyfin_url = None
         assert websocket_client._is_configured() is False
 
-    def test_is_configured_when_api_key_missing(
-        self, websocket_client, mock_settings
-    ):
+    def test_is_configured_when_api_key_missing(self, websocket_client, mock_settings):
         """Test that client is not configured when API key is missing."""
         mock_settings.jellyfin_api_key = None
         assert websocket_client._is_configured() is False
@@ -99,9 +95,7 @@ class TestReconnectionLogic:
         delay = websocket_client._calculate_reconnect_delay()
         assert delay == 8.0  # base_delay * 2^2
 
-    def test_calculate_reconnect_delay_max_cap(
-        self, websocket_client, mock_settings
-    ):
+    def test_calculate_reconnect_delay_max_cap(self, websocket_client, mock_settings):
         """Test that reconnection delay is capped at maximum."""
         websocket_client.reconnect_attempts = 10
         delay = websocket_client._calculate_reconnect_delay()
@@ -136,7 +130,9 @@ class TestConnectionManagement:
         mock_ws = AsyncMock()
         mock_ws.open = True
 
-        with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)) as mock_connect:
+        with patch(
+            "websockets.connect", new=AsyncMock(return_value=mock_ws)
+        ) as mock_connect:
             with patch.object(
                 websocket_client, "_message_loop", return_value=asyncio.sleep(0)
             ):
@@ -155,9 +151,7 @@ class TestConnectionManagement:
         with patch(
             "websockets.connect", side_effect=WebSocketException("Connection failed")
         ):
-            with patch.object(
-                websocket_client, "_schedule_reconnect"
-            ) as mock_schedule:
+            with patch.object(websocket_client, "_schedule_reconnect") as mock_schedule:
                 with pytest.raises(WebSocketException):
                     await websocket_client.connect()
 
@@ -216,9 +210,7 @@ class TestMessageHandling:
             }
         )
 
-        with patch.object(
-            websocket_client, "_handle_library_changed"
-        ) as mock_handler:
+        with patch.object(websocket_client, "_handle_library_changed") as mock_handler:
             await websocket_client._handle_message(message)
             mock_handler.assert_called_once()
 
@@ -256,9 +248,7 @@ class TestMessageHandling:
             "Data": {"ItemsAdded": ["item1", "item2"]},
         }
 
-        with patch.object(
-            websocket_client, "_fetch_and_process_item"
-        ) as mock_fetch:
+        with patch.object(websocket_client, "_fetch_and_process_item") as mock_fetch:
             await websocket_client._handle_library_changed(data)
 
             assert mock_fetch.call_count == 2
@@ -272,9 +262,7 @@ class TestMessageHandling:
         """Test processing library change with no items."""
         data = {"MessageType": "LibraryChanged", "Data": {"ItemsAdded": []}}
 
-        with patch.object(
-            websocket_client, "_fetch_and_process_item"
-        ) as mock_fetch:
+        with patch.object(websocket_client, "_fetch_and_process_item") as mock_fetch:
             await websocket_client._handle_library_changed(data)
 
             mock_fetch.assert_not_called()
@@ -307,9 +295,7 @@ class TestItemProcessing:
         mock_session_instance.__aexit__ = AsyncMock(return_value=None)
 
         with patch("aiohttp.ClientSession", return_value=mock_session_instance):
-            with patch.object(
-                websocket_client, "_process_media_item"
-            ) as mock_process:
+            with patch.object(websocket_client, "_process_media_item") as mock_process:
                 await websocket_client._fetch_and_process_item("item123")
 
                 mock_process.assert_called_once_with(
@@ -342,9 +328,7 @@ class TestItemProcessing:
         mock_session_instance.__aexit__ = AsyncMock(return_value=None)
 
         with patch("aiohttp.ClientSession", return_value=mock_session_instance):
-            with patch.object(
-                websocket_client, "_process_media_item"
-            ) as mock_process:
+            with patch.object(websocket_client, "_process_media_item") as mock_process:
                 await websocket_client._fetch_and_process_item("item123")
 
                 mock_process.assert_called_once()
@@ -369,9 +353,7 @@ class TestItemProcessing:
                 mock_response
             )
 
-            with patch.object(
-                websocket_client, "_process_media_item"
-            ) as mock_process:
+            with patch.object(websocket_client, "_process_media_item") as mock_process:
                 await websocket_client._fetch_and_process_item("item123")
 
                 mock_process.assert_not_called()
@@ -392,9 +374,7 @@ class TestItemProcessing:
                 mock_response
             )
 
-            with patch.object(
-                websocket_client, "_process_media_item"
-            ) as mock_process:
+            with patch.object(websocket_client, "_process_media_item") as mock_process:
                 await websocket_client._fetch_and_process_item("item123")
 
                 mock_process.assert_not_called()
@@ -412,9 +392,7 @@ class TestItemProcessing:
                 mock_response
             )
 
-            with patch.object(
-                websocket_client, "_process_media_item"
-            ) as mock_process:
+            with patch.object(websocket_client, "_process_media_item") as mock_process:
                 await websocket_client._fetch_and_process_item("item123")
 
                 mock_process.assert_not_called()
@@ -433,7 +411,9 @@ class TestMediaProcessing:
             mock_redis.update_phase = AsyncMock()
             with patch("scanner.websocket_client.event_publisher") as mock_publisher:
                 mock_publisher.publish_event = AsyncMock()
-                with patch("scanner.websocket_client.orchestrator") as mock_orchestrator:
+                with patch(
+                    "scanner.websocket_client.orchestrator"
+                ) as mock_orchestrator:
                     mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                         return_value=True
                     )
@@ -458,7 +438,9 @@ class TestMediaProcessing:
             mock_redis.update_phase = AsyncMock()
             with patch("scanner.websocket_client.event_publisher") as mock_publisher:
                 mock_publisher.publish_event = AsyncMock()
-                with patch("scanner.websocket_client.orchestrator") as mock_orchestrator:
+                with patch(
+                    "scanner.websocket_client.orchestrator"
+                ) as mock_orchestrator:
                     mock_orchestrator.enqueue_download_task = AsyncMock(
                         return_value=True
                     )
@@ -479,7 +461,9 @@ class TestMediaProcessing:
             mock_redis.update_phase = AsyncMock()
             with patch("scanner.websocket_client.event_publisher") as mock_publisher:
                 mock_publisher.publish_event = AsyncMock()
-                with patch("scanner.websocket_client.orchestrator") as mock_orchestrator:
+                with patch(
+                    "scanner.websocket_client.orchestrator"
+                ) as mock_orchestrator:
                     mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                         return_value=False
                     )
@@ -490,4 +474,3 @@ class TestMediaProcessing:
 
                     # Should update job status to FAILED
                     mock_redis.update_phase.assert_called_once()
-

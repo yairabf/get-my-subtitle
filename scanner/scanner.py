@@ -61,10 +61,10 @@ class MediaScanner:
     async def disconnect(self) -> None:
         """Disconnect from services."""
         logger.info("🔌 Disconnecting from services...")
-        
+
         # Disconnect WebSocket client
         await self.websocket_client.disconnect()
-        
+
         # Cancel fallback sync task
         if self.fallback_sync_task and not self.fallback_sync_task.done():
             self.fallback_sync_task.cancel()
@@ -72,7 +72,7 @@ class MediaScanner:
                 await self.fallback_sync_task
             except asyncio.CancelledError:
                 pass
-        
+
         await orchestrator.disconnect()
         await event_publisher.disconnect()
         await redis_client.disconnect()
@@ -242,9 +242,7 @@ class MediaScanner:
 
                 # Check if WebSocket is connected
                 if self.websocket_client.is_connected():
-                    logger.debug(
-                        "WebSocket is connected, skipping fallback sync"
-                    )
+                    logger.debug("WebSocket is connected, skipping fallback sync")
                     continue
 
                 # WebSocket not connected, log warning and rely on webhook
