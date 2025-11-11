@@ -115,7 +115,7 @@ class JellyfinWebhookHandler:
                 event_type=EventType.SUBTITLE_REQUESTED,
                 job_id=subtitle_response.id,
                 timestamp=DateTimeUtils.get_current_utc_datetime(),
-                    source="scanner",
+                source="scanner",
                 payload={
                     "video_url": subtitle_request.video_url,
                     "video_title": subtitle_request.video_title,

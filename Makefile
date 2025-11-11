@@ -165,6 +165,21 @@ format: ## Auto-fix code formatting
 check: lint test ## Run lint + tests (pre-commit style check)
 	@echo "$(GREEN)✓ All checks passed!$(NC)"
 
+ci-quality: ## Run code quality checks only (linting, formatting, type checking)
+	@echo "$(GREEN)Running code quality checks...$(NC)"
+	@chmod +x scripts/ci_code_quality.sh
+	@./scripts/ci_code_quality.sh --verbose
+
+ci-tests: ## Run all tests (unit + integration)
+	@echo "$(GREEN)Running all tests...$(NC)"
+	@chmod +x scripts/ci_run_tests.sh
+	@./scripts/ci_run_tests.sh --verbose --with-coverage
+
+ci-tests-unit: ## Run unit tests only
+	@echo "$(GREEN)Running unit tests...$(NC)"
+	@chmod +x scripts/ci_run_tests.sh
+	@./scripts/ci_run_tests.sh --skip-integration --with-coverage
+
 ##@ Cleanup
 
 clean: ## Remove Python cache files
