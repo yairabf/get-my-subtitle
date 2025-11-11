@@ -200,7 +200,7 @@ class MediaFileEventHandler(FileSystemEventHandler):
                 event_type=EventType.SUBTITLE_REQUESTED,
                 job_id=subtitle_response.id,
                 timestamp=DateTimeUtils.get_current_utc_datetime(),
-                    source="scanner",
+                source="scanner",
                 payload={
                     "video_url": subtitle_request.video_url,
                     "video_title": subtitle_request.video_title,
@@ -210,12 +210,12 @@ class MediaFileEventHandler(FileSystemEventHandler):
                     "auto_translate": settings.scanner_auto_translate
                     and subtitle_request.target_language is not None,
                 },
-                )
+            )
             await event_publisher.publish_event(subtitle_requested_event)
 
-                logger.info(
+            logger.info(
                 f"✅ Published SUBTITLE_REQUESTED event for job {subtitle_response.id}"
-                )
+            )
 
         except Exception as e:
             logger.error(
