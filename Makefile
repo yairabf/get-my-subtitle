@@ -88,12 +88,8 @@ dev-translator: ## Run translator worker locally
 
 ##@ Testing
 
-test: ## Run all tests (skips integration tests requiring services)
-	@echo "$(GREEN)Running all tests (unit tests only)...$(NC)"
-	$(PYTEST) -m "not integration"
-
-test-all: ## Run all tests including integration tests
-	@echo "$(GREEN)Running all tests including integration...$(NC)"
+test: ## Run all tests
+	@echo "$(GREEN)Running all tests...$(NC)"
 	$(PYTEST)
 
 test-unit: ## Run unit tests only

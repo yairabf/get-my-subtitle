@@ -13,19 +13,18 @@ from common.event_publisher import event_publisher
 from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleRequest, SubtitleStatus
 from common.utils import DateTimeUtils
-from manager.event_consumer import event_consumer
+from manager.event_consumer import SubtitleEventConsumer
 from manager.orchestrator import orchestrator
 
 
 @pytest.fixture(scope="function")
 async def setup_services():
-    """Set up Redis, RabbitMQ, orchestrator, and event consumer for testing."""
+    """Set up Redis, RabbitMQ, and orchestrator for testing."""
     # Connect services with timeout
     try:
         await asyncio.wait_for(redis_client.connect(), timeout=5.0)
         await asyncio.wait_for(orchestrator.connect(), timeout=5.0)
         await asyncio.wait_for(event_publisher.connect(), timeout=5.0)
-        await asyncio.wait_for(event_consumer.connect(), timeout=5.0)
     except asyncio.TimeoutError:
         pytest.fail(
             "Timeout connecting to services. Ensure RabbitMQ and Redis are running."
@@ -42,7 +41,6 @@ async def setup_services():
 
     # Disconnect services with timeout
     try:
-        await asyncio.wait_for(event_consumer.disconnect(), timeout=3.0)
         await asyncio.wait_for(event_publisher.disconnect(), timeout=3.0)
         await asyncio.wait_for(orchestrator.disconnect(), timeout=3.0)
         await asyncio.wait_for(redis_client.disconnect(), timeout=3.0)
@@ -51,9 +49,30 @@ async def setup_services():
         pass
 
 
+@pytest.fixture(scope="function")
+async def event_consumer():
+    """Create a fresh event consumer instance for each test."""
+    consumer = SubtitleEventConsumer()
+    try:
+        await asyncio.wait_for(consumer.connect(), timeout=5.0)
+    except asyncio.TimeoutError:
+        pytest.fail("Timeout connecting event consumer to RabbitMQ")
+
+    yield consumer
+
+    # Cleanup
+    consumer.stop()
+    try:
+        await asyncio.wait_for(consumer.disconnect(), timeout=3.0)
+    except asyncio.TimeoutError:
+        pass
+
+
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_scanner_publishes_manager_consumes_end_to_end(setup_services):
+async def test_scanner_publishes_manager_consumes_end_to_end(
+    setup_services, event_consumer
+):
     """
     Test end-to-end event flow:
     1. Scanner publishes SUBTITLE_REQUESTED event
@@ -122,7 +141,7 @@ async def test_scanner_publishes_manager_consumes_end_to_end(setup_services):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_multiple_events_processed_sequentially(setup_services):
+async def test_multiple_events_processed_sequentially(setup_services, event_consumer):
     """
     Test that multiple SUBTITLE_REQUESTED events are processed in order.
     """
@@ -195,7 +214,9 @@ async def test_multiple_events_processed_sequentially(setup_services):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_consumer_ignores_non_subtitle_requested_events(setup_services):
+async def test_consumer_ignores_non_subtitle_requested_events(
+    setup_services, event_consumer
+):
     """
     Test that consumer only processes SUBTITLE_REQUESTED events and ignores others.
     """
@@ -243,7 +264,9 @@ async def test_consumer_ignores_non_subtitle_requested_events(setup_services):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_consumer_handles_malformed_events_gracefully(setup_services):
+async def test_consumer_handles_malformed_events_gracefully(
+    setup_services, event_consumer
+):
     """
     Test that consumer handles malformed events without crashing.
     """
