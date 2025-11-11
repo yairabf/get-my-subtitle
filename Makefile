@@ -96,9 +96,40 @@ test-unit: ## Run unit tests only
 	@echo "$(GREEN)Running unit tests...$(NC)"
 	$(PYTEST) -m unit
 
-test-integration: ## Run integration tests only
+test-integration: ## Run integration tests only (requires services)
 	@echo "$(GREEN)Running integration tests...$(NC)"
+	@echo "$(YELLOW)Note: Requires RabbitMQ and Redis to be running$(NC)"
 	$(PYTEST) -m integration
+
+test-integration-full: ## Run integration tests with full Docker environment
+	@echo "$(GREEN)Starting integration test environment...$(NC)"
+	@docker-compose -f docker-compose.integration.yml up -d --build
+	@echo "$(YELLOW)Waiting for services to be healthy...$(NC)"
+	@sleep 15
+	@docker-compose -f docker-compose.integration.yml ps
+	@echo "$(GREEN)Running integration tests...$(NC)"
+	@$(PYTEST) -m integration --log-cli-level=INFO || (echo "$(RED)Tests failed$(NC)" && docker-compose -f docker-compose.integration.yml logs && docker-compose -f docker-compose.integration.yml down && exit 1)
+	@echo "$(GREEN)Integration tests completed successfully$(NC)"
+	@docker-compose -f docker-compose.integration.yml down
+	@echo "$(GREEN)Integration test environment cleaned up$(NC)"
+
+test-integration-up: ## Start integration test environment only
+	@echo "$(GREEN)Starting integration test environment...$(NC)"
+	@docker-compose -f docker-compose.integration.yml up -d --build
+	@echo "$(YELLOW)Waiting for services to be healthy...$(NC)"
+	@sleep 15
+	@docker-compose -f docker-compose.integration.yml ps
+	@echo "$(GREEN)Integration test environment is ready$(NC)"
+	@echo "$(YELLOW)Run 'make test-integration' to execute tests$(NC)"
+	@echo "$(YELLOW)Run 'make test-integration-down' to stop environment$(NC)"
+
+test-integration-down: ## Stop integration test environment
+	@echo "$(GREEN)Stopping integration test environment...$(NC)"
+	@docker-compose -f docker-compose.integration.yml down -v
+	@echo "$(GREEN)Integration test environment stopped$(NC)"
+
+test-integration-logs: ## View integration test environment logs
+	@docker-compose -f docker-compose.integration.yml logs -f
 
 test-cov: ## Run tests with coverage report
 	@echo "$(GREEN)Running tests with coverage...$(NC)"
