@@ -1,8 +1,12 @@
-"""Pytest fixtures for integration tests."""
+"""Pytest fixtures for integration tests.
 
-import asyncio
+Works with:
+- GitHub Actions services (CI environment)
+- Local docker-compose services
+- Manual service setup
+"""
+
 import os
-import subprocess
 import sys
 import time
 from unittest.mock import AsyncMock, patch
@@ -10,10 +14,6 @@ from unittest.mock import AsyncMock, patch
 import aio_pika
 import pytest
 import pytest_asyncio
-
-# Set environment variables BEFORE importing modules
-os.environ["RABBITMQ_URL"] = "amqp://guest:guest@localhost:5672/"
-os.environ["REDIS_URL"] = "redis://localhost:6379"
 
 # Remove cached modules to force reload with new env vars
 modules_to_reload = [
@@ -25,86 +25,242 @@ for module in modules_to_reload:
     if module in sys.modules:
         del sys.modules[module]
 
-from common.event_publisher import EventPublisher
-from manager.orchestrator import SubtitleOrchestrator
+# Import after module cleanup to ensure fresh imports with new env vars
+from common.event_publisher import EventPublisher  # noqa: E402
+from manager.orchestrator import SubtitleOrchestrator  # noqa: E402
+
+
+def is_rabbitmq_responsive(url: str) -> bool:
+    """Check if RabbitMQ is responsive by attempting a connection."""
+    try:
+        import socket
+        from urllib.parse import urlparse
+
+        # Parse URL to get host and port
+        parsed = urlparse(url.replace("amqp://", "http://"))
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 5672
+
+        # Try to connect to the AMQP port
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+def is_redis_responsive(url: str) -> bool:
+    """Check if Redis is responsive by attempting a ping."""
+    try:
+        import redis
+
+        # Parse URL to get host and port
+        if url.startswith("redis://"):
+            url = url[8:]
+        if "@" in url:
+            url = url.split("@")[1]
+        if "/" in url:
+            url = url.split("/")[0]
+        if ":" in url:
+            host, port = url.split(":")
+            port = int(port)
+        else:
+            host = url
+            port = 6379
+
+        r = redis.Redis(host=host, port=port, socket_connect_timeout=1)
+        r.ping()
+        r.close()
+        return True
+    except Exception:
+        return False
+
+
+def wait_for_service(url: str, check_func, timeout: float = 30.0, pause: float = 0.5):
+    """Wait for a service to become responsive."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if check_func(url):
+            return True
+        time.sleep(pause)
+    return False
 
 
 @pytest.fixture(scope="session")
-def rabbitmq_container():
-    """Start RabbitMQ container for integration tests."""
-    # Check if RabbitMQ is already running via docker-compose
-    result = subprocess.run(
-        ["docker", "ps", "--filter", "name=rabbitmq", "--format", "{{.Names}}"],
-        capture_output=True,
-        text=True,
+def rabbitmq_service(request):
+    """
+    Ensure RabbitMQ is up and responsive.
+
+    In CI (GitHub Actions): Uses services provided by GitHub Actions
+    Locally: Uses localhost (expects docker-compose or manual setup)
+    """
+    # Check if any test in the session has skip_services marker
+    # If so, return default URL without checking availability
+    session = request.session
+    has_skip_services = any(
+        item.get_closest_marker("skip_services") for item in session.items
     )
 
-    rabbitmq_already_running = "rabbitmq" in result.stdout
+    # Check if we're in CI (GitHub Actions provides services)
+    is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
 
-    if not rabbitmq_already_running:
-        # Start RabbitMQ using docker-compose
-        subprocess.run(
-            ["docker-compose", "up", "-d", "rabbitmq"],
-            check=True,
-            cwd="/Users/yairabramovitch/Documents/workspace/get-my-subtitle",
-        )
-
-        # Wait for RabbitMQ to be ready
-        max_retries = 30
-        for i in range(max_retries):
-            try:
-                result = subprocess.run(
-                    [
-                        "docker",
-                        "exec",
-                        "get-my-subtitle-rabbitmq-1",
-                        "rabbitmq-diagnostics",
-                        "ping",
-                    ],
-                    capture_output=True,
-                    timeout=5,
-                )
-                if result.returncode == 0:
-                    print("\n✓ RabbitMQ is ready")
-                    break
-            except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-                pass
-
-            if i < max_retries - 1:
-                time.sleep(1)
-        else:
-            raise RuntimeError("RabbitMQ failed to start within timeout")
+    if is_ci:
+        # GitHub Actions services are on localhost
+        url = "amqp://guest:guest@localhost:5672/"
     else:
-        print("\n✓ RabbitMQ already running")
+        # Local development - check if services are running
+        url = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 
-    yield {
-        "host": "localhost",
-        "port": 5672,
-        "url": "amqp://guest:guest@localhost:5672/",
+    # Wait for service to be ready (skip check if skip_services tests are present)
+    if has_skip_services:
+        # For skip_services tests, just return URL without checking
+        return url
+
+    if not wait_for_service(url, is_rabbitmq_responsive, timeout=30.0):
+        pytest.fail(f"RabbitMQ not responsive at {url}. Ensure services are running.")
+
+    return url
+
+
+@pytest.fixture(scope="session")
+def redis_service(request):
+    """
+    Ensure Redis is up and responsive.
+
+    In CI (GitHub Actions): Uses services provided by GitHub Actions
+    Locally: Uses localhost (expects docker-compose or manual setup)
+    """
+    # Check if any test in the session has skip_services marker
+    # If so, return default URL without checking availability
+    session = request.session
+    has_skip_services = any(
+        item.get_closest_marker("skip_services") for item in session.items
+    )
+
+    # Check if we're in CI (GitHub Actions provides services)
+    is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
+
+    if is_ci:
+        # GitHub Actions services are on localhost
+        url = "redis://localhost:6379"
+    else:
+        # Local development - check if services are running
+        url = os.getenv("REDIS_URL", "redis://localhost:6379")
+
+    # Wait for service to be ready (skip check if skip_services tests are present)
+    if has_skip_services:
+        # For skip_services tests, just return URL without checking
+        return url
+
+    if not wait_for_service(url, is_redis_responsive, timeout=30.0):
+        pytest.fail(f"Redis not responsive at {url}. Ensure services are running.")
+
+    return url
+
+
+@pytest.fixture(scope="session")
+def rabbitmq_service_optional():
+    """Optional RabbitMQ service fixture that doesn't fail if service is unavailable."""
+    # Check if we're in CI (GitHub Actions provides services)
+    is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
+
+    if is_ci:
+        # GitHub Actions services are on localhost
+        url = "amqp://guest:guest@localhost:5672/"
+    else:
+        # Local development - check if services are running
+        url = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+
+    # Try to wait for service, but don't fail if unavailable
+    if wait_for_service(url, is_rabbitmq_responsive, timeout=5.0):
+        return url
+    # Return URL anyway - tests that need it will handle the failure
+    return url
+
+
+@pytest.fixture(scope="session")
+def redis_service_optional():
+    """Optional Redis service fixture that doesn't fail if service is unavailable."""
+    # Check if we're in CI (GitHub Actions provides services)
+    is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
+
+    if is_ci:
+        # GitHub Actions services are on localhost
+        url = "redis://localhost:6379"
+    else:
+        # Local development - check if services are running
+        url = os.getenv("REDIS_URL", "redis://localhost:6379")
+
+    # Try to wait for service, but don't fail if unavailable
+    if wait_for_service(url, is_redis_responsive, timeout=5.0):
+        return url
+    # Return URL anyway - tests that need it will handle the failure
+    return url
+
+
+def pytest_collection_modifyitems(config, items):
+    """Modify test items to handle skip_services marker."""
+    for item in items:
+        # If test has skip_services marker, it doesn't need real services
+        if item.get_closest_marker("skip_services"):
+            # Remove dependency on service fixtures for these tests
+            # They'll use default env vars instead
+            pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_environment_variables(rabbitmq_service, redis_service):
+    """Set environment variables for service URLs before importing modules."""
+    os.environ["RABBITMQ_URL"] = rabbitmq_service
+    os.environ["REDIS_URL"] = redis_service
+
+    # Force reload of modules that use these environment variables
+    for module in modules_to_reload:
+        if module in sys.modules:
+            del sys.modules[module]
+
+    yield
+
+    # Cleanup (optional)
+    if "RABBITMQ_URL" in os.environ and not os.getenv("CI"):
+        # Don't clear in CI as it might affect other tests
+        pass
+
+
+@pytest.fixture(scope="session")
+def rabbitmq_container(rabbitmq_service):
+    """Backward compatibility fixture - returns connection info dict."""
+    # Parse URL to extract components
+    url = rabbitmq_service
+    if url.startswith("amqp://"):
+        url = url[7:]
+    if "@" in url:
+        auth, rest = url.split("@")
+        user, password = auth.split(":")
+        host_port = rest.split("/")[0]
+    else:
+        host_port = url.split("/")[0]
+    host, port = host_port.split(":")
+
+    return {
+        "host": host,
+        "port": int(port),
+        "url": rabbitmq_service,
     }
-
-    # Cleanup: Only stop if we started it
-    if not rabbitmq_already_running:
-        subprocess.run(
-            ["docker-compose", "down", "rabbitmq"],
-            cwd="/Users/yairabramovitch/Documents/workspace/get-my-subtitle",
-        )
 
 
 @pytest_asyncio.fixture
-async def rabbitmq_connection(
-    rabbitmq_container,
-):
+async def rabbitmq_connection(rabbitmq_service):
     """Create a RabbitMQ connection for testing."""
-    connection = await aio_pika.connect_robust(rabbitmq_container["url"])
+    connection = await aio_pika.connect_robust(rabbitmq_service)
     yield connection
     await connection.close()
 
 
 @pytest_asyncio.fixture
-async def rabbitmq_channel(
-    rabbitmq_connection,
-):
+async def rabbitmq_channel(rabbitmq_connection):
     """Create a RabbitMQ channel for testing."""
     channel = await rabbitmq_connection.channel()
     yield channel
@@ -209,7 +365,7 @@ def mock_redis_client():
 
 
 @pytest_asyncio.fixture
-async def test_orchestrator(rabbitmq_container, clean_queues, fake_redis_job_client):
+async def test_orchestrator(rabbitmq_service, clean_queues, fake_redis_job_client):
     """
     Create SubtitleOrchestrator instance for testing with realistic Redis behavior.
 
@@ -230,7 +386,7 @@ async def test_orchestrator(rabbitmq_container, clean_queues, fake_redis_job_cli
 
 @pytest_asyncio.fixture
 async def test_orchestrator_with_mock_redis(
-    rabbitmq_container, clean_queues, mock_redis_client
+    rabbitmq_service, clean_queues, mock_redis_client
 ):
     """
     Create SubtitleOrchestrator instance with simple mock Redis (backward compatibility).
@@ -251,7 +407,7 @@ async def test_orchestrator_with_mock_redis(
 
 
 @pytest_asyncio.fixture
-async def test_event_publisher(rabbitmq_container, clean_exchange):
+async def test_event_publisher(rabbitmq_service, clean_exchange):
     """Create EventPublisher instance for testing."""
     publisher = EventPublisher()
 

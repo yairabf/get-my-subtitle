@@ -12,13 +12,7 @@ import pytest_asyncio
 
 from common.event_publisher import event_publisher
 from common.redis_client import redis_client
-from common.schemas import (
-    EventType,
-    SubtitleEvent,
-    SubtitleRequest,
-    SubtitleResponse,
-    SubtitleStatus,
-)
+from common.schemas import EventType, SubtitleEvent, SubtitleResponse, SubtitleStatus
 from common.utils import DateTimeUtils
 from manager.event_consumer import SubtitleEventConsumer
 from manager.orchestrator import orchestrator

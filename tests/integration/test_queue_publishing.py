@@ -5,7 +5,6 @@ from uuid import uuid4
 
 import aio_pika
 import pytest
-from aio_pika.abc import AbstractChannel
 
 from common.schemas import DownloadTask, SubtitleRequest, TranslationTask
 from manager.orchestrator import SubtitleOrchestrator
@@ -432,22 +431,24 @@ class TestQueueConnectionHandling:
         )
         assert translation_queue.declaration_result is not None
 
+    @pytest.mark.skip_services
     async def test_connection_failure_handling(self):
         """Test behavior when RabbitMQ is unavailable."""
         # Arrange
         orchestrator = SubtitleOrchestrator()
 
-        # Mock settings to use invalid URL
+        # Mock connect_robust to raise an exception
         from unittest.mock import patch
 
-        with patch("manager.orchestrator.settings") as mock_settings:
-            mock_settings.rabbitmq_url = "amqp://guest:guest@invalid-host:5672/"
+        with patch("manager.orchestrator.aio_pika.connect_robust") as mock_connect:
+            mock_connect.side_effect = ConnectionError("Failed to connect to RabbitMQ")
 
             # Act
             await orchestrator.connect()
 
             # Assert - Should handle gracefully (mock mode)
             assert orchestrator.channel is None
+            assert orchestrator.connection is None
 
     async def test_reconnection_after_disconnect(self, rabbitmq_container):
         """Test that orchestrator can reconnect after disconnect."""

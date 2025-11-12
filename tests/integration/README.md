@@ -1,6 +1,8 @@
-# Integration Tests for Queue Publishing
+# Integration Tests
 
-This directory contains integration tests for RabbitMQ queue publishing functionality. These tests validate the full flow of message publishing to RabbitMQ using a real RabbitMQ instance.
+This directory contains integration tests for the subtitle processing system. These tests validate interactions between services using real RabbitMQ and Redis instances managed by pytest-docker.
+
+> **📖 For comprehensive documentation**: See [`docs/INTEGRATION_TESTING.md`](../../docs/INTEGRATION_TESTING.md) for architecture, service details, and troubleshooting.
 
 ## Overview
 
@@ -24,85 +26,81 @@ The integration tests cover:
    - Error scenarios and edge cases
    - Concurrent publishing
 
-## Prerequisites
-
-### Required Services
-
-- **Docker**: For running RabbitMQ container
-- **docker-compose**: For managing services
-- **RabbitMQ**: Provided via docker-compose
-
-### Installation
-
-Ensure you have the required Python packages:
+## Quick Start
 
 ```bash
-pip install -r requirements.txt
+# Run all integration tests (containers managed automatically)
+pytest tests/integration/ -v -m integration
+
+# Or use Makefile
+make test-integration
 ```
 
-## Running Integration Tests
+**Setup**:
+- **CI**: Services provided automatically by GitHub Actions
+- **Local**: Start services with `docker-compose up -d rabbitmq redis` or `make up-infra`
 
-### Option 1: Using the Helper Script (Recommended)
+> **📖 See [docs/INTEGRATION_TESTING.md](../../docs/INTEGRATION_TESTING.md) for prerequisites, installation, and detailed usage.**
 
-The helper script automatically starts RabbitMQ, runs the tests, and reports results:
+## Docker Compose Files
 
-```bash
-./scripts/run_integration_tests.sh
-```
+This project uses three Docker Compose files. **For local integration tests, use `tests/integration/docker-compose.yml`** (infrastructure only). In CI, services are provided automatically by GitHub Actions.
 
-### Option 2: Manual Execution
+| File | Purpose | When to Use |
+|------|---------|-------------|
+| `docker-compose.yml` | Full application stack | `make up` - Local development |
+| `docker-compose.integration.yml` | Full E2E test environment | `make test-integration-full` - Full stack testing |
+| `tests/integration/docker-compose.yml` | **Minimal (local dev)** | `docker-compose -f tests/integration/docker-compose.yml up -d` |
 
-1. **Start RabbitMQ**:
-   ```bash
-   docker-compose up -d rabbitmq
-   ```
+> **📖 See [docs/INTEGRATION_TESTING.md](../../docs/INTEGRATION_TESTING.md) for detailed comparison and when to use each.**
 
-2. **Wait for RabbitMQ to be ready**:
-   ```bash
-   # Wait until this command succeeds
-   docker exec get-my-subtitle-rabbitmq-1 rabbitmq-diagnostics ping
-   ```
-
-3. **Run the integration tests**:
-   ```bash
-   # Run all integration tests
-   pytest tests/integration/ -v -m integration
-
-   # Run specific test file
-   pytest tests/integration/test_queue_publishing.py -v
-
-   # Run specific test class
-   pytest tests/integration/test_queue_publishing.py::TestDownloadQueuePublishing -v
-
-   # Run specific test
-   pytest tests/integration/test_queue_publishing.py::TestDownloadQueuePublishing::test_enqueue_download_task_publishes_to_queue -v
-   ```
-
-4. **Stop RabbitMQ** (optional):
-   ```bash
-   docker-compose down rabbitmq
-   ```
-
-### Option 3: Run with Coverage
+## Running Tests
 
 ```bash
+# All integration tests
+pytest tests/integration/ -v -m integration
+
+# Specific test file
+pytest tests/integration/test_queue_publishing.py -v
+
+# Specific test
+pytest tests/integration/test_queue_publishing.py::TestDownloadQueuePublishing::test_enqueue_download_task_publishes_to_queue -v
+
+# With coverage
 pytest tests/integration/ -v -m integration --cov=common --cov=manager --cov-report=html
+
+# Using Makefile
+make test-integration              # pytest-docker (default)
+make test-integration-full         # Full Docker stack
 ```
 
 ## Test Organization
 
 ### Fixtures (`conftest.py`)
 
-The integration tests use several fixtures to manage RabbitMQ connections and state:
+The integration tests use fixtures that automatically detect the environment (CI vs local):
 
-- `rabbitmq_container`: Manages RabbitMQ Docker container lifecycle
+**Service Fixtures**:
+- `rabbitmq_service`: Detects CI/local, waits for RabbitMQ to be ready, returns connection URL
+- `redis_service`: Detects CI/local, waits for Redis to be ready, returns connection URL
+- `setup_environment_variables`: Automatically sets RABBITMQ_URL and REDIS_URL from service fixtures
+
+**RabbitMQ Fixtures**:
+- `rabbitmq_container`: Backward compatibility fixture (returns connection info dict)
 - `rabbitmq_connection`: Provides RabbitMQ connection for tests
 - `rabbitmq_channel`: Provides RabbitMQ channel for tests
 - `clean_queues`: Purges queues before/after tests for isolation
 - `clean_exchange`: Cleans topic exchange before/after tests
-- `mock_redis_client`: Mocks Redis to isolate RabbitMQ testing
+
+**Redis Fixtures**:
+- `fake_redis_client`: Fake Redis client using fakeredis (for isolated testing)
+- `fake_redis_job_client`: RedisJobClient instance using fakeredis
+- `mock_redis_client`: Simple mock Redis client for backward compatibility
+
+**Application Fixtures**:
 - `test_orchestrator`: Provides configured SubtitleOrchestrator instance
 - `test_event_publisher`: Provides configured EventPublisher instance
+- `setup_environment_variables`: Automatically sets RABBITMQ_URL and REDIS_URL from service fixtures
 
 ### Test Files
 
@@ -206,78 +204,23 @@ Tests use a consistent pattern:
 
 ## Troubleshooting
 
-### RabbitMQ Not Starting
+**Quick fixes:**
+- Port conflicts: `lsof -i :5672` or `lsof -i :6379`
+- Docker not running: `docker ps`
+- View logs: `docker-compose -f tests/integration/docker-compose.yml logs`
 
-If RabbitMQ fails to start:
-
-```bash
-# Check RabbitMQ logs
-docker-compose logs rabbitmq
-
-# Restart RabbitMQ
-docker-compose restart rabbitmq
-
-# Or remove and recreate
-docker-compose down rabbitmq
-docker-compose up -d rabbitmq
-```
-
-### Connection Refused Errors
-
-If you see connection refused errors:
-
-1. Verify RabbitMQ is running:
-   ```bash
-   docker ps | grep rabbitmq
-   ```
-
-2. Check RabbitMQ health:
-   ```bash
-   docker exec get-my-subtitle-rabbitmq-1 rabbitmq-diagnostics ping
-   ```
-
-3. Verify port mapping:
-   ```bash
-   docker port get-my-subtitle-rabbitmq-1
-   # Should show: 5672/tcp -> 0.0.0.0:5672
-   ```
-
-### Test Timeout Errors
-
-If tests timeout waiting for messages:
-
-1. Check if RabbitMQ is healthy
-2. Verify queues exist: Access RabbitMQ management UI at http://localhost:15672 (guest/guest)
-3. Check for queue purging issues
-4. Increase timeout values in tests if needed
-
-### Message Count Mismatches
-
-If message counts don't match expectations:
-
-1. Ensure `clean_queues` fixture is being used
-2. Check for messages from previous test runs
-3. Manually purge queues via RabbitMQ management UI
-4. Verify test isolation
+> **📖 See [docs/INTEGRATION_TESTING.md](../../docs/INTEGRATION_TESTING.md) for comprehensive troubleshooting guide.**
 
 ## Configuration
 
-### RabbitMQ Settings
+**Test Settings** (in `conftest.py`):
+- Queues: `subtitle.download`, `subtitle.translation`
+- Exchange: `subtitle.events` (TOPIC, durable)
+- Credentials: guest/guest (RabbitMQ)
 
-Default RabbitMQ configuration (from `docker-compose.yml`):
-- **Host**: localhost
-- **Port**: 5672
-- **Management UI**: http://localhost:15672
-- **Credentials**: guest/guest
-- **URL**: amqp://guest:guest@localhost:5672/
+**Note**: In CI, services are on localhost. Locally, use `rabbitmq_service` and `redis_service` fixtures which auto-detect the environment.
 
-### Test Settings
-
-Configuration is in `conftest.py`:
-- Queue names: `subtitle.download`, `subtitle.translation`
-- Exchange name: `subtitle.events`
-- Exchange type: TOPIC
-- Durability: All queues and exchanges are durable
+> **📖 See [docs/INTEGRATION_TESTING.md](../../docs/INTEGRATION_TESTING.md) for environment configuration details.**
 
 ## Best Practices
 
@@ -289,26 +232,14 @@ Configuration is in `conftest.py`:
 6. **Async patterns**: Use proper async/await patterns with asyncio
 7. **Error validation**: Test both success and failure scenarios
 
-## CI/CD Integration
-
-To integrate these tests into CI/CD:
+## CI/CD
 
 ```yaml
-# Example GitHub Actions workflow
-- name: Start RabbitMQ
-  run: docker-compose up -d rabbitmq
-
-- name: Wait for RabbitMQ
-  run: |
-    timeout 30 bash -c 'until docker exec get-my-subtitle-rabbitmq-1 rabbitmq-diagnostics ping; do sleep 1; done'
-
 - name: Run Integration Tests
   run: pytest tests/integration/ -v -m integration --cov=common --cov=manager
-
-- name: Cleanup
-  if: always()
-  run: docker-compose down
 ```
+
+> **📖 See [docs/INTEGRATION_TESTING.md](../../docs/INTEGRATION_TESTING.md) for CI/CD integration details.**
 
 ## Coverage
 
