@@ -485,22 +485,25 @@ class TestEventPublisherConnectionHandling:
         assert exchange.name == "subtitle.events"
         # Note: passive=True means we're just checking if it exists
 
+    @pytest.mark.skip_services
     async def test_connection_failure_returns_false(self):
         """Test that publish_event returns False when connection fails."""
         # Arrange
         publisher = EventPublisher()
 
-        # Mock settings to use invalid URL
+        # Mock connect_robust to raise an exception
         from unittest.mock import patch
 
-        with patch("common.event_publisher.settings") as mock_settings:
-            mock_settings.rabbitmq_url = "amqp://guest:guest@invalid-host:5672/"
+        with patch("common.event_publisher.aio_pika.connect_robust") as mock_connect:
+            mock_connect.side_effect = ConnectionError("Failed to connect to RabbitMQ")
 
             # Act - Try to connect (should fail gracefully)
             await publisher.connect()
 
             # Assert - Should be in mock mode (no exchange)
             assert publisher.exchange is None
+            assert publisher.channel is None
+            assert publisher.connection is None
 
             # Act - Try to publish event in mock mode
             job_id = uuid4()
