@@ -134,21 +134,15 @@ class DuplicatePreventionService:
             existing_job_id_str = None
             try:
                 if self.check_and_register_script:
-                    existing_job_id_str = (
-                        await self.check_and_register_script(
-                            keys=[dedup_key],
-                            args=[str(job_id), self.window_seconds],
-                        )
+                    existing_job_id_str = await self.check_and_register_script(
+                        keys=[dedup_key],
+                        args=[str(job_id), self.window_seconds],
                     )
                 else:
                     # Fallback if script not loaded
-                    logger.warning(
-                        "Lua script not loaded, using fallback method"
-                    )
-                    existing_job_id_str = (
-                        await self._fallback_check_and_register(
-                            dedup_key, job_id
-                        )
+                    logger.warning("Lua script not loaded, using fallback method")
+                    existing_job_id_str = await self._fallback_check_and_register(
+                        dedup_key, job_id
                     )
             except RedisError as script_error:
                 # Lua script failed (e.g., FakeRedis doesn't support evalsha)
@@ -157,10 +151,8 @@ class DuplicatePreventionService:
                     f"Lua script execution failed: {script_error}. "
                     "Using fallback method."
                 )
-                existing_job_id_str = (
-                    await self._fallback_check_and_register(
-                        dedup_key, job_id
-                    )
+                existing_job_id_str = await self._fallback_check_and_register(
+                    dedup_key, job_id
                 )
 
             if existing_job_id_str:
@@ -168,7 +160,7 @@ class DuplicatePreventionService:
                 try:
                     # Handle both bytes and string returns
                     job_id_str = (
-                        existing_job_id_str.decode('utf-8')
+                        existing_job_id_str.decode("utf-8")
                         if isinstance(existing_job_id_str, bytes)
                         else str(existing_job_id_str)
                     )
@@ -187,9 +179,7 @@ class DuplicatePreventionService:
                         ),
                     )
                 except (ValueError, AttributeError) as e:
-                    logger.error(
-                        f"Invalid UUID in Redis: {existing_job_id_str}: {e}"
-                    )
+                    logger.error(f"Invalid UUID in Redis: {existing_job_id_str}: {e}")
                     # Treat as non-duplicate and overwrite bad data
                     await self.redis_client.client.set(
                         dedup_key, str(job_id), ex=self.window_seconds
@@ -256,7 +246,7 @@ class DuplicatePreventionService:
         if existing_job_id:
             # Handle both bytes and string returns
             if isinstance(existing_job_id, bytes):
-                return existing_job_id.decode('utf-8')
+                return existing_job_id.decode("utf-8")
             return str(existing_job_id)
 
         # Register new request
@@ -290,7 +280,7 @@ class DuplicatePreventionService:
                 try:
                     # Handle both bytes and string returns
                     job_id_str = (
-                        job_id_data.decode('utf-8')
+                        job_id_data.decode("utf-8")
                         if isinstance(job_id_data, bytes)
                         else str(job_id_data)
                     )
