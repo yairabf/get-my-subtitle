@@ -1,6 +1,8 @@
 # Integration Testing Environment
 
-This document describes the dedicated integration testing environment for the subtitle processing system.
+This document provides comprehensive documentation about the integration testing environment for the subtitle processing system.
+
+> **📖 Quick Reference**: See [`tests/integration/README.md`](../tests/integration/README.md) for a quick guide to running tests and test organization.
 
 ## Overview
 
@@ -63,11 +65,106 @@ The integration test environment uses `pytest-docker` to automatically manage Do
 - **Translator**: Worker that translates subtitles
   - Consumes from `subtitle.translate` queue
 
+## Docker Compose Files
+
+This project uses three different Docker Compose files for different testing scenarios:
+
+### 1. `docker-compose.yml` (Main/Production)
+
+**Location**: Root directory  
+**Purpose**: Full application stack for development/production
+
+**Services**: RabbitMQ, Redis, Manager, Downloader, Translator, Consumer, Scanner
+
+**When to use**:
+- Local development with all services
+- Production-like testing
+- Manual testing of the complete system
+
+**Usage**:
+```bash
+make up              # Start all services
+make down            # Stop all services
+docker-compose up    # Direct usage
+```
+
+**Characteristics**:
+- Uses `.env` file for configuration
+- Slower health checks (10s intervals, 30s start period)
+- All application services included
+- Production-like environment
+
+### 2. `docker-compose.integration.yml` (Full Integration Test Environment)
+
+**Location**: Root directory  
+**Purpose**: Complete environment for end-to-end integration tests
+
+**Services**: RabbitMQ, Redis, Manager, Downloader, Translator, Scanner
+
+**When to use**:
+- Full end-to-end integration tests with all application services
+- Testing complete workflows with real services
+- Debugging integration issues with full stack
+
+**Usage**:
+```bash
+make test-integration-full    # Start environment, run tests, cleanup
+make test-integration-up       # Start environment only
+make test-integration-down     # Stop environment
+docker-compose -f docker-compose.integration.yml up -d
+```
+
+**Characteristics**:
+- Fast health checks (5s intervals, 10-15s start periods)
+- Explicit `integration-test-network`
+- Test-specific environment variables
+- Scanner auto-scanning disabled
+- Test media directory mounted
+
+### 3. `tests/integration/docker-compose.yml` (pytest-docker Minimal)
+
+**Location**: `tests/integration/` directory  
+**Purpose**: Minimal setup for pytest-docker (infrastructure only)
+
+**Services**: RabbitMQ, Redis only (no application services)
+
+**When to use**:
+- **Default for integration tests** - automatically used by pytest-docker
+- Unit/integration tests that need real RabbitMQ/Redis but run test code locally
+- Fast test execution without starting full application stack
+- CI/CD pipelines
+
+**Usage**:
+```bash
+# Automatically used by pytest-docker - no manual setup needed
+pytest tests/integration/ -v -m integration
+make test-integration
+```
+
+**Characteristics**:
+- Minimal: only infrastructure services
+- Automatically managed by pytest-docker
+- Fast health checks (5s intervals, 10s start period)
+- Tests run outside containers (in your local Python environment)
+- Automatic container lifecycle management
+
+### Quick Decision Guide
+
+| Scenario | Use This File | Command |
+|----------|---------------|---------|
+| Local development | `docker-compose.yml` | `make up` |
+| Full E2E integration tests | `docker-compose.integration.yml` | `make test-integration-full` |
+| Unit/integration tests (default) | `tests/integration/docker-compose.yml` | `pytest tests/integration/` |
+| CI/CD pipelines | `tests/integration/docker-compose.yml` | `pytest tests/integration/` |
+| Debugging with full stack | `docker-compose.integration.yml` | `make test-integration-up` |
+
+**Note**: For most integration testing, you don't need to choose - just run `pytest tests/integration/` and pytest-docker will automatically use `tests/integration/docker-compose.yml`.
+
 ## Usage
 
-### Quick Start - Run Integration Tests
+### Quick Start
 
-Integration tests now automatically manage Docker containers using `pytest-docker`. Simply run:
+Integration tests automatically manage Docker containers using `pytest-docker`:
 
 ```bash
 # Run all integration tests (containers managed automatically)
@@ -98,7 +195,7 @@ pytest tests/integration/ --log-cli-level=DEBUG -v
 
 ### Manual Environment Control (Optional)
 
-For debugging or manual testing, you can still use the full Docker Compose environment:
+For debugging or manual testing, you can use the full Docker Compose environment:
 
 **Start the full environment:**
 ```bash
