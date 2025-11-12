@@ -6,7 +6,6 @@ Works with:
 - Manual service setup
 """
 
-import asyncio
 import os
 import sys
 import time
@@ -26,8 +25,9 @@ for module in modules_to_reload:
     if module in sys.modules:
         del sys.modules[module]
 
-from common.event_publisher import EventPublisher
-from manager.orchestrator import SubtitleOrchestrator
+# Import after module cleanup to ensure fresh imports with new env vars
+from common.event_publisher import EventPublisher  # noqa: E402
+from manager.orchestrator import SubtitleOrchestrator  # noqa: E402
 
 
 def is_rabbitmq_responsive(url: str) -> bool:
@@ -92,24 +92,24 @@ def wait_for_service(url: str, check_func, timeout: float = 30.0, pause: float =
 def rabbitmq_service():
     """
     Ensure RabbitMQ is up and responsive.
-    
+
     In CI (GitHub Actions): Uses services provided by GitHub Actions
     Locally: Uses localhost (expects docker-compose or manual setup)
     """
     # Check if we're in CI (GitHub Actions provides services)
     is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
-    
+
     if is_ci:
         # GitHub Actions services are on localhost
         url = "amqp://guest:guest@localhost:5672/"
     else:
         # Local development - check if services are running
         url = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-    
+
     # Wait for service to be ready
     if not wait_for_service(url, is_rabbitmq_responsive, timeout=30.0):
         pytest.fail(f"RabbitMQ not responsive at {url}. Ensure services are running.")
-    
+
     return url
 
 
@@ -117,24 +117,24 @@ def rabbitmq_service():
 def redis_service():
     """
     Ensure Redis is up and responsive.
-    
+
     In CI (GitHub Actions): Uses services provided by GitHub Actions
     Locally: Uses localhost (expects docker-compose or manual setup)
     """
     # Check if we're in CI (GitHub Actions provides services)
     is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
-    
+
     if is_ci:
         # GitHub Actions services are on localhost
         url = "redis://localhost:6379"
     else:
         # Local development - check if services are running
         url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    
+
     # Wait for service to be ready
     if not wait_for_service(url, is_redis_responsive, timeout=30.0):
         pytest.fail(f"Redis not responsive at {url}. Ensure services are running.")
-    
+
     return url
 
 

@@ -5,7 +5,6 @@ from uuid import uuid4
 
 import aio_pika
 import pytest
-from aio_pika.abc import AbstractChannel
 
 from common.schemas import DownloadTask, SubtitleRequest, TranslationTask
 from manager.orchestrator import SubtitleOrchestrator

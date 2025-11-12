@@ -4,12 +4,9 @@ import asyncio
 import json
 from uuid import uuid4
 
-import aio_pika
 import pytest
 from aio_pika import ExchangeType
-from aio_pika.abc import AbstractChannel
 
-from common.event_publisher import EventPublisher
 from common.schemas import (
     DownloadTask,
     EventType,
@@ -17,7 +14,6 @@ from common.schemas import (
     SubtitleRequest,
     TranslationTask,
 )
-from common.utils import DateTimeUtils
 from manager.orchestrator import SubtitleOrchestrator
 
 

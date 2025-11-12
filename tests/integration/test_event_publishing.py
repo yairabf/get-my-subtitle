@@ -7,7 +7,6 @@ from uuid import uuid4
 import aio_pika
 import pytest
 from aio_pika import ExchangeType
-from aio_pika.abc import AbstractChannel
 from aio_pika.exceptions import QueueEmpty
 
 from common.event_publisher import EventPublisher
