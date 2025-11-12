@@ -1,9 +1,7 @@
-"""Comprehensive serialization/deserialization tests for manager-specific schema models."""
+"""Serialization/deserialization tests for manager-specific schema models."""
 
 import json
-from uuid import UUID, uuid4
-
-import pytest
+from uuid import uuid4
 
 from manager.schemas import (
     JellyfinWebhookPayload,
@@ -15,7 +13,6 @@ from manager.schemas import (
     SubtitleTranslateRequest,
     WebhookAcknowledgement,
 )
-
 
 # ============================================================================
 # SubtitleRequestCreate Serialization Tests
@@ -111,7 +108,10 @@ class TestSubtitleRequestUpdateSerialization:
         assert isinstance(dumped, dict)
         assert dumped["status"] == "done"
         assert dumped["error_message"] == "No errors"
-        assert dumped["download_url"] == "https://example.com/subtitles/123.srt"
+        assert (
+            dumped["download_url"]
+            == "https://example.com/subtitles/123.srt"
+        )
 
     def test_model_dump_json_returns_string(self):
         """Test model_dump_json() returns valid JSON string."""
@@ -327,8 +327,13 @@ class TestQueueStatusResponseSerialization:
         restored = QueueStatusResponse.model_validate(dumped)
 
         assert restored.download_queue_size == original.download_queue_size
-        assert restored.translation_queue_size == original.translation_queue_size
-        assert restored.active_workers == original.active_workers
+        assert (
+            restored.translation_queue_size
+            == original.translation_queue_size
+        )
+        assert (
+            restored.active_workers == original.active_workers
+        )
 
 
 # ============================================================================
@@ -728,4 +733,3 @@ class TestWebhookAcknowledgementSerialization:
         assert restored.status == original.status
         assert restored.job_id is None
         assert restored.message == original.message
-

@@ -18,7 +18,6 @@ from common.schemas import (
     TranslationTask,
 )
 
-
 # ============================================================================
 # Enum Validation Tests
 # ============================================================================
@@ -205,7 +204,9 @@ class TestSubtitleRequestValidation:
         assert "video_title" in error_fields
         assert "language" in error_fields
 
-    def test_subtitle_request_empty_preferred_sources_defaults_to_empty_list(self):
+    def test_subtitle_request_empty_preferred_sources_defaults_to_empty_list(
+        self,
+    ):
         """Test that preferred_sources defaults to empty list."""
         request = SubtitleRequest(
             video_url="https://example.com/video.mp4",
@@ -237,7 +238,6 @@ class TestSubtitleResponseValidation:
 
     def test_valid_subtitle_response(self):
         """Test valid SubtitleResponse passes validation."""
-        job_id = uuid4()
         response = SubtitleResponse(
             video_url="https://example.com/video.mp4",
             video_title="Test Video",
@@ -415,7 +415,9 @@ class TestDownloadTaskValidation:
         errors = exc_info.value.errors()
         assert any(error["loc"] == ("request_id",) for error in errors)
 
-    def test_download_task_empty_preferred_sources_defaults_to_empty_list(self):
+    def test_download_task_empty_preferred_sources_defaults_to_empty_list(
+        self,
+    ):
         """Test that preferred_sources defaults to empty list."""
         request_id = uuid4()
         task = DownloadTask(
@@ -478,7 +480,7 @@ class TestTranslationTaskValidation:
         assert any(error["loc"] == ("request_id",) for error in errors)
 
     def test_translation_task_allows_empty_subtitle_file_path(self):
-        """Test that empty subtitle_file_path is allowed (no min_length constraint)."""
+        """Test empty subtitle_file_path allowed (no min_length)."""
         request_id = uuid4()
         task = TranslationTask(
             request_id=request_id,
@@ -823,4 +825,3 @@ class TestTranslationCheckpointValidation:
 
         assert checkpoint.translated_segments == []
         assert isinstance(checkpoint.translated_segments, list)
-

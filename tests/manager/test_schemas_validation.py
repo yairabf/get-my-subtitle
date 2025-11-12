@@ -1,6 +1,6 @@
 """Comprehensive validation tests for manager-specific schema models."""
 
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -15,7 +15,6 @@ from manager.schemas import (
     SubtitleTranslateRequest,
     WebhookAcknowledgement,
 )
-
 
 # ============================================================================
 # SubtitleRequestCreate Validation Tests
@@ -244,7 +243,9 @@ class TestQueueStatusResponseValidation:
             )
 
         errors = exc_info.value.errors()
-        assert any(error["loc"] == ("download_queue_size",) for error in errors)
+        assert any(
+            error["loc"] == ("download_queue_size",) for error in errors
+        )
 
     def test_queue_status_response_invalid_active_workers_type(self):
         """Test that invalid active_workers type raises ValidationError."""
@@ -303,7 +304,7 @@ class TestSubtitleTranslateRequestValidation:
         assert "target_language" in error_fields
 
     def test_subtitle_translate_request_allows_empty_subtitle_path(self):
-        """Test that empty subtitle_path is allowed (no min_length constraint)."""
+        """Test empty subtitle_path allowed (no min_length)."""
         request = SubtitleTranslateRequest(
             subtitle_path="",
             source_language="en",
@@ -517,4 +518,3 @@ class TestWebhookAcknowledgementValidation:
 
         errors = exc_info.value.errors()
         assert any(error["loc"] == ("job_id",) for error in errors)
-

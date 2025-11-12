@@ -1,10 +1,8 @@
-"""Comprehensive serialization/deserialization tests for common schema models."""
+"""Serialization/deserialization tests for common schema models."""
 
 import json
 from datetime import datetime, timezone
-from uuid import UUID, uuid4
-
-import pytest
+from uuid import uuid4
 
 from common.schemas import (
     DownloadTask,
@@ -17,7 +15,6 @@ from common.schemas import (
     TranslationCheckpoint,
     TranslationTask,
 )
-
 
 # ============================================================================
 # SubtitleRequest Serialization Tests
@@ -648,7 +645,10 @@ class TestSubtitleEventSerialization:
             event_type=EventType.SUBTITLE_READY,
             job_id=job_id,
             source="downloader",
-            payload={"subtitle_path": "/path/to/subtitle.srt", "language": "en"},
+            payload={
+                "subtitle_path": "/path/to/subtitle.srt",
+                "language": "en",
+            },
         )
 
         dumped = event.model_dump()
@@ -657,7 +657,10 @@ class TestSubtitleEventSerialization:
         assert dumped["event_type"] == EventType.SUBTITLE_READY
         assert str(dumped["job_id"]) == str(job_id)
         assert dumped["source"] == "downloader"
-        assert dumped["payload"] == {"subtitle_path": "/path/to/subtitle.srt", "language": "en"}
+        assert dumped["payload"] == {
+            "subtitle_path": "/path/to/subtitle.srt",
+            "language": "en",
+        }
 
     def test_model_dump_json_serializes_enum_to_string(self):
         """Test model_dump_json() serializes enum to string value."""
@@ -750,7 +753,10 @@ class TestSubtitleEventSerialization:
             event_type=EventType.SUBTITLE_READY,
             job_id=job_id,
             source="downloader",
-            payload={"subtitle_path": "/path/to/subtitle.srt", "language": "en"},
+            payload={
+                "subtitle_path": "/path/to/subtitle.srt",
+                "language": "en",
+            },
             metadata={"version": "1.0.0"},
         )
 
@@ -881,7 +887,9 @@ class TestTranslationCheckpointSerialization:
         assert checkpoint.request_id == request_id
         assert checkpoint.total_chunks == 10
         assert checkpoint.completed_chunks == [0, 1, 2]
-        assert checkpoint.translated_segments == [{"index": 1, "text": "Hello"}]
+        assert checkpoint.translated_segments == [
+            {"index": 1, "text": "Hello"}
+        ]
 
     def test_model_validate_json_from_string(self):
         """Test model_validate_json() creates instance from JSON string."""
@@ -951,4 +959,3 @@ class TestTranslationCheckpointSerialization:
         assert restored.request_id == original.request_id
         assert restored.subtitle_file_path == original.subtitle_file_path
         assert restored.total_chunks == original.total_chunks
-
