@@ -28,9 +28,9 @@ The integration tests cover:
 
 ### Required Services
 
-- **Docker**: For running RabbitMQ container
-- **docker-compose**: For managing services
-- **RabbitMQ**: Provided via docker-compose
+- **Docker**: For running RabbitMQ and Redis containers
+- **docker-compose**: For managing services (automatically handled by pytest-docker)
+- **pytest-docker**: Automatically manages container lifecycle
 
 ### Installation
 
@@ -40,48 +40,140 @@ Ensure you have the required Python packages:
 pip install -r requirements.txt
 ```
 
-## Running Integration Tests
+This will install `pytest-docker` which automatically manages Docker Compose containers for tests.
 
-### Option 1: Using the Helper Script (Recommended)
+## Docker Compose Files Overview
 
-The helper script automatically starts RabbitMQ, runs the tests, and reports results:
+This project uses three different Docker Compose files for different purposes:
 
+### 1. `docker-compose.yml` (Main/Production)
+
+**Location**: Root directory  
+**Purpose**: Full application stack for development/production
+
+**Services**: RabbitMQ, Redis, Manager, Downloader, Translator, Consumer, Scanner
+
+**When to use**:
+- Local development with all services
+- Production-like testing
+- Manual testing of the complete system
+
+**Usage**:
 ```bash
-./scripts/run_integration_tests.sh
+make up              # Start all services
+make down            # Stop all services
+docker-compose up    # Direct usage
 ```
 
-### Option 2: Manual Execution
+**Characteristics**:
+- Uses `.env` file for configuration
+- Slower health checks (10s intervals, 30s start period)
+- All application services included
+- Production-like environment
 
-1. **Start RabbitMQ**:
-   ```bash
-   docker-compose up -d rabbitmq
-   ```
+### 2. `docker-compose.integration.yml` (Full Integration Test Environment)
 
-2. **Wait for RabbitMQ to be ready**:
-   ```bash
-   # Wait until this command succeeds
-   docker exec get-my-subtitle-rabbitmq-1 rabbitmq-diagnostics ping
-   ```
+**Location**: Root directory  
+**Purpose**: Complete environment for end-to-end integration tests
 
-3. **Run the integration tests**:
-   ```bash
-   # Run all integration tests
-   pytest tests/integration/ -v -m integration
+**Services**: RabbitMQ, Redis, Manager, Downloader, Translator, Scanner
 
-   # Run specific test file
-   pytest tests/integration/test_queue_publishing.py -v
+**When to use**:
+- Full end-to-end integration tests with all application services
+- Testing complete workflows with real services
+- Debugging integration issues with full stack
 
-   # Run specific test class
-   pytest tests/integration/test_queue_publishing.py::TestDownloadQueuePublishing -v
+**Usage**:
+```bash
+make test-integration-full    # Start environment, run tests, cleanup
+make test-integration-up       # Start environment only
+make test-integration-down     # Stop environment
+docker-compose -f docker-compose.integration.yml up -d
+```
 
-   # Run specific test
-   pytest tests/integration/test_queue_publishing.py::TestDownloadQueuePublishing::test_enqueue_download_task_publishes_to_queue -v
-   ```
+**Characteristics**:
+- Fast health checks (5s intervals, 10-15s start periods)
+- Explicit `integration-test-network`
+- Test-specific environment variables
+- Scanner auto-scanning disabled
+- Test media directory mounted
 
-4. **Stop RabbitMQ** (optional):
-   ```bash
-   docker-compose down rabbitmq
-   ```
+### 3. `tests/integration/docker-compose.yml` (pytest-docker Minimal)
+
+**Location**: `tests/integration/` directory  
+**Purpose**: Minimal setup for pytest-docker (infrastructure only)
+
+**Services**: RabbitMQ, Redis only (no application services)
+
+**When to use**:
+- **Default for integration tests** - automatically used by pytest-docker
+- Unit/integration tests that need real RabbitMQ/Redis but run test code locally
+- Fast test execution without starting full application stack
+- CI/CD pipelines
+
+**Usage**:
+```bash
+# Automatically used by pytest-docker - no manual setup needed
+pytest tests/integration/ -v -m integration
+make test-integration
+```
+
+**Characteristics**:
+- Minimal: only infrastructure services
+- Automatically managed by pytest-docker
+- Fast health checks (5s intervals, 10s start period)
+- Tests run outside containers (in your local Python environment)
+- Automatic container lifecycle management
+
+### Quick Decision Guide
+
+| Scenario | Use This File | Command |
+|----------|---------------|---------|
+| Local development | `docker-compose.yml` | `make up` |
+| Full E2E integration tests | `docker-compose.integration.yml` | `make test-integration-full` |
+| Unit/integration tests (default) | `tests/integration/docker-compose.yml` | `pytest tests/integration/` |
+| CI/CD pipelines | `tests/integration/docker-compose.yml` | `pytest tests/integration/` |
+| Debugging with full stack | `docker-compose.integration.yml` | `make test-integration-up` |
+
+**Note**: For most integration testing, you don't need to choose - just run `pytest tests/integration/` and pytest-docker will automatically use `tests/integration/docker-compose.yml`.
+
+## Running Integration Tests
+
+### Simple Execution (Recommended)
+
+Integration tests now automatically manage Docker containers using `pytest-docker`. Simply run:
+
+```bash
+# Run all integration tests
+pytest tests/integration/ -v -m integration
+
+# Run specific test file
+pytest tests/integration/test_queue_publishing.py -v
+
+# Run specific test class
+pytest tests/integration/test_queue_publishing.py::TestDownloadQueuePublishing -v
+
+# Run specific test
+pytest tests/integration/test_queue_publishing.py::TestDownloadQueuePublishing::test_enqueue_download_task_publishes_to_queue -v
+```
+
+**No manual Docker setup required!** The `pytest-docker` plugin automatically:
+- Starts RabbitMQ and Redis containers before tests
+- Waits for services to be healthy
+- Sets up environment variables with correct connection URLs
+- Cleans up containers after tests complete
+
+### Using Makefile Targets
+
+You can also use the Makefile targets:
+
+```bash
+# Run integration tests (containers managed automatically)
+make test-integration
+
+# Run with full Docker environment (for debugging)
+make test-integration-full
+```
 
 ### Option 3: Run with Coverage
 
@@ -93,16 +185,30 @@ pytest tests/integration/ -v -m integration --cov=common --cov=manager --cov-rep
 
 ### Fixtures (`conftest.py`)
 
-The integration tests use several fixtures to manage RabbitMQ connections and state:
+The integration tests use `pytest-docker` to automatically manage Docker containers and provide fixtures:
 
-- `rabbitmq_container`: Manages RabbitMQ Docker container lifecycle
+**Docker Management (pytest-docker)**:
+- `docker_compose_file`: Specifies the Docker Compose file for tests
+- `docker_services`: Manages container lifecycle (automatic start/stop)
+- `rabbitmq_service`: Waits for RabbitMQ to be ready and returns connection URL
+- `redis_service`: Waits for Redis to be ready and returns connection URL
+
+**RabbitMQ Fixtures**:
+- `rabbitmq_container`: Backward compatibility fixture (returns connection info dict)
 - `rabbitmq_connection`: Provides RabbitMQ connection for tests
 - `rabbitmq_channel`: Provides RabbitMQ channel for tests
 - `clean_queues`: Purges queues before/after tests for isolation
 - `clean_exchange`: Cleans topic exchange before/after tests
-- `mock_redis_client`: Mocks Redis to isolate RabbitMQ testing
+
+**Redis Fixtures**:
+- `fake_redis_client`: Fake Redis client using fakeredis (for isolated testing)
+- `fake_redis_job_client`: RedisJobClient instance using fakeredis
+- `mock_redis_client`: Simple mock Redis client for backward compatibility
+
+**Application Fixtures**:
 - `test_orchestrator`: Provides configured SubtitleOrchestrator instance
 - `test_event_publisher`: Provides configured EventPublisher instance
+- `setup_environment_variables`: Automatically sets RABBITMQ_URL and REDIS_URL from Docker containers
 
 ### Test Files
 
@@ -206,40 +312,38 @@ Tests use a consistent pattern:
 
 ## Troubleshooting
 
-### RabbitMQ Not Starting
+### Containers Not Starting
 
-If RabbitMQ fails to start:
+If containers fail to start, pytest-docker will show error messages. Common issues:
 
-```bash
-# Check RabbitMQ logs
-docker-compose logs rabbitmq
+1. **Port conflicts**: If ports 5672 or 6379 are already in use:
+   ```bash
+   # Check what's using the ports
+   lsof -i :5672  # RabbitMQ
+   lsof -i :6379  # Redis
+   
+   # Stop conflicting services or modify docker-compose.yml to use different ports
+   ```
 
-# Restart RabbitMQ
-docker-compose restart rabbitmq
+2. **Docker not running**: Ensure Docker is running:
+   ```bash
+   docker ps
+   ```
 
-# Or remove and recreate
-docker-compose down rabbitmq
-docker-compose up -d rabbitmq
-```
+3. **Insufficient resources**: Ensure Docker has enough memory/CPU allocated
 
 ### Connection Refused Errors
 
 If you see connection refused errors:
 
-1. Verify RabbitMQ is running:
+1. Check pytest-docker output for container startup issues
+2. Verify containers are running:
    ```bash
-   docker ps | grep rabbitmq
+   docker ps | grep -E "rabbitmq|redis"
    ```
-
-2. Check RabbitMQ health:
+3. Check container logs:
    ```bash
-   docker exec get-my-subtitle-rabbitmq-1 rabbitmq-diagnostics ping
-   ```
-
-3. Verify port mapping:
-   ```bash
-   docker port get-my-subtitle-rabbitmq-1
-   # Should show: 5672/tcp -> 0.0.0.0:5672
+   docker-compose -f tests/integration/docker-compose.yml logs
    ```
 
 ### Test Timeout Errors
@@ -262,14 +366,14 @@ If message counts don't match expectations:
 
 ## Configuration
 
-### RabbitMQ Settings
+### Docker Compose Configuration
 
-Default RabbitMQ configuration (from `docker-compose.yml`):
-- **Host**: localhost
-- **Port**: 5672
-- **Management UI**: http://localhost:15672
-- **Credentials**: guest/guest
-- **URL**: amqp://guest:guest@localhost:5672/
+The integration tests use `tests/integration/docker-compose.yml` (see [Docker Compose Files Overview](#docker-compose-files-overview) for details on all three compose files). This minimal compose file defines:
+- **RabbitMQ**: Port 5672 (AMQP), 15672 (Management UI)
+- **Redis**: Port 6379
+- **Credentials**: guest/guest (RabbitMQ)
+
+**Note**: pytest-docker automatically maps ports and provides connection URLs via fixtures. Tests should use the `rabbitmq_service` and `redis_service` fixtures rather than hardcoded URLs.
 
 ### Test Settings
 
@@ -291,24 +395,18 @@ Configuration is in `conftest.py`:
 
 ## CI/CD Integration
 
-To integrate these tests into CI/CD:
+Integration tests work seamlessly in CI/CD environments. pytest-docker handles all container management:
 
 ```yaml
 # Example GitHub Actions workflow
-- name: Start RabbitMQ
-  run: docker-compose up -d rabbitmq
-
-- name: Wait for RabbitMQ
-  run: |
-    timeout 30 bash -c 'until docker exec get-my-subtitle-rabbitmq-1 rabbitmq-diagnostics ping; do sleep 1; done'
-
 - name: Run Integration Tests
   run: pytest tests/integration/ -v -m integration --cov=common --cov=manager
-
-- name: Cleanup
-  if: always()
-  run: docker-compose down
 ```
+
+**No manual container setup needed!** pytest-docker automatically:
+- Starts containers before tests
+- Waits for services to be healthy
+- Cleans up containers after tests (even on failure)
 
 ## Coverage
 

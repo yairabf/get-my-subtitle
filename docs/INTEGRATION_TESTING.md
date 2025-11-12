@@ -4,7 +4,7 @@ This document describes the dedicated integration testing environment for the su
 
 ## Overview
 
-The integration test environment provides a complete, isolated Docker-based setup for running end-to-end integration tests. It includes all services required for testing the full subtitle processing workflow.
+The integration test environment uses `pytest-docker` to automatically manage Docker containers (RabbitMQ and Redis) for integration tests. Containers are automatically started before tests and cleaned up afterward, ensuring isolated and reliable test execution.
 
 ## Architecture
 
@@ -65,44 +65,23 @@ The integration test environment provides a complete, isolated Docker-based setu
 
 ## Usage
 
-### Quick Start - Run Full Integration Tests
+### Quick Start - Run Integration Tests
 
-Run all integration tests with automatic environment setup and teardown:
+Integration tests now automatically manage Docker containers using `pytest-docker`. Simply run:
 
 ```bash
-make test-integration-full
-```
+# Run all integration tests (containers managed automatically)
+pytest tests/integration/ -v -m integration
 
-This command will:
-1. Build and start all Docker services
-2. Wait for services to be healthy
-3. Run integration tests
-4. Show logs if tests fail
-5. Clean up and stop all services
-
-### Manual Environment Control
-
-For development and debugging, you can control the environment manually:
-
-**Start the environment:**
-```bash
-make test-integration-up
-```
-
-**Run tests (environment must be running):**
-```bash
+# Or use the Makefile target
 make test-integration
 ```
 
-**View logs:**
-```bash
-make test-integration-logs
-```
-
-**Stop the environment:**
-```bash
-make test-integration-down
-```
+**No manual setup required!** The `pytest-docker` plugin automatically:
+- Starts RabbitMQ and Redis containers before tests
+- Waits for services to be healthy using health checks
+- Sets environment variables with correct connection URLs
+- Cleans up containers after tests complete (even on failure)
 
 ### Running Specific Tests
 
@@ -117,27 +96,51 @@ pytest tests/integration/test_scanner_manager_events.py::test_scanner_publishes_
 pytest tests/integration/ --log-cli-level=DEBUG -v
 ```
 
+### Manual Environment Control (Optional)
+
+For debugging or manual testing, you can still use the full Docker Compose environment:
+
+**Start the full environment:**
+```bash
+make test-integration-up
+```
+
+**View logs:**
+```bash
+make test-integration-logs
+```
+
+**Stop the environment:**
+```bash
+make test-integration-down
+```
+
 ## Environment Configuration
 
-The integration test environment uses `docker-compose.integration.yml` which provides:
+### pytest-docker Configuration
 
-- **Isolated Network**: All services communicate on a dedicated bridge network
-- **Fast Health Checks**: 5-second intervals for quick startup
-- **Test-Friendly Settings**:
-  - Scanner automatic detection disabled
-  - Log level set to INFO
-  - Environment tag: `integration-test`
+Integration tests use `tests/integration/docker-compose.yml` which defines:
+- **RabbitMQ**: Port 5672 (AMQP), 15672 (Management UI)
+- **Redis**: Port 6379
+- **Health Checks**: 5-second intervals for quick startup
+- **Credentials**: guest/guest (RabbitMQ)
+
+The `pytest-docker` plugin automatically:
+- Maps container ports to host ports (prevents conflicts)
+- Sets `RABBITMQ_URL` and `REDIS_URL` environment variables
+- Waits for services to be healthy before running tests
+- Uses a dedicated project name to avoid conflicts
 
 ### Environment Variables
 
-Services in the integration environment use these variables:
+Tests automatically receive these environment variables (set by pytest-docker fixtures):
 
 ```bash
-REDIS_URL=redis://redis:6379
-RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
-LOG_LEVEL=INFO
-ENVIRONMENT=integration-test
+REDIS_URL=redis://<docker_ip>:<mapped_port>
+RABBITMQ_URL=amqp://guest:guest@<docker_ip>:<mapped_port>/
 ```
+
+The actual values are determined dynamically by pytest-docker based on container port mappings.
 
 ## Integration Test Categories
 
@@ -171,30 +174,24 @@ Tests combined task and event publishing:
 
 ### GitHub Actions Workflow
 
-The integration tests run in CI using the following workflow:
+Integration tests work seamlessly in CI/CD. pytest-docker handles all container management:
 
 ```yaml
-- name: Start Integration Test Environment
-  run: make test-integration-up
-
 - name: Run Integration Tests
-  run: make test-integration
-
-- name: Show logs on failure
-  if: failure()
-  run: make test-integration-logs
-
-- name: Stop Integration Test Environment
-  if: always()
-  run: make test-integration-down
+  run: pytest tests/integration/ -v -m integration --cov=common --cov=manager
 ```
+
+**No manual container setup needed!** pytest-docker automatically:
+- Starts containers before tests
+- Waits for services to be healthy
+- Cleans up containers after tests (even on failure)
 
 ### Docker Compose in CI
 
-The `docker-compose.integration.yml` file is optimized for CI environments:
+The `tests/integration/docker-compose.yml` file is optimized for CI environments:
 - Fast health check intervals (5s)
-- Short startup periods (10-15s)
-- Volume cleanup on teardown
+- Short startup periods (10s)
+- Automatic cleanup on teardown
 - Non-interactive mode by default
 
 ## Troubleshooting
@@ -273,14 +270,22 @@ The `docker-compose.integration.yml` file is optimized for CI environments:
 
 ### Writing Integration Tests
 
-1. **Create Jobs in Redis First**: Always create the job before publishing events
+1. **Use pytest-docker Fixtures**: Use provided fixtures for service connections
+   ```python
+   async def test_something(rabbitmq_service, redis_service):
+       # rabbitmq_service and redis_service are automatically available
+       # They contain connection URLs and wait for services to be ready
+       pass
+   ```
+
+2. **Create Jobs in Redis First**: Always create the job before publishing events
    ```python
    job = SubtitleResponse(id=job_id, ...)
    await redis_client.save_job(job)
    await event_publisher.publish_event(event)
    ```
 
-2. **Use Fresh Consumer Instances**: Create new consumer instances per test
+3. **Use Fresh Consumer Instances**: Create new consumer instances per test
    ```python
    @pytest_asyncio.fixture
    async def consumer():
@@ -290,12 +295,12 @@ The `docker-compose.integration.yml` file is optimized for CI environments:
        await event_consumer.disconnect()
    ```
 
-3. **Add Timeouts**: Always use timeouts to prevent hanging
+4. **Add Timeouts**: Always use timeouts to prevent hanging
    ```python
    await asyncio.wait_for(operation(), timeout=5.0)
    ```
 
-4. **Clean Up Resources**: Ensure proper cleanup in fixtures
+5. **Clean Up Resources**: Ensure proper cleanup in fixtures
    ```python
    try:
        yield
@@ -303,7 +308,7 @@ The `docker-compose.integration.yml` file is optimized for CI environments:
        await cleanup()
    ```
 
-5. **Use Proper Markers**: Mark integration tests correctly
+6. **Use Proper Markers**: Mark integration tests correctly
    ```python
    @pytest.mark.asyncio
    @pytest.mark.integration
