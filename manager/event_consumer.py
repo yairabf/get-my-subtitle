@@ -18,6 +18,7 @@ from common.config import settings
 from common.duplicate_prevention import DuplicatePreventionService
 from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleRequest, SubtitleStatus
+from common.utils import ValidationUtils
 from manager.orchestrator import orchestrator
 
 logger = logging.getLogger(__name__)
@@ -157,7 +158,11 @@ class SubtitleEventConsumer:
             preferred_sources = payload.get("preferred_sources", [])
 
             # Validate required fields
-            if not video_url or not video_title or not language:
+            if (
+                not ValidationUtils.is_non_empty_string(video_url)
+                or not ValidationUtils.is_non_empty_string(video_title)
+                or not ValidationUtils.is_non_empty_string(language)
+            ):
                 error_msg = (
                     f"Missing required fields in event payload: "
                     f"video_url={video_url}, video_title={video_title}, "

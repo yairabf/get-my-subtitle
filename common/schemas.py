@@ -3,11 +3,11 @@
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import BaseModel, Field, HttpUrl
 
-from common.utils import DateTimeUtils
+from common.utils import DateTimeUtils, JobIdUtils
 
 
 class SubtitleStatus(str, Enum):
@@ -70,7 +70,7 @@ class SubtitleResponse(BaseModel):
     """Response containing subtitle processing information."""
 
     id: UUID = Field(
-        default_factory=uuid4, description="Unique identifier for the request"
+        default_factory=JobIdUtils.generate_job_id, description="Unique identifier for the request"
     )
     video_url: str = Field(..., description="URL of the video file")
     video_title: str = Field(..., description="Title of the video")
@@ -254,7 +254,7 @@ class EventEnvelope(BaseModel):
     """
 
     event_id: UUID = Field(
-        default_factory=uuid4, description="Unique event identifier"
+        default_factory=JobIdUtils.generate_job_id, description="Unique event identifier"
     )
     event_type: EventType = Field(..., description="Type of event")
     source: str = Field(
@@ -448,8 +448,9 @@ def create_subtitle_ready_event(
         SubtitleEvent with event_type set to SUBTITLE_READY
 
     Example:
+        >>> from common.utils import JobIdUtils
         >>> event = create_subtitle_ready_event(
-        ...     job_id=uuid4(),
+        ...     job_id=JobIdUtils.generate_job_id(),
         ...     subtitle_path="/storage/subtitles/123.srt",
         ...     language="en",
         ...     download_url="https://example.com/subtitles/123.srt"

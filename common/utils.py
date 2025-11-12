@@ -5,7 +5,9 @@ import struct
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
+from urllib.parse import urlparse
+from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,294 @@ class StringUtils:
         return text.lower() if text else ""
 
 
+class JobIdUtils:
+    """Job ID generation and validation utility functions."""
+
+    @staticmethod
+    def generate_job_id() -> UUID:
+        """
+        Generate a new UUID4 job identifier.
+
+        Returns:
+            UUID object (RFC 4122 compliant random UUID)
+
+        Example:
+            >>> job_id = JobIdUtils.generate_job_id()
+            >>> isinstance(job_id, UUID)
+            True
+        """
+        return uuid4()
+
+    @staticmethod
+    def generate_job_id_string() -> str:
+        """
+        Generate a new UUID4 job identifier as string.
+
+        Returns:
+            UUID string representation
+
+        Example:
+            >>> job_id_str = JobIdUtils.generate_job_id_string()
+            >>> len(job_id_str) == 36  # Standard UUID format length
+            True
+        """
+        return str(uuid4())
+
+    @staticmethod
+    def is_valid_job_id(job_id: Union[str, UUID]) -> bool:
+        """
+        Validate if input is a valid UUID format.
+
+        Args:
+            job_id: Job ID as string or UUID object
+
+        Returns:
+            True if valid UUID format, False otherwise
+
+        Example:
+            >>> JobIdUtils.is_valid_job_id("123e4567-e89b-12d3-a456-426614174000")
+            True
+            >>> JobIdUtils.is_valid_job_id("invalid-uuid")
+            False
+            >>> JobIdUtils.is_valid_job_id(uuid4())
+            True
+        """
+        if isinstance(job_id, UUID):
+            return True
+
+        if not isinstance(job_id, str):
+            return False
+
+        try:
+            UUID(job_id)
+            return True
+        except (ValueError, AttributeError, TypeError):
+            return False
+
+    @staticmethod
+    def normalize_job_id(job_id: Union[str, UUID]) -> UUID:
+        """
+        Convert job_id to UUID object.
+
+        Args:
+            job_id: Job ID as string or UUID object
+
+        Returns:
+            UUID object
+
+        Raises:
+            ValueError: If job_id cannot be converted to valid UUID
+
+        Example:
+            >>> uuid_obj = uuid4()
+            >>> JobIdUtils.normalize_job_id(uuid_obj) == uuid_obj
+            True
+            >>> uuid_str = "123e4567-e89b-12d3-a456-426614174000"
+            >>> isinstance(JobIdUtils.normalize_job_id(uuid_str), UUID)
+            True
+        """
+        if isinstance(job_id, UUID):
+            return job_id
+
+        if not isinstance(job_id, str):
+            raise ValueError(f"Invalid job_id type: {type(job_id)}. Expected str or UUID.")
+
+        try:
+            return UUID(job_id)
+        except (ValueError, AttributeError, TypeError) as e:
+            raise ValueError(f"Invalid UUID format: {job_id}") from e
+
+
+class ValidationUtils:
+    """Generic validation utility functions."""
+
+    @staticmethod
+    def is_non_empty_string(value: Optional[str]) -> bool:
+        """
+        Check if string is not None, not empty, and not whitespace-only.
+
+        Args:
+            value: String value to validate
+
+        Returns:
+            True if string is non-empty and contains non-whitespace characters, False otherwise
+
+        Example:
+            >>> ValidationUtils.is_non_empty_string("hello")
+            True
+            >>> ValidationUtils.is_non_empty_string("")
+            False
+            >>> ValidationUtils.is_non_empty_string("   ")
+            False
+            >>> ValidationUtils.is_non_empty_string(None)
+            False
+        """
+        if value is None:
+            return False
+        if not isinstance(value, str):
+            return False
+        return bool(value.strip())
+
+    @staticmethod
+    def is_valid_length(value: str, min_length: int, max_length: int) -> bool:
+        """
+        Validate string length within range.
+
+        Args:
+            value: String value to validate
+            min_length: Minimum allowed length (inclusive)
+            max_length: Maximum allowed length (inclusive)
+
+        Returns:
+            True if length is within range, False otherwise
+
+        Raises:
+            ValueError: If min_length > max_length or negative values
+
+        Example:
+            >>> ValidationUtils.is_valid_length("hello", 3, 10)
+            True
+            >>> ValidationUtils.is_valid_length("hi", 3, 10)
+            False
+            >>> ValidationUtils.is_valid_length("very long string", 3, 10)
+            False
+        """
+        if min_length < 0 or max_length < 0:
+            raise ValueError("min_length and max_length must be non-negative")
+        if min_length > max_length:
+            raise ValueError("min_length must be <= max_length")
+
+        if not isinstance(value, str):
+            return False
+
+        length = len(value)
+        return min_length <= length <= max_length
+
+    @staticmethod
+    def is_positive_number(value: Union[int, float]) -> bool:
+        """
+        Validate number is positive (> 0).
+
+        Args:
+            value: Number to validate
+
+        Returns:
+            True if number is positive, False otherwise
+
+        Example:
+            >>> ValidationUtils.is_positive_number(5)
+            True
+            >>> ValidationUtils.is_positive_number(0)
+            False
+            >>> ValidationUtils.is_positive_number(-1)
+            False
+            >>> ValidationUtils.is_positive_number(3.14)
+            True
+        """
+        if not isinstance(value, (int, float)):
+            return False
+        return value > 0
+
+    @staticmethod
+    def is_non_negative_number(value: Union[int, float]) -> bool:
+        """
+        Validate number is non-negative (>= 0).
+
+        Args:
+            value: Number to validate
+
+        Returns:
+            True if number is non-negative, False otherwise
+
+        Example:
+            >>> ValidationUtils.is_non_negative_number(5)
+            True
+            >>> ValidationUtils.is_non_negative_number(0)
+            True
+            >>> ValidationUtils.is_non_negative_number(-1)
+            False
+            >>> ValidationUtils.is_non_negative_number(3.14)
+            True
+        """
+        if not isinstance(value, (int, float)):
+            return False
+        return value >= 0
+
+    @staticmethod
+    def is_in_range(
+        value: Union[int, float], min_val: Union[int, float], max_val: Union[int, float]
+    ) -> bool:
+        """
+        Validate number is within range.
+
+        Args:
+            value: Number to validate
+            min_val: Minimum allowed value (inclusive)
+            max_val: Maximum allowed value (inclusive)
+
+        Returns:
+            True if value is within range, False otherwise
+
+        Raises:
+            ValueError: If min_val > max_val
+
+        Example:
+            >>> ValidationUtils.is_in_range(5, 1, 10)
+            True
+            >>> ValidationUtils.is_in_range(0, 1, 10)
+            False
+            >>> ValidationUtils.is_in_range(15, 1, 10)
+            False
+            >>> ValidationUtils.is_in_range(5.5, 1.0, 10.0)
+            True
+        """
+        if min_val > max_val:
+            raise ValueError("min_val must be <= max_val")
+
+        if not isinstance(value, (int, float)):
+            return False
+
+        return min_val <= value <= max_val
+
+    @staticmethod
+    def is_valid_url_format(url: str) -> bool:
+        """
+        Basic URL format validation (scheme and domain).
+
+        Validates that URL has a valid scheme (http, https) and a netloc (domain).
+
+        Args:
+            url: URL string to validate
+
+        Returns:
+            True if URL has valid format, False otherwise
+
+        Example:
+            >>> ValidationUtils.is_valid_url_format("https://example.com")
+            True
+            >>> ValidationUtils.is_valid_url_format("http://example.com/path")
+            True
+            >>> ValidationUtils.is_valid_url_format("not-a-url")
+            False
+            >>> ValidationUtils.is_valid_url_format("ftp://example.com")
+            False
+        """
+        if not isinstance(url, str) or not url.strip():
+            return False
+
+        try:
+            parsed = urlparse(url)
+            # Check for valid scheme (http or https)
+            if parsed.scheme not in ("http", "https"):
+                return False
+            # Check for netloc (domain)
+            if not parsed.netloc:
+                return False
+            return True
+        except Exception:
+            return False
+
+
 class DateTimeUtils:
     """Date and time utility functions."""
 
@@ -115,6 +405,107 @@ class DateTimeUtils:
             '20240101'
         """
         return datetime.now().strftime("%Y%m%d")
+
+    @staticmethod
+    def get_current_timestamp() -> float:
+        """
+        Get the current Unix timestamp (seconds since epoch).
+
+        Returns:
+            Current timestamp as float (seconds since epoch)
+
+        Example:
+            >>> timestamp = DateTimeUtils.get_current_timestamp()
+            >>> isinstance(timestamp, float)
+            True
+            >>> timestamp > 0
+            True
+        """
+        return datetime.now(timezone.utc).timestamp()
+
+    @staticmethod
+    def get_current_timestamp_ms() -> int:
+        """
+        Get the current Unix timestamp in milliseconds.
+
+        Returns:
+            Current timestamp as int (milliseconds since epoch)
+
+        Example:
+            >>> timestamp_ms = DateTimeUtils.get_current_timestamp_ms()
+            >>> isinstance(timestamp_ms, int)
+            True
+            >>> timestamp_ms > 0
+            True
+        """
+        dt = datetime.now(timezone.utc)
+        return int(dt.timestamp() * 1000)
+
+    @staticmethod
+    def format_timestamp_iso8601(dt: datetime) -> str:
+        """
+        Format a datetime object as ISO 8601 string.
+
+        Args:
+            dt: Datetime object to format
+
+        Returns:
+            ISO 8601 formatted timestamp string (e.g., '2024-01-01T12:00:00+00:00')
+
+        Example:
+            >>> dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            >>> DateTimeUtils.format_timestamp_iso8601(dt)
+            '2024-01-01T12:00:00+00:00'
+        """
+        return dt.isoformat()
+
+    @staticmethod
+    def parse_timestamp(timestamp: float) -> datetime:
+        """
+        Convert Unix timestamp to UTC datetime object.
+
+        Args:
+            timestamp: Unix timestamp (seconds since epoch)
+
+        Returns:
+            Datetime object in UTC timezone
+
+        Example:
+            >>> ts = 1704110400.0  # 2024-01-01 12:00:00 UTC
+            >>> dt = DateTimeUtils.parse_timestamp(ts)
+            >>> dt.year == 2024
+            True
+        """
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+
+    @staticmethod
+    def is_valid_timestamp(timestamp: float) -> bool:
+        """
+        Validate if timestamp is within reasonable range.
+
+        Checks if timestamp is between 1970-01-01 and 2100-01-01.
+
+        Args:
+            timestamp: Unix timestamp (seconds since epoch)
+
+        Returns:
+            True if timestamp is within valid range, False otherwise
+
+        Example:
+            >>> DateTimeUtils.is_valid_timestamp(1704110400.0)  # 2024
+            True
+            >>> DateTimeUtils.is_valid_timestamp(0)  # 1970
+            True
+            >>> DateTimeUtils.is_valid_timestamp(4102444800.0)  # 2100
+            True
+            >>> DateTimeUtils.is_valid_timestamp(-1)  # Before epoch
+            False
+        """
+        # Epoch start: 1970-01-01 00:00:00 UTC
+        min_timestamp = 0.0
+        # Year 2100: 4102444800 seconds since epoch
+        max_timestamp = 4102444800.0
+        return min_timestamp <= timestamp <= max_timestamp
 
 
 class StatusProgressCalculator:
