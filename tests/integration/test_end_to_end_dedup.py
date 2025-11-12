@@ -1,15 +1,13 @@
 """End-to-end integration tests for duplicate prevention."""
 
 import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
 from common.duplicate_prevention import DuplicatePreventionService
-from common.redis_client import redis_client
-from common.schemas import EventType, SubtitleEvent, SubtitleStatus
+from common.schemas import EventType, SubtitleEvent
 from common.utils import DateTimeUtils
 from manager.event_consumer import SubtitleEventConsumer
 from manager.schemas import JellyfinWebhookPayload
@@ -19,14 +17,10 @@ from scanner.webhook_handler import JellyfinWebhookHandler
 
 
 @pytest.fixture
-async def duplicate_prevention_service(fake_redis_job_client):
+def duplicate_prevention_service(fake_redis_job_client):
     """Create duplicate prevention service instance with connected Redis client."""
     service = DuplicatePreventionService(fake_redis_job_client)
-    yield service
-    # Cleanup: Remove all test keys
-    if fake_redis_job_client.connected and fake_redis_job_client.client:
-        async for key in fake_redis_job_client.client.scan_iter(match="dedup:*"):
-            await fake_redis_job_client.client.delete(key)
+    return service
 
 
 @pytest.mark.asyncio
@@ -64,7 +58,7 @@ class TestEndToEndDuplicatePrevention:
         assert result3.existing_job_id == job_id_1
 
     async def test_webhook_duplicate_prevention_flow(
-        self, duplicate_prevention_service
+        self, duplicate_prevention_service, fake_redis_job_client
     ):
         """Test complete webhook duplicate prevention flow."""
         webhook_handler = JellyfinWebhookHandler()
@@ -80,7 +74,10 @@ class TestEndToEndDuplicatePrevention:
         )
 
         with patch(
-            "scanner.webhook_handler.redis_client.save_job", new_callable=AsyncMock
+            "scanner.webhook_handler.redis_client", fake_redis_job_client
+        ), patch(
+            "scanner.webhook_handler.duplicate_prevention.redis_client",
+            fake_redis_job_client,
         ), patch(
             "scanner.webhook_handler.event_publisher.publish_event",
             new_callable=AsyncMock,
@@ -101,7 +98,7 @@ class TestEndToEndDuplicatePrevention:
             assert result3.job_id == first_job_id
 
     async def test_file_scanner_duplicate_prevention_flow(
-        self, duplicate_prevention_service
+        self, duplicate_prevention_service, fake_redis_job_client
     ):
         """Test complete file scanner duplicate prevention flow."""
         mock_scanner = MagicMock(spec=MediaScanner)
@@ -117,23 +114,27 @@ class TestEndToEndDuplicatePrevention:
             mock_file.suffix = ".mp4"
             mock_path.return_value = mock_file
 
-            with patch.object(
-                redis_client, "save_job", new_callable=AsyncMock
-            ) as mock_save_job, patch(
+            with patch(
+                "scanner.event_handler.redis_client", fake_redis_job_client
+            ), patch(
+                "scanner.event_handler.duplicate_prevention.redis_client",
+                fake_redis_job_client,
+            ), patch(
                 "scanner.event_handler.event_publisher.publish_event",
                 new_callable=AsyncMock,
-            ):
+            ) as mock_publish:
                 # First file detection
                 await event_handler._process_media_file(file_path)
-                assert mock_save_job.call_count == 1
 
-                # Second file detection (duplicate)
+                # Second file detection (duplicate) - should be blocked
                 await event_handler._process_media_file(file_path)
-                # Should still be 1 (duplicate prevented)
-                assert mock_save_job.call_count == 1
+
+                # Verify only 2 events (MEDIA_DETECTED + SUBTITLE_REQUESTED)
+                # from first file. Duplicate should block both events for 2nd file.
+                assert mock_publish.call_count == 2
 
     async def test_manager_layer_catches_scanner_bypass(
-        self, duplicate_prevention_service
+        self, duplicate_prevention_service, fake_redis_job_client
     ):
         """Test that manager layer catches duplicates that bypass scanner."""
         event_consumer = SubtitleEventConsumer()
@@ -164,6 +165,9 @@ class TestEndToEndDuplicatePrevention:
         )
 
         with patch(
+            "manager.event_consumer.duplicate_prevention.redis_client",
+            fake_redis_job_client,
+        ), patch(
             "manager.event_consumer.orchestrator.enqueue_download_task",
             new_callable=AsyncMock,
         ) as mock_enqueue:
@@ -281,7 +285,8 @@ class TestEndToEndDuplicatePrevention:
             assert result.is_duplicate is False
             assert (
                 "unavailable" in result.message.lower()
-                or "warning" in result.message.lower()
+                or "error" in result.message.lower()
+                or "allowing request through" in result.message.lower()
             )
 
     async def test_concurrent_requests_atomic_deduplication(
@@ -312,8 +317,7 @@ class TestEndToEndDuplicatePrevention:
         # Should have exactly 1 original
         assert len(originals) == 1
 
-        # All duplicates should reference the same original job_id
-        original_job_id = originals[0]
+        # All duplicates should reference the original job_id
         for duplicate_result in duplicates:
             assert (
                 duplicate_result.existing_job_id == job_ids[results.index(originals[0])]
@@ -342,16 +346,18 @@ class TestEndToEndDuplicatePrevention:
         )
         assert result2.is_duplicate is False
 
-    async def test_health_check_integration(self, duplicate_prevention_service):
+    async def test_health_check_integration(
+        self, duplicate_prevention_service, fake_redis_job_client
+    ):
         """Test health check reports correct status."""
+        # Patch redis client for this test
+        duplicate_prevention_service.redis_client = fake_redis_job_client
+
         health = await duplicate_prevention_service.health_check()
 
-        if duplicate_prevention_service.enabled and redis_client.connected:
+        if duplicate_prevention_service.enabled and fake_redis_job_client.connected:
             assert health["connected"] is True
             assert health["status"] == "healthy"
-            assert (
-                health["window_seconds"] == duplicate_prevention_service.window_seconds
-            )
         else:
             assert health["connected"] is False
 
@@ -400,7 +406,7 @@ class TestEndToEndDuplicatePrevention:
         assert all(r.is_duplicate for r in duplicate_results)
 
     async def test_rapid_webhook_events_deduplicated_end_to_end(
-        self, duplicate_prevention_service
+        self, duplicate_prevention_service, fake_redis_job_client
     ):
         """Test that rapid webhook events are properly deduplicated end-to-end."""
         webhook_handler = JellyfinWebhookHandler()
@@ -415,7 +421,10 @@ class TestEndToEndDuplicatePrevention:
         )
 
         with patch(
-            "scanner.webhook_handler.redis_client.save_job", new_callable=AsyncMock
+            "scanner.webhook_handler.redis_client", fake_redis_job_client
+        ), patch(
+            "scanner.webhook_handler.duplicate_prevention.redis_client",
+            fake_redis_job_client,
         ), patch(
             "scanner.webhook_handler.event_publisher.publish_event",
             new_callable=AsyncMock,

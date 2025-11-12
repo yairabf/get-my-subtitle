@@ -169,8 +169,6 @@ class TestWebhookHandlerDuplicatePrevention:
     ):
         """Test that same item with different languages creates separate jobs."""
         video_url = "/media/movie.mp4"
-        job_id_en = uuid4()
-        job_id_es = uuid4()
 
         # Mock to return not duplicate for both languages
         mock_duplicate_prevention.check_and_register = AsyncMock(

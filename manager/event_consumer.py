@@ -55,9 +55,7 @@ class SubtitleEventConsumer:
             self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
 
             # Bind queue to exchange with routing key for SUBTITLE_REQUESTED
-            await self.queue.bind(
-                exchange=self.exchange, routing_key=self.routing_key
-            )
+            await self.queue.bind(exchange=self.exchange, routing_key=self.routing_key)
 
             logger.info(
                 f"Connected to RabbitMQ - Queue '{self.queue_name}' bound to "

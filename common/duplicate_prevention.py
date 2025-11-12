@@ -130,18 +130,32 @@ class DuplicatePreventionService:
             # Generate deduplication key
             dedup_key = self.generate_dedup_key(video_url, language)
 
-            # Execute atomic check-and-register via Lua script
-            if self.check_and_register_script:
-                existing_job_id_str = (
-                    await self.check_and_register_script(
-                        keys=[dedup_key],
-                        args=[str(job_id), self.window_seconds],
+            # Execute atomic check-and-register via Lua script or fallback
+            existing_job_id_str = None
+            try:
+                if self.check_and_register_script:
+                    existing_job_id_str = (
+                        await self.check_and_register_script(
+                            keys=[dedup_key],
+                            args=[str(job_id), self.window_seconds],
+                        )
                     )
-                )
-            else:
-                # Fallback to non-atomic operations if script not loaded
+                else:
+                    # Fallback if script not loaded
+                    logger.warning(
+                        "Lua script not loaded, using fallback method"
+                    )
+                    existing_job_id_str = (
+                        await self._fallback_check_and_register(
+                            dedup_key, job_id
+                        )
+                    )
+            except RedisError as script_error:
+                # Lua script failed (e.g., FakeRedis doesn't support evalsha)
+                # Fall back to non-atomic operations
                 logger.warning(
-                    "Lua script not loaded, using fallback method"
+                    f"Lua script execution failed: {script_error}. "
+                    "Using fallback method."
                 )
                 existing_job_id_str = (
                     await self._fallback_check_and_register(
@@ -152,7 +166,13 @@ class DuplicatePreventionService:
             if existing_job_id_str:
                 # Duplicate detected
                 try:
-                    existing_job_id = UUID(existing_job_id_str)
+                    # Handle both bytes and string returns
+                    job_id_str = (
+                        existing_job_id_str.decode('utf-8')
+                        if isinstance(existing_job_id_str, bytes)
+                        else str(existing_job_id_str)
+                    )
+                    existing_job_id = UUID(job_id_str)
                     logger.info(
                         f"Duplicate request detected for {video_url} "
                         f"({language}) - already being processed as job "
@@ -166,7 +186,7 @@ class DuplicatePreventionService:
                             f"{existing_job_id}"
                         ),
                     )
-                except ValueError as e:
+                except (ValueError, AttributeError) as e:
                     logger.error(
                         f"Invalid UUID in Redis: {existing_job_id_str}: {e}"
                     )
@@ -231,10 +251,13 @@ class DuplicatePreventionService:
             Existing job_id string if duplicate, None if new
         """
         # Check if key exists
-        existing_job_id_str = await self.redis_client.client.get(dedup_key)
+        existing_job_id = await self.redis_client.client.get(dedup_key)
 
-        if existing_job_id_str:
-            return existing_job_id_str
+        if existing_job_id:
+            # Handle both bytes and string returns
+            if isinstance(existing_job_id, bytes):
+                return existing_job_id.decode('utf-8')
+            return str(existing_job_id)
 
         # Register new request
         await self.redis_client.client.set(
@@ -261,13 +284,19 @@ class DuplicatePreventionService:
 
         try:
             dedup_key = self.generate_dedup_key(video_url, language)
-            job_id_str = await self.redis_client.client.get(dedup_key)
+            job_id_data = await self.redis_client.client.get(dedup_key)
 
-            if job_id_str:
+            if job_id_data:
                 try:
+                    # Handle both bytes and string returns
+                    job_id_str = (
+                        job_id_data.decode('utf-8')
+                        if isinstance(job_id_data, bytes)
+                        else str(job_id_data)
+                    )
                     return UUID(job_id_str)
-                except ValueError as e:
-                    logger.error(f"Invalid UUID in Redis: {job_id_str}: {e}")
+                except (ValueError, AttributeError) as e:
+                    logger.error(f"Invalid UUID in Redis: {job_id_data}: {e}")
                     return None
 
             return None

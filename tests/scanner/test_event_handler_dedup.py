@@ -273,7 +273,6 @@ class TestEventHandlerDuplicatePrevention:
     ):
         """Test duplicate detection based on file path."""
         job_id_1 = uuid4()
-        job_id_2 = uuid4()
 
         # First file
         if should_be_duplicate:
