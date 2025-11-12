@@ -1,6 +1,6 @@
 """Manager-specific schemas and models."""
 
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -105,10 +105,17 @@ class SubtitleDownloadResponse(BaseModel):
 
 
 class WebhookAcknowledgement(BaseModel):
-    """Acknowledgement response for webhook requests."""
+    """Acknowledgement response for webhook requests.
+
+    Status values:
+    - "received": Webhook processed successfully, new job created
+    - "duplicate": Request already being processed, returns existing job_id
+    - "ignored": Event type or item type not processed
+    - "error": Error occurred during processing
+    """
 
     status: str = Field(default="received", description="Webhook processing status")
-    job_id: Optional[UUID] = Field(None, description="Created job ID if applicable")
+    job_id: Optional[UUID] = Field(None, description="Created or existing job ID")
     message: str = Field(default="", description="Status message")
 
 

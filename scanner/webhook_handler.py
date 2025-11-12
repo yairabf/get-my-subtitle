@@ -1,10 +1,7 @@
 """Webhook handler for Jellyfin notifications."""
 
-import logging
-from typing import Optional
-from uuid import UUID
-
 from common.config import settings
+from common.duplicate_prevention import DuplicatePreventionService
 from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
@@ -21,6 +18,9 @@ from manager.schemas import JellyfinWebhookPayload, WebhookAcknowledgement
 # Configure logging
 service_logger = setup_service_logging("scanner", enable_file_logging=True)
 logger = service_logger.logger
+
+# Initialize duplicate prevention service
+duplicate_prevention = DuplicatePreventionService(redis_client)
 
 
 class JellyfinWebhookHandler:
@@ -85,6 +85,25 @@ class JellyfinWebhookHandler:
                 target_language=subtitle_request.target_language,
                 status=SubtitleStatus.PENDING,
             )
+
+            # Check for duplicate request before processing
+            dedup_result = await duplicate_prevention.check_and_register(
+                video_url, subtitle_request.language, subtitle_response.id
+            )
+
+            if dedup_result.is_duplicate:
+                logger.info(
+                    f"⏭️ Duplicate webhook for {payload.item_name} - "
+                    f"already processing as job {dedup_result.existing_job_id}"
+                )
+                return WebhookAcknowledgement(
+                    status="duplicate",
+                    job_id=dedup_result.existing_job_id,
+                    message=(
+                        f"Request already being processed as job "
+                        f"{dedup_result.existing_job_id}"
+                    ),
+                )
 
             # Store job in Redis
             await redis_client.save_job(subtitle_response)

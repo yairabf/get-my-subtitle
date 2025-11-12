@@ -1,6 +1,5 @@
 """Configuration management for the subtitle management system."""
 
-import os
 from typing import List, Optional, Union
 
 from pydantic import Field, field_validator
@@ -21,6 +20,14 @@ class Settings(BaseSettings):
     redis_job_ttl_active: int = Field(
         default=0, env="REDIS_JOB_TTL_ACTIVE"
     )  # No expiration
+
+    # Duplicate Prevention Configuration
+    duplicate_prevention_enabled: bool = Field(
+        default=True, env="DUPLICATE_PREVENTION_ENABLED"
+    )  # Enable/disable duplicate prevention
+    duplicate_prevention_window_seconds: int = Field(
+        default=3600, env="DUPLICATE_PREVENTION_WINDOW_SECONDS"
+    )  # 1 hour default deduplication window
 
     # RabbitMQ Configuration
     rabbitmq_url: str = Field(
