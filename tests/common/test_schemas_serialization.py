@@ -887,9 +887,8 @@ class TestTranslationCheckpointSerialization:
         assert checkpoint.request_id == request_id
         assert checkpoint.total_chunks == 10
         assert checkpoint.completed_chunks == [0, 1, 2]
-        assert checkpoint.translated_segments == [
-            {"index": 1, "text": "Hello"}
-        ]
+        expected_segments = [{"index": 1, "text": "Hello"}]
+        assert checkpoint.translated_segments == expected_segments
 
     def test_model_validate_json_from_string(self):
         """Test model_validate_json() creates instance from JSON string."""

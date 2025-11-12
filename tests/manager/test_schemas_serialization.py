@@ -108,10 +108,8 @@ class TestSubtitleRequestUpdateSerialization:
         assert isinstance(dumped, dict)
         assert dumped["status"] == "done"
         assert dumped["error_message"] == "No errors"
-        assert (
-            dumped["download_url"]
-            == "https://example.com/subtitles/123.srt"
-        )
+        expected_url = "https://example.com/subtitles/123.srt"
+        assert dumped["download_url"] == expected_url
 
     def test_model_dump_json_returns_string(self):
         """Test model_dump_json() returns valid JSON string."""
@@ -327,13 +325,9 @@ class TestQueueStatusResponseSerialization:
         restored = QueueStatusResponse.model_validate(dumped)
 
         assert restored.download_queue_size == original.download_queue_size
-        assert (
-            restored.translation_queue_size
-            == original.translation_queue_size
-        )
-        assert (
-            restored.active_workers == original.active_workers
-        )
+        expected_translation_size = original.translation_queue_size
+        assert restored.translation_queue_size == expected_translation_size
+        assert restored.active_workers == original.active_workers
 
 
 # ============================================================================

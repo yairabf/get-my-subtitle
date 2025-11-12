@@ -243,9 +243,8 @@ class TestQueueStatusResponseValidation:
             )
 
         errors = exc_info.value.errors()
-        assert any(
-            error["loc"] == ("download_queue_size",) for error in errors
-        )
+        error_locs = [error["loc"] for error in errors]
+        assert ("download_queue_size",) in error_locs
 
     def test_queue_status_response_invalid_active_workers_type(self):
         """Test that invalid active_workers type raises ValidationError."""
