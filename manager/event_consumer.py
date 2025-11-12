@@ -15,11 +15,15 @@ from aio_pika.abc import (
 )
 
 from common.config import settings
+from common.duplicate_prevention import DuplicatePreventionService
 from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleRequest, SubtitleStatus
 from manager.orchestrator import orchestrator
 
 logger = logging.getLogger(__name__)
+
+# Initialize duplicate prevention service
+duplicate_prevention = DuplicatePreventionService(redis_client)
 
 
 class SubtitleEventConsumer:
@@ -50,7 +54,7 @@ class SubtitleEventConsumer:
             # Declare durable queue for this consumer
             self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
 
-            # Bind queue to exchange with routing key for SUBTITLE_REQUESTED events
+            # Bind queue to exchange with routing key for SUBTITLE_REQUESTED
             await self.queue.bind(exchange=self.exchange, routing_key=self.routing_key)
 
             logger.info(
@@ -84,7 +88,8 @@ class SubtitleEventConsumer:
         try:
             self.is_consuming = True
             logger.info(
-                f"Starting to consume SUBTITLE_REQUESTED events from queue '{self.queue_name}'"
+                f"Starting to consume SUBTITLE_REQUESTED events from queue "
+                f"'{self.queue_name}'"
             )
 
             async with self.queue.iterator() as queue_iter:
@@ -155,7 +160,8 @@ class SubtitleEventConsumer:
             if not video_url or not video_title or not language:
                 error_msg = (
                     f"Missing required fields in event payload: "
-                    f"video_url={video_url}, video_title={video_title}, language={language}"
+                    f"video_url={video_url}, video_title={video_title}, "
+                    f"language={language}"
                 )
                 logger.error(error_msg)
                 await redis_client.update_phase(
@@ -179,6 +185,20 @@ class SubtitleEventConsumer:
                 f"Processing subtitle request for job {event.job_id}: "
                 f"{video_title} ({language} -> {target_language or 'none'})"
             )
+
+            # Check for duplicate request at manager level (defense in depth)
+            dedup_result = await duplicate_prevention.check_and_register(
+                video_url, language, event.job_id
+            )
+
+            if dedup_result.is_duplicate:
+                logger.warning(
+                    f"⚠️ Duplicate event reached manager for {video_title} - "
+                    f"already processing as job {dedup_result.existing_job_id}. "
+                    f"Scanner-level deduplication may have been bypassed."
+                )
+                # Idempotent behavior: treat as success (already being processed)
+                return
 
             # Enqueue download task via orchestrator
             success = await orchestrator.enqueue_download_task(
