@@ -1,8 +1,15 @@
-"""Pytest fixtures for integration tests using pytest-docker."""
+"""Pytest fixtures for integration tests.
+
+Works with:
+- GitHub Actions services (CI environment)
+- Local docker-compose services
+- Manual service setup
+"""
 
 import asyncio
 import os
 import sys
+import time
 from unittest.mock import AsyncMock, patch
 
 import aio_pika
@@ -71,39 +78,63 @@ def is_redis_responsive(url: str) -> bool:
         return False
 
 
-@pytest.fixture(scope="session")
-def docker_compose_file(pytestconfig):
-    """Specify docker-compose file for tests."""
-    return os.path.join(
-        str(pytestconfig.rootdir), "tests", "integration", "docker-compose.yml"
-    )
+def wait_for_service(url: str, check_func, timeout: float = 30.0, pause: float = 0.5):
+    """Wait for a service to become responsive."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if check_func(url):
+            return True
+        time.sleep(pause)
+    return False
 
 
 @pytest.fixture(scope="session")
-def docker_compose_project_name():
-    """Use a consistent project name for Docker Compose."""
-    return "get-my-subtitle-integration-tests"
-
-
-@pytest.fixture(scope="session")
-def rabbitmq_service(docker_ip, docker_services):
-    """Ensure RabbitMQ is up and responsive."""
-    port = docker_services.port_for("rabbitmq", 5672)
-    url = f"amqp://guest:guest@{docker_ip}:{port}/"
-    docker_services.wait_until_responsive(
-        timeout=30.0, pause=0.1, check=lambda: is_rabbitmq_responsive(url)
-    )
+def rabbitmq_service():
+    """
+    Ensure RabbitMQ is up and responsive.
+    
+    In CI (GitHub Actions): Uses services provided by GitHub Actions
+    Locally: Uses localhost (expects docker-compose or manual setup)
+    """
+    # Check if we're in CI (GitHub Actions provides services)
+    is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
+    
+    if is_ci:
+        # GitHub Actions services are on localhost
+        url = "amqp://guest:guest@localhost:5672/"
+    else:
+        # Local development - check if services are running
+        url = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+    
+    # Wait for service to be ready
+    if not wait_for_service(url, is_rabbitmq_responsive, timeout=30.0):
+        pytest.fail(f"RabbitMQ not responsive at {url}. Ensure services are running.")
+    
     return url
 
 
 @pytest.fixture(scope="session")
-def redis_service(docker_ip, docker_services):
-    """Ensure Redis is up and responsive."""
-    port = docker_services.port_for("redis", 6379)
-    url = f"redis://{docker_ip}:{port}"
-    docker_services.wait_until_responsive(
-        timeout=30.0, pause=0.1, check=lambda: is_redis_responsive(url)
-    )
+def redis_service():
+    """
+    Ensure Redis is up and responsive.
+    
+    In CI (GitHub Actions): Uses services provided by GitHub Actions
+    Locally: Uses localhost (expects docker-compose or manual setup)
+    """
+    # Check if we're in CI (GitHub Actions provides services)
+    is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
+    
+    if is_ci:
+        # GitHub Actions services are on localhost
+        url = "redis://localhost:6379"
+    else:
+        # Local development - check if services are running
+        url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    
+    # Wait for service to be ready
+    if not wait_for_service(url, is_redis_responsive, timeout=30.0):
+        pytest.fail(f"Redis not responsive at {url}. Ensure services are running.")
+    
     return url
 
 
@@ -120,11 +151,10 @@ def setup_environment_variables(rabbitmq_service, redis_service):
 
     yield
 
-    # Cleanup (optional - pytest-docker handles container cleanup)
-    if "RABBITMQ_URL" in os.environ:
-        del os.environ["RABBITMQ_URL"]
-    if "REDIS_URL" in os.environ:
-        del os.environ["REDIS_URL"]
+    # Cleanup (optional)
+    if "RABBITMQ_URL" in os.environ and not os.getenv("CI"):
+        # Don't clear in CI as it might affect other tests
+        pass
 
 
 @pytest.fixture(scope="session")

@@ -58,6 +58,7 @@ jobs:
         pytest tests/common tests/downloader tests/manager tests/translator tests/scanner \
           --ignore=tests/scanner/test_websocket_client.py \
           --ignore=tests/scanner/test_worker.py \
+          -m "not integration" \
           --cov=common \
           --cov=manager \
           --cov=downloader \
@@ -129,8 +130,10 @@ jobs:
         timeout 30 bash -c 'until nc -z localhost 5672; do sleep 1; done'
     
     - name: Run integration tests
-      run: pytest tests/integration/ -v
+      run: pytest tests/integration/ -v -m integration
       env:
+        CI: "true"
+        GITHUB_ACTIONS: "true"
         REDIS_URL: redis://localhost:6379
         RABBITMQ_URL: amqp://guest:guest@localhost:5672/
 

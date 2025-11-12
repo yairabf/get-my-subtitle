@@ -36,19 +36,21 @@ pytest tests/integration/ -v -m integration
 make test-integration
 ```
 
-**No setup needed!** pytest-docker automatically starts RabbitMQ and Redis containers.
+**Setup**:
+- **CI**: Services provided automatically by GitHub Actions
+- **Local**: Start services with `docker-compose up -d rabbitmq redis` or `make up-infra`
 
 > **📖 See [docs/INTEGRATION_TESTING.md](../../docs/INTEGRATION_TESTING.md) for prerequisites, installation, and detailed usage.**
 
 ## Docker Compose Files
 
-This project uses three Docker Compose files. **For integration tests, pytest-docker automatically uses `tests/integration/docker-compose.yml`** (infrastructure only).
+This project uses three Docker Compose files. **For local integration tests, use `tests/integration/docker-compose.yml`** (infrastructure only). In CI, services are provided automatically by GitHub Actions.
 
 | File | Purpose | When to Use |
 |------|---------|-------------|
 | `docker-compose.yml` | Full application stack | `make up` - Local development |
 | `docker-compose.integration.yml` | Full E2E test environment | `make test-integration-full` - Full stack testing |
-| `tests/integration/docker-compose.yml` | **pytest-docker (default)** | `pytest tests/integration/` - **Automatic** |
+| `tests/integration/docker-compose.yml` | **Minimal (local dev)** | `docker-compose -f tests/integration/docker-compose.yml up -d` |
 
 > **📖 See [docs/INTEGRATION_TESTING.md](../../docs/INTEGRATION_TESTING.md) for detailed comparison and when to use each.**
 
@@ -76,13 +78,12 @@ make test-integration-full         # Full Docker stack
 
 ### Fixtures (`conftest.py`)
 
-The integration tests use `pytest-docker` to automatically manage Docker containers and provide fixtures:
+The integration tests use fixtures that automatically detect the environment (CI vs local):
 
-**Docker Management (pytest-docker)**:
-- `docker_compose_file`: Specifies the Docker Compose file for tests
-- `docker_services`: Manages container lifecycle (automatic start/stop)
-- `rabbitmq_service`: Waits for RabbitMQ to be ready and returns connection URL
-- `redis_service`: Waits for Redis to be ready and returns connection URL
+**Service Fixtures**:
+- `rabbitmq_service`: Detects CI/local, waits for RabbitMQ to be ready, returns connection URL
+- `redis_service`: Detects CI/local, waits for Redis to be ready, returns connection URL
+- `setup_environment_variables`: Automatically sets RABBITMQ_URL and REDIS_URL from service fixtures
 
 **RabbitMQ Fixtures**:
 - `rabbitmq_container`: Backward compatibility fixture (returns connection info dict)
@@ -99,7 +100,7 @@ The integration tests use `pytest-docker` to automatically manage Docker contain
 **Application Fixtures**:
 - `test_orchestrator`: Provides configured SubtitleOrchestrator instance
 - `test_event_publisher`: Provides configured EventPublisher instance
-- `setup_environment_variables`: Automatically sets RABBITMQ_URL and REDIS_URL from Docker containers
+- `setup_environment_variables`: Automatically sets RABBITMQ_URL and REDIS_URL from service fixtures
 
 ### Test Files
 
@@ -217,7 +218,7 @@ Tests use a consistent pattern:
 - Exchange: `subtitle.events` (TOPIC, durable)
 - Credentials: guest/guest (RabbitMQ)
 
-**Note**: pytest-docker automatically maps ports. Use `rabbitmq_service` and `redis_service` fixtures, not hardcoded URLs.
+**Note**: In CI, services are on localhost. Locally, use `rabbitmq_service` and `redis_service` fixtures which auto-detect the environment.
 
 > **📖 See [docs/INTEGRATION_TESTING.md](../../docs/INTEGRATION_TESTING.md) for environment configuration details.**
 

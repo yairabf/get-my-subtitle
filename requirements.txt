@@ -7,7 +7,8 @@ redis==5.2.0
 pytest==8.3.4
 pytest-asyncio==0.24.0
 pytest-cov==6.0.0
-pytest-docker==2.0.0
+# pytest-docker is incompatible with pytest 8.x
+# Using GitHub Actions services in CI and manual docker-compose locally
 fakeredis[aioredis]==2.25.1
 black==24.10.0
 isort==5.13.2

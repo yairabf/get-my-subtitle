@@ -6,7 +6,7 @@ This document provides comprehensive documentation about the integration testing
 
 ## Overview
 
-The integration test environment uses `pytest-docker` to automatically manage Docker containers (RabbitMQ and Redis) for integration tests. Containers are automatically started before tests and cleaned up afterward, ensuring isolated and reliable test execution.
+The integration test environment works with both GitHub Actions services (CI) and local Docker Compose services. In CI, services are provided automatically. Locally, services can be started with docker-compose.
 
 ## Architecture
 
@@ -121,32 +121,35 @@ docker-compose -f docker-compose.integration.yml up -d
 - Scanner auto-scanning disabled
 - Test media directory mounted
 
-### 3. `tests/integration/docker-compose.yml` (pytest-docker Minimal)
+### 3. `tests/integration/docker-compose.yml` (Minimal for Local Dev)
 
 **Location**: `tests/integration/` directory  
-**Purpose**: Minimal setup for pytest-docker (infrastructure only)
+**Purpose**: Minimal setup for local development (infrastructure only)
 
 **Services**: RabbitMQ, Redis only (no application services)
 
 **When to use**:
-- **Default for integration tests** - automatically used by pytest-docker
-- Unit/integration tests that need real RabbitMQ/Redis but run test code locally
+- Local development and testing
+- Running integration tests locally
 - Fast test execution without starting full application stack
-- CI/CD pipelines
 
 **Usage**:
 ```bash
-# Automatically used by pytest-docker - no manual setup needed
+# Start services manually
+docker-compose -f tests/integration/docker-compose.yml up -d
+
+# Run tests
 pytest tests/integration/ -v -m integration
-make test-integration
+
+# Stop services
+docker-compose -f tests/integration/docker-compose.yml down
 ```
 
 **Characteristics**:
 - Minimal: only infrastructure services
-- Automatically managed by pytest-docker
+- Manual management (start/stop as needed)
 - Fast health checks (5s intervals, 10s start period)
 - Tests run outside containers (in your local Python environment)
-- Automatic container lifecycle management
 
 ### Quick Decision Guide
 
@@ -158,7 +161,7 @@ make test-integration
 | CI/CD pipelines | `tests/integration/docker-compose.yml` | `pytest tests/integration/` |
 | Debugging with full stack | `docker-compose.integration.yml` | `make test-integration-up` |
 
-**Note**: For most integration testing, you don't need to choose - just run `pytest tests/integration/` and pytest-docker will automatically use `tests/integration/docker-compose.yml`.
+**Note**: In CI (GitHub Actions), services are provided automatically. Locally, start services with docker-compose before running tests.
 
 ## Usage
 
@@ -174,11 +177,11 @@ pytest tests/integration/ -v -m integration
 make test-integration
 ```
 
-**No manual setup required!** The `pytest-docker` plugin automatically:
-- Starts RabbitMQ and Redis containers before tests
-- Waits for services to be healthy using health checks
-- Sets environment variables with correct connection URLs
-- Cleans up containers after tests complete (even on failure)
+**Setup**:
+- **CI (GitHub Actions)**: Services provided automatically - just run `pytest tests/integration/`
+- **Local**: Start services first with `docker-compose -f tests/integration/docker-compose.yml up -d` or `make up-infra`
+
+The test fixtures automatically detect the environment and use the appropriate service URLs.
 
 ### Running Specific Tests
 
@@ -214,30 +217,39 @@ make test-integration-down
 
 ## Environment Configuration
 
-### pytest-docker Configuration
+### Service Configuration
 
-Integration tests use `tests/integration/docker-compose.yml` which defines:
+Integration tests work with services provided by:
+- **CI (GitHub Actions)**: Services defined in `.github/workflows/ci.yml`
+- **Local**: `tests/integration/docker-compose.yml` or `docker-compose.integration.yml`
+
+Service settings:
 - **RabbitMQ**: Port 5672 (AMQP), 15672 (Management UI)
 - **Redis**: Port 6379
 - **Health Checks**: 5-second intervals for quick startup
 - **Credentials**: guest/guest (RabbitMQ)
 
-The `pytest-docker` plugin automatically:
-- Maps container ports to host ports (prevents conflicts)
-- Sets `RABBITMQ_URL` and `REDIS_URL` environment variables
-- Waits for services to be healthy before running tests
-- Uses a dedicated project name to avoid conflicts
+The test fixtures (`rabbitmq_service`, `redis_service`) automatically:
+- Detect if running in CI or locally
+- Use appropriate service URLs (localhost in both cases)
+- Wait for services to be healthy before running tests
+- Set `RABBITMQ_URL` and `REDIS_URL` environment variables
 
 ### Environment Variables
 
-Tests automatically receive these environment variables (set by pytest-docker fixtures):
+Tests automatically receive these environment variables (set by fixtures):
 
 ```bash
-REDIS_URL=redis://<docker_ip>:<mapped_port>
-RABBITMQ_URL=amqp://guest:guest@<docker_ip>:<mapped_port>/
+# In CI (GitHub Actions)
+REDIS_URL=redis://localhost:6379
+RABBITMQ_URL=amqp://guest:guest@localhost:5672/
+
+# Locally (same URLs, services from docker-compose)
+REDIS_URL=redis://localhost:6379
+RABBITMQ_URL=amqp://guest:guest@localhost:5672/
 ```
 
-The actual values are determined dynamically by pytest-docker based on container port mappings.
+The fixtures automatically detect the environment and use the correct URLs.
 
 ## Integration Test Categories
 
@@ -271,17 +283,27 @@ Tests combined task and event publishing:
 
 ### GitHub Actions Workflow
 
-Integration tests work seamlessly in CI/CD. pytest-docker handles all container management:
+Integration tests work seamlessly in CI/CD. GitHub Actions provides services automatically:
 
 ```yaml
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - 6379:6379
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - 5672:5672
+
 - name: Run Integration Tests
   run: pytest tests/integration/ -v -m integration --cov=common --cov=manager
+  env:
+    CI: "true"
+    GITHUB_ACTIONS: "true"
 ```
 
-**No manual container setup needed!** pytest-docker automatically:
-- Starts containers before tests
-- Waits for services to be healthy
-- Cleans up containers after tests (even on failure)
+**No manual container setup needed in CI!** Services are provided automatically by GitHub Actions.
 
 ### Docker Compose in CI
 
@@ -367,11 +389,12 @@ The `tests/integration/docker-compose.yml` file is optimized for CI environments
 
 ### Writing Integration Tests
 
-1. **Use pytest-docker Fixtures**: Use provided fixtures for service connections
+1. **Use Service Fixtures**: Use provided fixtures for service connections
    ```python
    async def test_something(rabbitmq_service, redis_service):
        # rabbitmq_service and redis_service are automatically available
-       # They contain connection URLs and wait for services to be ready
+       # They detect CI vs local environment and use appropriate URLs
+       # They wait for services to be ready before tests run
        pass
    ```
 
