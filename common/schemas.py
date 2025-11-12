@@ -2,10 +2,10 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 from common.utils import DateTimeUtils
 
@@ -112,7 +112,12 @@ class SubtitleResponse(BaseModel):
 
 
 class DownloadTask(BaseModel):
-    """Task for downloading subtitles."""
+    """
+    Internal task model for downloading subtitles.
+
+    This model is used for internal worker queue messages.
+    For API-level requests, use SubtitleDownloadRequest instead.
+    """
 
     request_id: UUID = Field(..., description="ID of the original request")
     video_url: str = Field(..., description="URL of the video file")
@@ -124,7 +129,12 @@ class DownloadTask(BaseModel):
 
 
 class TranslationTask(BaseModel):
-    """Task for translating subtitles."""
+    """
+    Internal task model for translating subtitles.
+
+    This model is used for internal worker queue messages.
+    For API-level requests, use TranslationRequest instead.
+    """
 
     request_id: UUID = Field(..., description="ID of the original request")
     subtitle_file_path: str = Field(
@@ -228,3 +238,235 @@ class TranslationCheckpoint(BaseModel):
                 "updated_at": "2024-01-01T00:05:00Z",
             }
         }
+
+
+# ============================================================================
+# Event Envelope and API Request Models
+# ============================================================================
+
+
+class EventEnvelope(BaseModel):
+    """
+    Standardized envelope for wrapping events published to event exchange.
+
+    Provides consistent metadata structure for observability and traceability
+    across services. Only wraps events (not work queue tasks).
+    """
+
+    event_id: UUID = Field(
+        default_factory=uuid4, description="Unique event identifier"
+    )
+    event_type: EventType = Field(..., description="Type of event")
+    source: str = Field(
+        ..., description="Service that published the event (manager, downloader, translator, scanner)"
+    )
+    timestamp: datetime = Field(
+        default_factory=DateTimeUtils.get_current_utc_datetime,
+        description="When the event occurred",
+    )
+    payload: Dict[str, Any] = Field(
+        ..., description="Event-specific data"
+    )
+    correlation_id: Optional[UUID] = Field(
+        None, description="Request tracing identifier for correlating events across services"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None, description="Additional context (version, environment, etc.)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "event_id": "123e4567-e89b-12d3-a456-426614174000",
+                "event_type": "subtitle.ready",
+                "source": "downloader",
+                "timestamp": "2024-01-01T00:00:00Z",
+                "payload": {
+                    "job_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "subtitle_path": "/path/to/subtitle.srt",
+                    "language": "en",
+                },
+                "correlation_id": "987e6543-e21b-43d2-b654-321987654321",
+                "metadata": {"version": "1.0.0", "environment": "production"},
+            }
+        }
+
+
+class SubtitleDownloadRequest(BaseModel):
+    """
+    API-level request model for subtitle download operations.
+
+    This model validates external user inputs for subtitle download requests.
+    The manager service converts this to DownloadTask before queueing.
+    """
+
+    video_url: HttpUrl = Field(..., description="URL of the video file (must be valid HTTP/HTTPS URL)")
+    video_title: str = Field(
+        ..., min_length=1, max_length=500, description="Title of the video"
+    )
+    language: str = Field(
+        ...,
+        pattern=r"^[a-z]{2}$",
+        description="Source language code (ISO 639-1, e.g., 'en', 'es')",
+    )
+    target_language: Optional[str] = Field(
+        None,
+        pattern=r"^[a-z]{2}$",
+        description="Target language code for translation (ISO 639-1, e.g., 'es', 'fr')",
+    )
+    preferred_sources: List[str] = Field(
+        default_factory=list, description="Preferred subtitle sources"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "video_url": "https://example.com/video.mp4",
+                "video_title": "Sample Video",
+                "language": "en",
+                "target_language": "es",
+                "preferred_sources": ["opensubtitles"],
+            }
+        }
+
+
+class TranslationRequest(BaseModel):
+    """
+    API-level request model for subtitle translation operations.
+
+    This model validates external user inputs for translation requests.
+    The manager service converts this to TranslationTask before queueing.
+    """
+
+    subtitle_file_path: str = Field(
+        ..., min_length=1, description="Path to the subtitle file to translate"
+    )
+    source_language: str = Field(
+        ...,
+        pattern=r"^[a-z]{2}$",
+        description="Source language code (ISO 639-1, e.g., 'en', 'es')",
+    )
+    target_language: str = Field(
+        ...,
+        pattern=r"^[a-z]{2}$",
+        description="Target language code (ISO 639-1, e.g., 'es', 'fr')",
+    )
+    video_title: Optional[str] = Field(
+        None, description="Optional video title for context"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "subtitle_file_path": "/path/to/subtitle.srt",
+                "source_language": "en",
+                "target_language": "es",
+                "video_title": "Sample Video",
+            }
+        }
+
+
+class JobRecord(BaseModel):
+    """
+    Standardized job metadata model for API responses and monitoring.
+
+    Provides a normalized view of job status and metadata without exposing
+    all internal Redis data structures. Can be extended for audit/history tracking.
+    """
+
+    job_id: UUID = Field(..., description="Unique job identifier")
+    status: SubtitleStatus = Field(..., description="Current processing status")
+    created_at: datetime = Field(..., description="Job creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+    task_type: Literal["download", "translation", "download_with_translation"] = Field(
+        ..., description="Type of task being processed"
+    )
+    video_url: Optional[str] = Field(None, description="Source video URL")
+    video_title: Optional[str] = Field(None, description="Video title")
+    language: Optional[str] = Field(None, description="Source language code")
+    target_language: Optional[str] = Field(
+        None, description="Target language code (if translation)"
+    )
+    result_url: Optional[str] = Field(
+        None, description="URL to download completed subtitle"
+    )
+    error_message: Optional[str] = Field(
+        None, description="Error details if status is FAILED"
+    )
+    progress_percentage: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="Calculated progress percentage (0-100)",
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "job_id": "123e4567-e89b-12d3-a456-426614174000",
+                "status": "download_in_progress",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:05:00Z",
+                "task_type": "download_with_translation",
+                "video_url": "https://example.com/video.mp4",
+                "video_title": "Sample Video",
+                "language": "en",
+                "target_language": "es",
+                "result_url": None,
+                "error_message": None,
+                "progress_percentage": 45,
+            }
+        }
+
+
+# ============================================================================
+# Event Factory Functions
+# ============================================================================
+
+
+def create_subtitle_ready_event(
+    job_id: UUID,
+    subtitle_path: str,
+    language: str,
+    source: str = "downloader",
+    download_url: Optional[str] = None,
+) -> SubtitleEvent:
+    """
+    Factory function for creating SubtitleEvent with SUBTITLE_READY type.
+
+    Provides type-safe convenience method for creating subtitle ready events
+    with consistent payload structure.
+
+    Args:
+        job_id: Unique job identifier
+        subtitle_path: Path to the downloaded subtitle file
+        language: Language code of the subtitle
+        source: Service that published the event (default: "downloader")
+        download_url: Optional URL to download the subtitle file
+
+    Returns:
+        SubtitleEvent with event_type set to SUBTITLE_READY
+
+    Example:
+        >>> event = create_subtitle_ready_event(
+        ...     job_id=uuid4(),
+        ...     subtitle_path="/storage/subtitles/123.srt",
+        ...     language="en",
+        ...     download_url="https://example.com/subtitles/123.srt"
+        ... )
+        >>> event.event_type == EventType.SUBTITLE_READY
+        True
+    """
+    payload: Dict[str, Any] = {
+        "subtitle_path": subtitle_path,
+        "language": language,
+    }
+    if download_url:
+        payload["download_url"] = download_url
+
+    return SubtitleEvent(
+        event_type=EventType.SUBTITLE_READY,
+        job_id=job_id,
+        source=source,
+        payload=payload,
+    )
