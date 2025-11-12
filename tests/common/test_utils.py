@@ -128,12 +128,18 @@ class TestDateTimeUtils:
     @pytest.mark.parametrize(
         "dt,expected_prefix",
         [
-            (datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc), "2024-01-01T12:00:00"),
+            (
+                datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+                "2024-01-01T12:00:00",
+            ),
             (
                 datetime(2024, 12, 31, 23, 59, 59, tzinfo=timezone.utc),
                 "2024-12-31T23:59:59",
             ),
-            (datetime(2000, 6, 15, 6, 30, 45, tzinfo=timezone.utc), "2000-06-15T06:30:45"),
+            (
+                datetime(2000, 6, 15, 6, 30, 45, tzinfo=timezone.utc),
+                "2000-06-15T06:30:45",
+            ),
         ],
     )
     def test_format_timestamp_iso8601(self, dt, expected_prefix):

@@ -70,7 +70,8 @@ class SubtitleResponse(BaseModel):
     """Response containing subtitle processing information."""
 
     id: UUID = Field(
-        default_factory=JobIdUtils.generate_job_id, description="Unique identifier for the request"
+        default_factory=JobIdUtils.generate_job_id,
+        description="Unique identifier for the request",
     )
     video_url: str = Field(..., description="URL of the video file")
     video_title: str = Field(..., description="Title of the video")
@@ -254,21 +255,22 @@ class EventEnvelope(BaseModel):
     """
 
     event_id: UUID = Field(
-        default_factory=JobIdUtils.generate_job_id, description="Unique event identifier"
+        default_factory=JobIdUtils.generate_job_id,
+        description="Unique event identifier",
     )
     event_type: EventType = Field(..., description="Type of event")
     source: str = Field(
-        ..., description="Service that published the event (manager, downloader, translator, scanner)"
+        ...,
+        description="Service that published the event (manager, downloader, translator, scanner)",
     )
     timestamp: datetime = Field(
         default_factory=DateTimeUtils.get_current_utc_datetime,
         description="When the event occurred",
     )
-    payload: Dict[str, Any] = Field(
-        ..., description="Event-specific data"
-    )
+    payload: Dict[str, Any] = Field(..., description="Event-specific data")
     correlation_id: Optional[UUID] = Field(
-        None, description="Request tracing identifier for correlating events across services"
+        None,
+        description="Request tracing identifier for correlating events across services",
     )
     metadata: Optional[Dict[str, Any]] = Field(
         None, description="Additional context (version, environment, etc.)"
@@ -300,7 +302,9 @@ class SubtitleDownloadRequest(BaseModel):
     The manager service converts this to DownloadTask before queueing.
     """
 
-    video_url: HttpUrl = Field(..., description="URL of the video file (must be valid HTTP/HTTPS URL)")
+    video_url: HttpUrl = Field(
+        ..., description="URL of the video file (must be valid HTTP/HTTPS URL)"
+    )
     video_title: str = Field(
         ..., min_length=1, max_length=500, description="Title of the video"
     )

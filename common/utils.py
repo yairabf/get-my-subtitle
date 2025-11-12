@@ -160,7 +160,9 @@ class JobIdUtils:
             return job_id
 
         if not isinstance(job_id, str):
-            raise ValueError(f"Invalid job_id type: {type(job_id)}. Expected str or UUID.")
+            raise ValueError(
+                f"Invalid job_id type: {type(job_id)}. Expected str or UUID."
+            )
 
         try:
             return UUID(job_id)
