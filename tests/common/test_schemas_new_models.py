@@ -209,7 +209,7 @@ class TestSubtitleDownloadRequest:
     def test_invalid_language_codes_raise_validation_error(self, invalid_language):
         """
         Test that invalid language codes raise ValidationError.
-        
+
         Note: "xx" is not included here because it matches the pattern ^[a-z]{2}$
         Pattern validation only checks format (2 lowercase letters), not actual
         ISO 639-1 language code validity.
@@ -342,9 +342,7 @@ class TestTranslationRequest:
             )
 
         errors = exc_info.value.errors()
-        assert any(
-            error["loc"] == ("subtitle_file_path",) for error in errors
-        )
+        assert any(error["loc"] == ("subtitle_file_path",) for error in errors)
 
     @pytest.mark.parametrize(
         "source_lang,target_lang",
@@ -755,4 +753,3 @@ class TestCreateSubtitleReadyEvent:
         assert isinstance(event.timestamp, datetime)
         assert event.timestamp.tzinfo == timezone.utc
         assert before <= event.timestamp <= after
-
