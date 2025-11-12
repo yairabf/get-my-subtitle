@@ -1,7 +1,5 @@
-"""Tests for the file storage service."""
+"""Unit tests for file service module."""
 
-import os
-import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,222 +13,540 @@ from manager.file_service import (
 )
 
 
-@pytest.fixture
-def temp_storage_dir(monkeypatch):
-    """Create a temporary storage directory for testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Patch the settings to use temp directory
-        monkeypatch.setenv("SUBTITLE_STORAGE_PATH", tmpdir)
-        # Reimport settings to pick up the change
-        from common.config import Settings
-
-        settings = Settings()
-        monkeypatch.setattr("manager.file_service.settings", settings)
-        yield tmpdir
-
-
+@pytest.mark.unit
 class TestEnsureStorageDirectory:
-    """Test storage directory creation."""
+    """Test ensure_storage_directory function."""
 
-    def test_creates_directory_if_not_exists(self, temp_storage_dir):
-        """Test that directory is created if it doesn't exist."""
-        storage_path = Path(temp_storage_dir) / "subtitles"
-        os.environ["SUBTITLE_STORAGE_PATH"] = str(storage_path)
+    def test_ensure_storage_directory_creates_directory(self, tmp_path, monkeypatch):
+        """Test that ensure_storage_directory creates the directory."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
 
-        # Import fresh settings
-        from common.config import Settings
-
-        settings = Settings()
-
-        assert not storage_path.exists()
-
-        # Create directory using the path from settings
-        storage_path.mkdir(parents=True, exist_ok=True)
+        ensure_storage_directory()
 
         assert storage_path.exists()
         assert storage_path.is_dir()
 
-    def test_handles_existing_directory(self, temp_storage_dir):
-        """Test that existing directory is handled gracefully."""
-        storage_path = Path(temp_storage_dir)
-        assert storage_path.exists()
+    def test_ensure_storage_directory_creates_parent_directories(
+        self, tmp_path, monkeypatch
+    ):
+        """Test that ensure_storage_directory creates parent directories."""
+        storage_path = tmp_path / "deep" / "nested" / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
 
-        # Should not raise an error
         ensure_storage_directory()
 
+        assert storage_path.exists()
+        assert storage_path.is_dir()
+        # Check parent directories
+        assert (tmp_path / "deep").exists()
+        assert (tmp_path / "deep" / "nested").exists()
 
+    def test_ensure_storage_directory_idempotent(self, tmp_path, monkeypatch):
+        """Test ensure_storage_directory is idempotent."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        # Call multiple times
+        ensure_storage_directory()
+        ensure_storage_directory()
+        ensure_storage_directory()
+
+        # Should still exist and be a directory
+        assert storage_path.exists()
+        assert storage_path.is_dir()
+
+    def test_ensure_storage_directory_with_existing_directory(
+        self, tmp_path, monkeypatch
+    ):
+        """Test that ensure_storage_directory works with existing directory."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        storage_path.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        # Should not raise error
+        ensure_storage_directory()
+
+        assert storage_path.exists()
+        assert storage_path.is_dir()
+
+
+@pytest.mark.unit
 class TestGetSubtitleFilePath:
-    """Test subtitle file path generation."""
+    """Test get_subtitle_file_path function."""
+
+    def test_get_subtitle_file_path_format(self, tmp_path, monkeypatch):
+        """Test that get_subtitle_file_path generates correct format."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        job_id = uuid4()
+        language = "en"
+
+        file_path = get_subtitle_file_path(job_id, language)
+
+        assert isinstance(file_path, Path)
+        assert file_path.name == f"{job_id}.{language}.srt"
+        assert file_path.parent == storage_path
 
     @pytest.mark.parametrize(
-        "job_id,language",
-        [
-            ("123e4567-e89b-12d3-a456-426614174000", "en"),
-            ("123e4567-e89b-12d3-a456-426614174000", "es"),
-            ("987e6543-e21b-98d7-a654-123456789000", "fr"),
-        ],
+        "language",
+        ["en", "es", "fr", "de", "it", "pt", "ru", "zh", "ja", "ko"],
     )
-    def test_generates_correct_path(self, temp_storage_dir, job_id, language):
-        """Test that file path is generated correctly."""
-        from uuid import UUID
+    def test_get_subtitle_file_path_with_different_languages(
+        self, tmp_path, monkeypatch, language
+    ):
+        """Test get_subtitle_file_path with different language codes."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
 
-        job_uuid = UUID(job_id)
-        file_path = get_subtitle_file_path(job_uuid, language)
-        expected_filename = f"{job_id}.{language}.srt"
-
-        assert file_path.name == expected_filename
-        assert file_path.suffix == ".srt"
-        assert str(job_uuid) in str(file_path)
-        assert language in str(file_path)
-
-    def test_returns_path_object(self, temp_storage_dir):
-        """Test that return type is Path object."""
         job_id = uuid4()
-        result = get_subtitle_file_path(job_id, "en")
+        file_path = get_subtitle_file_path(job_id, language)
 
-        assert isinstance(result, Path)
+        assert file_path.name.endswith(f".{language}.srt")
+        assert str(job_id) in file_path.name
+
+    def test_get_subtitle_file_path_with_different_uuids(self, tmp_path, monkeypatch):
+        """Test get_subtitle_file_path with different UUIDs."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        job_id1 = uuid4()
+        job_id2 = uuid4()
+
+        file_path1 = get_subtitle_file_path(job_id1, "en")
+        file_path2 = get_subtitle_file_path(job_id2, "en")
+
+        assert file_path1 != file_path2
+        assert str(job_id1) in file_path1.name
+        assert str(job_id2) in file_path2.name
+
+    def test_get_subtitle_file_path_returns_path_object(self, tmp_path, monkeypatch):
+        """Test that get_subtitle_file_path returns a Path object."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        job_id = uuid4()
+        file_path = get_subtitle_file_path(job_id, "en")
+
+        assert isinstance(file_path, Path)
 
 
+@pytest.mark.unit
 class TestSaveSubtitleFile:
-    """Test subtitle file saving."""
+    """Test save_subtitle_file function."""
 
-    def test_saves_file_successfully(self, temp_storage_dir):
-        """Test that file is saved successfully."""
+    def test_save_subtitle_file_creates_file(self, tmp_path, monkeypatch):
+        """Test that save_subtitle_file creates a file with content."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
         job_id = uuid4()
         content = "1\n00:00:01,000 --> 00:00:04,000\nHello world\n"
         language = "en"
 
-        file_path = save_subtitle_file(job_id, content, language)
+        file_path_str = save_subtitle_file(job_id, content, language)
 
-        assert Path(file_path).exists()
-        assert Path(file_path).read_text() == content
+        # Check that file was created
+        file_path = Path(file_path_str)
+        assert file_path.exists()
+        assert file_path.is_file()
 
-    def test_returns_file_path_string(self, temp_storage_dir):
-        """Test that return type is string."""
+        # Check content
+        assert file_path.read_text(encoding="utf-8") == content
+
+    def test_save_subtitle_file_creates_directory(self, tmp_path, monkeypatch):
+        """Test save_subtitle_file creates directory if it doesn't exist."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
         job_id = uuid4()
         content = "Test content"
         language = "en"
 
-        result = save_subtitle_file(job_id, content, language)
+        # Directory shouldn't exist yet
+        assert not storage_path.exists()
 
-        assert isinstance(result, str)
+        save_subtitle_file(job_id, content, language)
 
-    @pytest.mark.parametrize(
-        "content,language",
-        [
-            ("1\n00:00:01,000 --> 00:00:04,000\nHello\n", "en"),
-            ("1\n00:00:01,000 --> 00:00:04,000\nHola\n", "es"),
-            ("Multiple\nlines\nof\ncontent", "fr"),
-            ("", "de"),  # Empty content
-        ],
-    )
-    def test_saves_different_content(self, temp_storage_dir, content, language):
-        """Test saving different content types."""
+        # Directory should be created
+        assert storage_path.exists()
+        assert storage_path.is_dir()
+
+    def test_save_subtitle_file_utf8_encoding(self, tmp_path, monkeypatch):
+        """Test that save_subtitle_file uses UTF-8 encoding."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
         job_id = uuid4()
+        content = "Hello 世界! 🌍\nTest with unicode"
+        language = "en"
 
-        file_path = save_subtitle_file(job_id, content, language)
+        file_path_str = save_subtitle_file(job_id, content, language)
 
-        assert Path(file_path).exists()
-        assert Path(file_path).read_text() == content
+        # Read back and verify
+        file_path = Path(file_path_str)
+        read_content = file_path.read_text(encoding="utf-8")
+        assert read_content == content
+        assert "世界" in read_content
+        assert "🌍" in read_content
 
-    def test_creates_directory_if_not_exists(self, monkeypatch):
-        """Test that parent directory is created if it doesn't exist."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            storage_path = Path(tmpdir) / "new_dir" / "subtitles"
-            monkeypatch.setenv("SUBTITLE_STORAGE_PATH", str(storage_path))
+    def test_save_subtitle_file_returns_string_path(self, tmp_path, monkeypatch):
+        """Test that save_subtitle_file returns string path."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
 
-            # Reimport to get new settings
-            from common.config import Settings
+        job_id = uuid4()
+        content = "Test content"
+        language = "en"
 
-            settings = Settings()
-            monkeypatch.setattr("manager.file_service.settings", settings)
+        file_path_str = save_subtitle_file(job_id, content, language)
 
-            job_id = uuid4()
-            content = "Test content"
+        assert isinstance(file_path_str, str)
+        assert Path(file_path_str).exists()
 
-            assert not storage_path.exists()
+    def test_save_subtitle_file_multiline_content(self, tmp_path, monkeypatch):
+        """Test that save_subtitle_file handles multiline content correctly."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
 
-            file_path = save_subtitle_file(job_id, content, "en")
+        job_id = uuid4()
+        content = """1
+00:00:01,000 --> 00:00:04,000
+First subtitle
 
-            assert Path(file_path).exists()
-            assert storage_path.exists()
+2
+00:00:04,500 --> 00:00:08,000
+Second subtitle
+"""
+        language = "en"
 
-    def test_overwrites_existing_file(self, temp_storage_dir):
-        """Test that existing file is overwritten."""
+        file_path_str = save_subtitle_file(job_id, content, language)
+
+        # Read back and verify
+        file_path = Path(file_path_str)
+        read_content = file_path.read_text(encoding="utf-8")
+        assert read_content == content
+        assert "First subtitle" in read_content
+        assert "Second subtitle" in read_content
+
+    def test_save_subtitle_file_overwrites_existing(self, tmp_path, monkeypatch):
+        """Test that save_subtitle_file overwrites existing file."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        storage_path.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
         job_id = uuid4()
         language = "en"
 
-        # Save initial content
-        content1 = "Initial content"
+        # Save first content
+        content1 = "First content"
         save_subtitle_file(job_id, content1, language)
 
-        # Save new content
-        content2 = "Updated content"
-        file_path = save_subtitle_file(job_id, content2, language)
+        # Save different content
+        content2 = "Second content"
+        file_path_str = save_subtitle_file(job_id, content2, language)
 
-        assert Path(file_path).read_text() == content2
+        # Should have second content
+        file_path = Path(file_path_str)
+        assert file_path.read_text(encoding="utf-8") == content2
+
+    @pytest.mark.parametrize(
+        "language",
+        ["en", "es", "fr", "de", "zh", "ja"],
+    )
+    def test_save_subtitle_file_with_different_languages(
+        self, tmp_path, monkeypatch, language
+    ):
+        """Test save_subtitle_file with different language codes."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        job_id = uuid4()
+        content = f"Content in {language}"
+        file_path_str = save_subtitle_file(job_id, content, language)
+
+        file_path = Path(file_path_str)
+        assert file_path.exists()
+        assert file_path.name.endswith(f".{language}.srt")
+        assert file_path.read_text(encoding="utf-8") == content
 
 
+@pytest.mark.unit
 class TestReadSubtitleFile:
-    """Test subtitle file reading."""
+    """Test read_subtitle_file function."""
 
-    def test_reads_file_successfully(self, temp_storage_dir):
-        """Test that file is read successfully."""
+    def test_read_subtitle_file_successful_read(self, tmp_path, monkeypatch):
+        """Test that read_subtitle_file reads file content successfully."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        storage_path.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
         job_id = uuid4()
         language = "en"
         content = "1\n00:00:01,000 --> 00:00:04,000\nHello world\n"
 
-        # Save file first
-        save_subtitle_file(job_id, content, language)
+        # Create file first
+        file_path = get_subtitle_file_path(job_id, language)
+        file_path.write_text(content, encoding="utf-8")
 
         # Read it back
         read_content = read_subtitle_file(job_id, language)
 
         assert read_content == content
 
-    def test_returns_string(self, temp_storage_dir):
-        """Test that return type is string."""
+    def test_read_subtitle_file_file_not_found(self, tmp_path, monkeypatch):
+        """Test read_subtitle_file raises FileNotFoundError."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        storage_path.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
         job_id = uuid4()
         language = "en"
-        content = "Test content"
 
-        save_subtitle_file(job_id, content, language)
-        result = read_subtitle_file(job_id, language)
+        # File doesn't exist
+        with pytest.raises(FileNotFoundError) as exc_info:
+            read_subtitle_file(job_id, language)
 
-        assert isinstance(result, str)
+        assert "Subtitle file not found" in str(exc_info.value)
+        assert str(job_id) in str(exc_info.value)
+
+    def test_read_subtitle_file_utf8_encoding(self, tmp_path, monkeypatch):
+        """Test read_subtitle_file reads UTF-8 encoded content correctly."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        storage_path.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        job_id = uuid4()
+        language = "en"
+        content = "Hello 世界! 🌍\nTest with unicode"
+
+        # Create file with UTF-8 content
+        file_path = get_subtitle_file_path(job_id, language)
+        file_path.write_text(content, encoding="utf-8")
+
+        # Read it back
+        read_content = read_subtitle_file(job_id, language)
+
+        assert read_content == content
+        assert "世界" in read_content
+        assert "🌍" in read_content
+
+    def test_read_subtitle_file_content_integrity(self, tmp_path, monkeypatch):
+        """Test that read_subtitle_file preserves content integrity."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        storage_path.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        job_id = uuid4()
+        language = "en"
+        content = """1
+00:00:01,000 --> 00:00:04,000
+First subtitle
+
+2
+00:00:04,500 --> 00:00:08,000
+Second subtitle
+"""
+
+        # Create file
+        file_path = get_subtitle_file_path(job_id, language)
+        file_path.write_text(content, encoding="utf-8")
+
+        # Read it back
+        read_content = read_subtitle_file(job_id, language)
+
+        # Should match exactly
+        assert read_content == content
+        assert len(read_content) == len(content)
 
     @pytest.mark.parametrize(
-        "content",
-        [
-            "1\n00:00:01,000 --> 00:00:04,000\nHello\n",
-            "Multiple\nlines\nof\ncontent",
-            "",  # Empty content
-            "Unicode content: 你好世界 🌍",
-        ],
+        "language",
+        ["en", "es", "fr", "de", "zh", "ja"],
     )
-    def test_reads_different_content(self, temp_storage_dir, content):
-        """Test reading different content types."""
-        job_id = uuid4()
-        language = "en"
+    def test_read_subtitle_file_with_different_languages(
+        self, tmp_path, monkeypatch, language
+    ):
+        """Test read_subtitle_file with different language codes."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        storage_path.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
 
-        save_subtitle_file(job_id, content, language)
+        job_id = uuid4()
+        content = f"Content in {language}"
+
+        # Create file
+        file_path = get_subtitle_file_path(job_id, language)
+        file_path.write_text(content, encoding="utf-8")
+
+        # Read it back
         read_content = read_subtitle_file(job_id, language)
 
         assert read_content == content
 
-    def test_raises_error_for_nonexistent_file(self, temp_storage_dir):
-        """Test that error is raised for non-existent file."""
+
+@pytest.mark.unit
+class TestFileServiceIntegration:
+    """Integration tests for file service operations."""
+
+    def test_save_and_read_round_trip(self, tmp_path, monkeypatch):
+        """Test saving and reading a file in a round trip."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
         job_id = uuid4()
         language = "en"
+        original_content = """1
+00:00:01,000 --> 00:00:04,000
+Hello world
 
-        with pytest.raises(FileNotFoundError):
-            read_subtitle_file(job_id, language)
+2
+00:00:04,500 --> 00:00:08,000
+This is a test
+"""
 
-    def test_raises_error_for_invalid_job_id(self, temp_storage_dir):
-        """Test that error is raised for invalid job ID."""
-        job_id = uuid4()
+        # Save file
+        file_path_str = save_subtitle_file(job_id, original_content, language)
+
+        # Read it back
+        read_content = read_subtitle_file(job_id, language)
+
+        # Should match
+        assert read_content == original_content
+        assert Path(file_path_str).exists()
+
+    def test_multiple_files_same_language(self, tmp_path, monkeypatch):
+        """Test handling multiple files with same language."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        job_id1 = uuid4()
+        job_id2 = uuid4()
         language = "en"
 
-        # Don't save any file
-        with pytest.raises(FileNotFoundError):
-            read_subtitle_file(job_id, language)
+        content1 = "Content 1"
+        content2 = "Content 2"
+
+        # Save both files
+        save_subtitle_file(job_id1, content1, language)
+        save_subtitle_file(job_id2, content2, language)
+
+        # Read both back
+        read_content1 = read_subtitle_file(job_id1, language)
+        read_content2 = read_subtitle_file(job_id2, language)
+
+        assert read_content1 == content1
+        assert read_content2 == content2
+
+    def test_multiple_languages_same_job(self, tmp_path, monkeypatch):
+        """Test handling multiple languages for same job."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        job_id = uuid4()
+        languages = ["en", "es", "fr"]
+
+        contents = {
+            "en": "English content",
+            "es": "Contenido en español",
+            "fr": "Contenu en français",
+        }
+
+        # Save files for all languages
+        for lang in languages:
+            save_subtitle_file(job_id, contents[lang], lang)
+
+        # Read all back
+        for lang in languages:
+            read_content = read_subtitle_file(job_id, lang)
+            assert read_content == contents[lang]
+
+    def test_file_path_consistency(self, tmp_path, monkeypatch):
+        """Test get_subtitle_file_path and save_subtitle_file paths."""
+        storage_path = tmp_path / "storage" / "subtitles"
+        monkeypatch.setattr(
+            "manager.file_service.settings.subtitle_storage_path",
+            str(storage_path),
+        )
+
+        job_id = uuid4()
+        language = "en"
+        content = "Test content"
+
+        # Get expected path
+        expected_path = get_subtitle_file_path(job_id, language)
+
+        # Save file
+        saved_path_str = save_subtitle_file(job_id, content, language)
+
+        # Paths should match
+        assert Path(saved_path_str) == expected_path
