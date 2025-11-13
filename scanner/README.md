@@ -2,6 +2,8 @@
 
 The Scanner service monitors media files through multiple methods and automatically triggers subtitle processing.
 
+> **📖 See Also**: [Main README](../README.md) for project overview, setup instructions, and development guide.
+
 ## Overview
 
 The scanner provides three complementary methods for detecting new media:

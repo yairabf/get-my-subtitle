@@ -2,6 +2,8 @@
 
 The Manager Service is the central API and orchestrator for the subtitle management system. It handles subtitle processing requests, manages the workflow, and coordinates with worker services through RabbitMQ.
 
+> **📖 See Also**: [Main README](../README.md) for project overview, setup instructions, and development guide.
+
 ## 🚀 Quick Start
 
 ### Prerequisites

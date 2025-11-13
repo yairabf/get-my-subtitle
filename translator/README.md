@@ -2,6 +2,8 @@
 
 The Translator Service processes subtitle files using OpenAI's GPT-5-nano model to translate subtitles from one language to another while maintaining timing, tone, and subtitle-appropriate formatting.
 
+> **📖 See Also**: [Main README](../README.md) for project overview, setup instructions, and development guide.
+
 ## 🚀 Features
 
 - **GPT-5-nano Translation**: Leverages OpenAI's efficient nano model for fast, accurate translations

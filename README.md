@@ -6,242 +6,242 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-A microservices-based subtitle management system that fetches, translates, and manages subtitles for videos.
+A microservices-based subtitle management system that automatically fetches, translates, and manages subtitles for your video library. Perfect for home media servers like Jellyfin, Plex, or standalone video collections.
+
+## Purpose
+
+**Get My Subtitle** solves the problem of missing or untranslated subtitles in your video library by:
+
+- **Automatically detecting** new media files via Jellyfin webhooks, WebSocket events, or file system monitoring
+- **Fetching subtitles** from multiple sources (OpenSubtitles, etc.) when available
+- **Translating subtitles** using AI (OpenAI) when subtitles aren't available in your preferred language
+- **Managing subtitle files** with automatic organization and metadata tracking
+- **Providing a REST API** for programmatic subtitle requests and status tracking
+
+The system uses an event-driven microservices architecture, making it scalable, maintainable, and easy to extend with new subtitle sources or translation services.
 
 ## Architecture
 
-This project consists of three main services:
+This project consists of multiple microservices working together:
 
 - **Manager**: FastAPI-based API server and orchestrator
 - **Downloader**: Worker service for fetching subtitles from various sources
-- **Translator**: Worker service for translating subtitles
+- **Translator**: Worker service for translating subtitles using AI
+- **Scanner**: Media detection service (WebSocket, webhook, file system monitoring)
+- **Consumer**: Event consumer service that processes events and updates job states
 - **Common**: Shared schemas, utilities, and configuration
 
-## Prerequisites
+### System Flow
 
-- Python 3.11+
-- Docker and Docker Compose
-- Redis
-- RabbitMQ
+```
+Client Request
+      ↓
+Manager (publishes event) → RabbitMQ Topic Exchange
+      ↓                              ↓
+Work Queue                     Event Queue
+      ↓                              ↓
+Downloader (publishes event) → Consumer
+      ↓                              ↓
+Translation Queue              Redis (status + events)
+      ↓
+Translator (publishes event) → Consumer
+                                     ↓
+                               Redis (status + events)
+```
 
-## Quick Start
+### Event-Driven Architecture
 
-### 1. Clone and Setup
+The system uses an event-driven architecture where:
+- Services publish events to RabbitMQ topic exchange (`subtitle.events`)
+- Consumer service processes events and updates Redis state
+- Complete event history is maintained for each job
+- Services are decoupled and can scale independently
+
+## Deployment Options
+
+The system can be deployed in several ways depending on your use case:
+
+### 1. Local Docker (Recommended for Quick Start)
+
+**Best for**: Quick testing, development, or small personal setups
+
+Run everything in Docker containers on your local machine:
 
 ```bash
+# Clone and setup
 git clone <repository-url>
 cd get-my-subtitle
+make setup
 
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Environment Configuration
-
-```bash
-# Copy environment template
+# Configure environment
 cp env.template .env
+# Edit .env with your API keys
 
-# Edit .env with your API keys and configuration
-nano .env
+# Start all services
+make up
+
+# View logs
+make logs
 ```
 
-### 3. Start Services with Docker Compose
+**Pros:**
+- Easy setup - everything containerized
+- Isolated from host system
+- Production-like environment
+- Easy to reset
+
+**Cons:**
+- Requires Docker and Docker Compose
+- More resource intensive than local-only
+
+### 2. Homelab / Production Deployment
+
+**Best for**: Running on a home server, NAS, or production environment
+
+Deploy using Docker Compose on your homelab server:
 
 ```bash
-# Start all services (Redis, RabbitMQ, and workers)
+# On your server
+git clone <repository-url>
+cd get-my-subtitle
+cp env.template .env
+# Configure .env for your environment
+
+# Start services
 docker-compose up -d
 
 # View logs
 docker-compose logs -f
 ```
 
-### 4. Development Mode
+**Configuration for Homelab:**
+- Set `JELLYFIN_URL` to your Jellyfin server URL
+- Configure `SUBTITLE_STORAGE_PATH` to a persistent volume
+- Set up reverse proxy (nginx/traefik) for the Manager API
+- Configure automatic restarts with Docker restart policies
 
-For local development without Docker:
+**Pros:**
+- Production-ready
+- Persistent storage
+- Can integrate with existing homelab infrastructure
+- Easy to manage with Docker Compose
+
+**Cons:**
+- Requires server with Docker
+- Need to manage volumes and networking
+
+### 3. Hybrid Development Mode
+
+**Best for**: Active development with hot reload
+
+Run infrastructure (Redis, RabbitMQ) in Docker, but run application services locally:
 
 ```bash
-# Terminal 1: Start Redis and RabbitMQ
-docker-compose up redis rabbitmq
+# Terminal 1: Start infrastructure
+make up-infra
 
-# Terminal 2: Start the manager API
-cd manager
-uvicorn main:app --reload
+# Terminal 2: Manager with hot reload
+make dev-manager
 
-# Terminal 3: Start downloader worker
-cd downloader
-python worker.py
+# Terminal 3: Downloader worker
+make dev-downloader
 
-# Terminal 4: Start translator worker
-cd translator
-python worker.py
+# Terminal 4: Translator worker
+make dev-translator
 ```
 
-## Development Automation
+**Pros:**
+- Fast code changes (hot reload)
+- Direct access to logs
+- Easy debugging with breakpoints
+- Lower resource usage
 
-This project includes both Makefile and Python Invoke tasks to streamline development workflows.
+**Cons:**
+- Need multiple terminals
+- Must manage processes manually
 
-### Using Makefile (Recommended for Quick Operations)
+### 4. Local-Only Mode
 
-View all available commands:
+**Best for**: Development without Docker overhead
+
+Run everything locally (requires local Redis and RabbitMQ installation):
+
 ```bash
-make help
+# Install Redis and RabbitMQ locally (macOS)
+brew install redis rabbitmq
+
+# Start services
+brew services start redis
+brew services start rabbitmq
+
+# Run application services
+make dev-manager
+make dev-downloader
+make dev-translator
 ```
 
-#### Quick Setup
-```bash
-make setup              # Complete project setup (venv, deps, .env)
-make install            # Install dependencies only
-```
+**Pros:**
+- No Docker overhead
+- Native performance
+- Direct service access
 
-#### Docker Operations
-```bash
-make build              # Build all Docker images
-make up                 # Start all services (full Docker mode)
-make up-infra           # Start only Redis & RabbitMQ (hybrid mode)
-make down               # Stop all services
-make logs               # Follow logs from all services
-```
+**Cons:**
+- Requires local installation of Redis/RabbitMQ
+- Platform-specific setup
 
-#### Development Workflows
+## Quick Start
 
-**Full Docker Mode** (production-like environment):
-```bash
-make up                 # Start all services in Docker
-make logs               # View logs
-```
+### Prerequisites
 
-**Hybrid Mode** (fast development with hot reload):
-```bash
-make up-infra           # Start Redis & RabbitMQ in Docker
+- Python 3.11+
+- Docker and Docker Compose (for Docker deployments)
+- OpenSubtitles account (for subtitle downloads)
+- OpenAI API key (for translations)
 
-# In separate terminals:
-make dev-manager        # Run manager locally with hot reload
-make dev-downloader     # Run downloader worker locally
-make dev-translator     # Run translator worker locally
-```
+### Setup Steps
 
-#### Testing
-```bash
-make test               # Run all tests
-make test-unit          # Run unit tests only
-make test-integration   # Run integration tests only
-make test-cov           # Run tests with coverage report
-make test-watch         # Run tests in watch mode
-```
+1. **Clone the repository:**
+   ```bash
+   git clone <repository-url>
+   cd get-my-subtitle
+   ```
 
-#### Code Quality
-```bash
-make lint               # Check code formatting
-make format             # Auto-fix code formatting
-make check              # Run lint + tests (pre-commit style)
-```
+2. **Run automated setup:**
+   ```bash
+   make setup  # Creates venv, installs deps, creates .env
+   ```
 
-#### Cleanup
-```bash
-make clean              # Remove Python cache files
-make clean-docker       # Remove Docker containers and images
-make clean-all          # Full cleanup
-```
+3. **Configure environment:**
+   ```bash
+   # Edit .env with your API keys
+   nano .env
+   ```
+   
+   Required variables:
+   - `OPENSUBTITLES_USERNAME` - Your OpenSubtitles username
+   - `OPENSUBTITLES_PASSWORD` - Your OpenSubtitles password
+   - `OPENAI_API_KEY` - Your OpenAI API key
 
-### Using Invoke (Advanced Workflows)
+4. **Start services:**
+   ```bash
+   # Option A: Full Docker (recommended for first-time users)
+   make up
+   
+   # Option B: Hybrid mode (for development)
+   make up-infra
+   make dev-manager  # In separate terminal
+   ```
 
-View all available tasks:
-```bash
-invoke --list
-```
+5. **Verify installation:**
+   ```bash
+   curl http://localhost:8000/health
+   # Expected: {"status": "ok"}
+   ```
 
-#### Advanced Docker Operations
-```bash
-invoke build-service manager        # Build specific service
-invoke shell manager                # Open shell in container
-invoke rebuild manager              # Force rebuild with no cache
-```
-
-#### Development Workflows
-```bash
-invoke dev                          # Start hybrid dev environment
-invoke dev-full                     # Start full Docker environment
-```
-
-#### Health Checks
-```bash
-invoke health                       # Check health of all services
-invoke wait-for-services            # Wait for services to be healthy
-invoke wait-for-services --services="redis,rabbitmq"  # Wait for specific services
-```
-
-#### Database Operations
-```bash
-invoke redis-cli                    # Open Redis CLI
-invoke redis-flush                  # Flush Redis database (with confirmation)
-invoke rabbitmq-ui                  # Open RabbitMQ UI in browser
-```
-
-#### Testing & Quality
-```bash
-invoke test-e2e                     # Run end-to-end tests
-invoke test-service manager         # Test specific service
-invoke coverage-html                # Generate and open HTML coverage report
-```
-
-#### Utility Tasks
-```bash
-invoke logs-service manager         # View logs for specific service
-invoke ps                           # Show status of all services
-invoke top                          # Display container processes
-```
-
-### Common Development Workflows
-
-#### First Time Setup
-```bash
-make setup              # Creates venv, installs deps, creates .env
-# Edit .env with your API keys
-make up                 # Start all services
-```
-
-#### Daily Development (Hybrid Mode)
-```bash
-make up-infra           # Start infrastructure
-make dev-manager        # Terminal 1: API with hot reload
-make dev-downloader     # Terminal 2: Downloader worker
-make dev-translator     # Terminal 3: Translator worker
-```
-
-#### Before Committing
-```bash
-make check              # Runs lint + tests
-# or separately:
-make format             # Auto-fix formatting
-make test-cov           # Run tests with coverage
-```
-
-#### Debugging
-```bash
-invoke shell manager    # Access container shell
-invoke redis-cli        # Check Redis data
-invoke rabbitmq-ui      # View RabbitMQ queues
-invoke logs-service manager --no-follow  # View historical logs
-```
-
-#### Running Specific Tests
-```bash
-invoke test-service common          # Test common module
-invoke test-service manager         # Test manager service
-pytest tests/common/test_utils.py   # Test specific file
-```
-
-#### Clean Start
-```bash
-make clean-all          # Remove all caches and Docker resources
-make build              # Rebuild images
-make up                 # Start fresh
-```
+6. **Access the API:**
+   - API: http://localhost:8000
+   - Interactive Docs: http://localhost:8000/docs
+   - RabbitMQ UI: http://localhost:15672 (guest/guest)
 
 ## API Endpoints
 
@@ -261,204 +261,154 @@ Once running, the API will be available at `http://localhost:8000`
 ### Queue Management
 - `GET /queue/status` - Get queue status and active workers
 
+## Configuration
+
+For complete configuration details, see the **[Configuration Guide](CONFIGURATION.md)**.
+
+### Quick Start Configuration
+
+**Mandatory Variables** (must be set):
+- `OPENSUBTITLES_USERNAME` - Your OpenSubtitles username
+- `OPENSUBTITLES_PASSWORD` - Your OpenSubtitles password
+- `OPENAI_API_KEY` - Your OpenAI API key (required for translations)
+
+**Quick Setup:**
+```bash
+cp env.template .env
+# Edit .env with your credentials
+```
+
+**Optional but Recommended:**
+- `JELLYFIN_URL` - If using Jellyfin integration
+- `JELLYFIN_API_KEY` - If using Jellyfin integration
+- `JELLYFIN_DEFAULT_TARGET_LANGUAGE` - Target language for translations (e.g., "he")
+
+See the [Configuration Guide](CONFIGURATION.md) for:
+- Complete list of all environment variables (mandatory vs optional)
+- Docker Compose configuration options
+- Configuration examples for different use cases (minimal, production, development)
+- Volume, port, and network configuration
+- Production deployment examples
+
+## Documentation
+
+### Main Guides
+
+- **[Configuration Guide](CONFIGURATION.md)** - Complete configuration reference including:
+  - Environment variables (.env) - mandatory vs optional
+  - Docker Compose configuration
+  - Configuration by use case (minimal, full, production, development)
+  - Volume, port, and network configuration
+  - Production deployment examples
+  - Troubleshooting configuration issues
+
+- **[Development Guide](DEVELOPMENT.md)** - Comprehensive local development guide including:
+  - First-time setup and prerequisites
+  - Development modes (Full Docker, Hybrid, Local-only)
+  - Development automation (Makefile, Invoke)
+  - Environment configuration
+  - Debugging guide
+  - Development tools
+  - Troubleshooting
+
+- **[Testing Guide](TESTING.md)** - Complete testing documentation including:
+  - Quick test start
+  - Running unit and integration tests
+  - Manual testing scenarios
+  - Test flow diagrams
+  - Integration testing setup
+  - Performance testing
+  - Testing tools
+
+### Additional Documentation
+
+- [Logging Documentation](docs/LOGGING.md) - Comprehensive logging configuration and usage guide
+- [Service READMEs](#service-documentation) - Detailed documentation for each service
+
 ## Project Structure
 
 ```
 get-my-subtitle/
-├── manager/               # API + orchestrator
+├── manager/               # API + orchestrator service
 │   ├── main.py           # FastAPI application
-│   ├── models.py         # Pydantic models
-│   ├── routes.py         # API routes
-│   └── Dockerfile        # Manager service container
-├── downloader/            # Subtitle fetch worker
+│   ├── orchestrator.py   # RabbitMQ orchestration
+│   ├── event_consumer.py # Event consumer
+│   ├── file_service.py   # File operations
+│   ├── schemas.py        # Service-specific schemas
+│   ├── README.md         # Service documentation
+│   ├── Dockerfile        # Manager service container
+│   └── requirements.txt  # Service dependencies
+├── downloader/            # Subtitle fetch worker service
 │   ├── worker.py         # Main worker process
-│   ├── sources/          # Subtitle source implementations
-│   └── Dockerfile        # Downloader service container
-├── translator/            # Translation worker
+│   ├── opensubtitles_client.py  # OpenSubtitles API client
+│   ├── README.md         # Service documentation
+│   ├── Dockerfile        # Downloader service container
+│   └── requirements.txt  # Service dependencies
+├── translator/            # Translation worker service
 │   ├── worker.py         # Main worker process
-│   ├── services/         # Translation service implementations
-│   └── Dockerfile        # Translator service container
-├── common/                # Shared schemas, utils
+│   ├── translation_service.py  # Translation logic
+│   ├── checkpoint_manager.py   # Translation checkpoint management
+│   ├── README.md         # Service documentation
+│   ├── Dockerfile        # Translator service container
+│   └── requirements.txt  # Service dependencies
+├── scanner/              # Media detection service
+│   ├── worker.py         # Main worker process
+│   ├── scanner.py        # Media scanner
+│   ├── websocket_client.py  # Jellyfin WebSocket client
+│   ├── webhook_handler.py   # Webhook handler
+│   ├── event_handler.py    # File system event handler
+│   ├── README.md         # Service documentation
+│   ├── Dockerfile        # Scanner service container
+│   └── requirements.txt  # Service dependencies
+├── consumer/             # Event consumer service
+│   ├── worker.py         # Main worker process
+│   ├── README.md         # Service documentation
+│   ├── Dockerfile        # Consumer service container
+│   └── requirements.txt  # Service dependencies
+├── common/                # Shared code
 │   ├── schemas.py        # Shared Pydantic models
 │   ├── utils.py          # Utility functions
-│   └── config.py         # Configuration management
-├── tests/                 # Test files
-├── docker-compose.yml     # Service orchestration
-├── requirements.txt       # Python dependencies
+│   ├── config.py         # Configuration management
+│   ├── redis_client.py   # Redis client
+│   ├── event_publisher.py  # Event publishing
+│   ├── logging_config.py  # Logging configuration
+│   ├── retry_utils.py     # Retry utilities
+│   └── subtitle_parser.py # Subtitle parsing
+├── tests/                 # Test suite
+│   ├── common/           # Common module tests
+│   ├── manager/          # Manager service tests
+│   ├── downloader/        # Downloader service tests
+│   ├── translator/       # Translator service tests
+│   ├── scanner/          # Scanner service tests
+│   ├── consumer/         # Consumer service tests
+│   ├── integration/     # Integration tests
+│   └── conftest.py       # Pytest configuration
+├── scripts/              # Utility scripts
+│   ├── test_manual.sh    # Manual testing script
+│   ├── ci_code_quality.sh  # CI code quality checks
+│   ├── ci_run_tests.sh   # CI test execution
+│   └── run_integration_tests.sh  # Integration test runner
+├── docs/                 # Documentation
+│   └── LOGGING.md        # Logging configuration reference
+├── docker-compose.yml     # Main service orchestration
+├── docker-compose.integration.yml  # Integration test environment
+├── Makefile              # Development automation
+├── tasks.py              # Invoke tasks (advanced workflows)
+├── requirements.txt      # Root Python dependencies
 ├── env.template          # Environment variables template
+├── DEVELOPMENT.md        # Development guide
+├── TESTING.md            # Testing guide
 └── README.md             # This file
 ```
 
-## Development
+### Service Documentation
 
-### Code Quality
-
-The project includes automated code quality tools. Use the Makefile commands for consistency:
-
-```bash
-# Check formatting (without modifying files)
-make lint
-
-# Auto-fix formatting issues
-make format
-
-# Run all tests
-make test
-
-# Run tests with coverage report
-make test-cov
-
-# Run complete pre-commit check (lint + tests)
-make check
-```
-
-For more granular control:
-
-```bash
-# Format code manually
-black .
-isort .
-
-# Run tests with custom options
-pytest -v
-pytest --cov=common --cov=manager --cov-report=html
-```
-
-### Pre-commit Hooks
-
-This project uses [pre-commit](https://pre-commit.com) hooks to automatically check code quality before each commit. The hooks ensure consistent code formatting and catch issues early.
-
-#### Installation
-
-After installing dependencies, set up pre-commit hooks:
-
-```bash
-# Install dependencies (includes pre-commit)
-pip install -r requirements.txt
-
-# Install git hooks
-pre-commit install
-```
-
-#### Usage
-
-Pre-commit hooks run automatically on `git commit`. They will:
-
-1. **isort** - Sort and organize imports
-2. **black** - Format code according to project style
-3. **flake8** - Lint code for style and quality issues
-
-Hooks will automatically fix issues when possible (isort, black) or report errors that need manual fixes (flake8).
-
-#### Manual Execution
-
-Run hooks manually on all files:
-
-```bash
-# Check all files
-pre-commit run --all-files
-
-# Run specific hook
-pre-commit run black --all-files
-pre-commit run isort --all-files
-pre-commit run flake8 --all-files
-```
-
-#### Bypassing Hooks
-
-If you need to bypass hooks (not recommended):
-
-```bash
-git commit --no-verify
-```
-
-#### Integration with Makefile
-
-Pre-commit hooks complement the existing Makefile targets:
-
-- `make format` - Manually format code (same as pre-commit black + isort)
-- `make lint` - Manually check formatting (same as pre-commit checks)
-- `make check` - Run lint + tests (pre-commit runs automatically on commit)
-
-The hooks use the same configuration as CI/CD, ensuring consistency across local development and continuous integration.
-
-### CI/CD
-
-This project uses GitHub Actions for continuous integration and deployment:
-
-#### Automated Workflows
-
-1. **CI Pipeline** (`.github/workflows/ci.yml`)
-   - ✅ Code formatting checks (Black, isort, Flake8)
-   - ✅ Unit tests on Python 3.11 and 3.12 (matrix strategy)
-   - ✅ Integration tests with Redis and RabbitMQ
-   - ✅ Coverage reporting (60% minimum) with HTML and XML reports
-   - ✅ Docker image build validation for all services
-   - ✅ Security scanning (Bandit, Safety)
-   - ✅ JUnit XML test result reporting
-   - Runs on: Push to `main`/`develop`/`feat/*`, Pull Requests, Manual dispatch
-
-2. **Lint Pipeline** (`.github/workflows/lint.yml`)
-   - ✅ Black formatting validation
-   - ✅ isort import sorting validation
-   - ✅ Flake8 linting validation
-   - ⚡ Fast feedback (~30-60 seconds)
-   - ✅ Auto-comments on PRs with formatting issues
-   - Runs on: Push and Pull Requests
-
-3. **Dependency Updates** (Dependabot)
-   - 🔄 Weekly automated dependency updates
-   - 📦 Python packages, GitHub Actions, and Docker base images
-   - 🔐 Automatic security vulnerability patches
-
-#### Branch Protection
-
-The `main` and `develop` branches are protected and require:
-- ✅ All CI checks to pass
-- ✅ Code review approval
-- ✅ Up-to-date branches before merging
-- ✅ Conversation resolution
-
-#### Before Committing
-
-Pre-commit hooks run automatically on `git commit`, but you can also run checks manually:
-
-```bash
-# Pre-commit hooks run automatically, or run manually:
-pre-commit run --all-files
-
-# Or use Makefile commands:
-make check      # Run all checks (lint + tests)
-
-# Or run individually:
-make format     # Auto-fix formatting
-make lint       # Check code style
-make test-unit  # Run unit tests
-make test-cov   # Check coverage
-```
-
-For more details, see [GitHub Actions Documentation](.github/workflows/README.md).
-
-### Adding New Subtitle Sources
-
-1. Create a new source class in `downloader/sources/`
-2. Implement the required interface
-3. Register the source in the downloader worker
-
-### Adding New Translation Services
-
-1. Create a new service class in `translator/services/`
-2. Implement the required interface
-3. Register the service in the translator worker
-
-## Configuration
-
-Key environment variables:
-
-- `REDIS_URL`: Redis connection string
-- `RABBITMQ_URL`: RabbitMQ connection string
-- `OPENSUBTITLES_API_KEY`: OpenSubtitles API key
-- `GOOGLE_TRANSLATE_API_KEY`: Google Translate API key
+Each service has its own README with detailed documentation:
+- [Manager Service](manager/README.md) - API and orchestration
+- [Downloader Service](downloader/README.md) - Subtitle fetching
+- [Translator Service](translator/README.md) - Subtitle translation
+- [Scanner Service](scanner/README.md) - Media detection
+- [Consumer Service](consumer/README.md) - Event processing
 
 ## Contributing
 
@@ -466,7 +416,39 @@ Key environment variables:
 2. Create a feature branch
 3. Make your changes
 4. Add tests
-5. Submit a pull request
+5. Run `make check` to ensure code quality
+6. Submit a pull request
+
+### Development Workflow
+
+```bash
+# Before making changes
+git checkout -b feature/your-feature-name
+
+# Make your changes
+# ... edit files ...
+
+# Run tests and linting
+make check
+
+# Commit your changes
+git commit -m "Add your feature"
+
+# Push and create PR
+git push origin feature/your-feature-name
+```
+
+For detailed development instructions, see the [Development Guide](DEVELOPMENT.md).
+
+## CI/CD
+
+This project uses GitHub Actions for continuous integration:
+
+- **CI Pipeline**: Code formatting, unit tests, integration tests, coverage reporting, Docker builds, security scanning
+- **Lint Pipeline**: Fast formatting and linting checks
+- **Dependabot**: Automated dependency updates
+
+For more details, see [GitHub Actions Documentation](.github/workflows/README.md).
 
 ## License
 
