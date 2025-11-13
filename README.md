@@ -324,6 +324,64 @@ pytest -v
 pytest --cov=common --cov=manager --cov-report=html
 ```
 
+### Pre-commit Hooks
+
+This project uses [pre-commit](https://pre-commit.com) hooks to automatically check code quality before each commit. The hooks ensure consistent code formatting and catch issues early.
+
+#### Installation
+
+After installing dependencies, set up pre-commit hooks:
+
+```bash
+# Install dependencies (includes pre-commit)
+pip install -r requirements.txt
+
+# Install git hooks
+pre-commit install
+```
+
+#### Usage
+
+Pre-commit hooks run automatically on `git commit`. They will:
+
+1. **isort** - Sort and organize imports
+2. **black** - Format code according to project style
+3. **flake8** - Lint code for style and quality issues
+
+Hooks will automatically fix issues when possible (isort, black) or report errors that need manual fixes (flake8).
+
+#### Manual Execution
+
+Run hooks manually on all files:
+
+```bash
+# Check all files
+pre-commit run --all-files
+
+# Run specific hook
+pre-commit run black --all-files
+pre-commit run isort --all-files
+pre-commit run flake8 --all-files
+```
+
+#### Bypassing Hooks
+
+If you need to bypass hooks (not recommended):
+
+```bash
+git commit --no-verify
+```
+
+#### Integration with Makefile
+
+Pre-commit hooks complement the existing Makefile targets:
+
+- `make format` - Manually format code (same as pre-commit black + isort)
+- `make lint` - Manually check formatting (same as pre-commit checks)
+- `make check` - Run lint + tests (pre-commit runs automatically on commit)
+
+The hooks use the same configuration as CI/CD, ensuring consistency across local development and continuous integration.
+
 ### CI/CD
 
 This project uses GitHub Actions for continuous integration and deployment:
@@ -360,11 +418,14 @@ The `main` and `develop` branches are protected and require:
 
 #### Before Committing
 
-Always run these commands locally before pushing:
+Pre-commit hooks run automatically on `git commit`, but you can also run checks manually:
 
 ```bash
-# Run all checks (recommended)
-make check
+# Pre-commit hooks run automatically, or run manually:
+pre-commit run --all-files
+
+# Or use Makefile commands:
+make check      # Run all checks (lint + tests)
 
 # Or run individually:
 make format     # Auto-fix formatting

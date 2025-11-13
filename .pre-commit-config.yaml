@@ -1,0 +1,31 @@
+# Pre-commit hooks configuration
+# See https://pre-commit.com for more information
+
+default_language_version:
+    python: python3.11
+
+repos:
+    # Import sorting (runs first to fix import order)
+    - repo: https://github.com/PyCQA/isort
+      rev: 5.13.2
+      hooks:
+          - id: isort
+            name: isort (import sorting)
+            args: ["--profile", "black"]
+
+    # Code formatting (runs after isort)
+    - repo: https://github.com/psf/black
+      rev: 24.10.0
+      hooks:
+          - id: black
+            name: black (code formatting)
+            language_version: python3.11
+
+    # Linting (runs last, after formatting)
+    - repo: https://github.com/PyCQA/flake8
+      rev: 7.1.1
+      hooks:
+          - id: flake8
+            name: flake8 (linting)
+            args: ["--max-line-length=120", "--extend-ignore=E203,W503"]
+
