@@ -389,18 +389,21 @@ This project uses GitHub Actions for continuous integration and deployment:
 #### Automated Workflows
 
 1. **CI Pipeline** (`.github/workflows/ci.yml`)
-   - ✅ Code formatting checks (Black, isort)
-   - ✅ Unit tests on Python 3.11 and 3.12
+   - ✅ Code formatting checks (Black, isort, Flake8)
+   - ✅ Unit tests on Python 3.11 and 3.12 (matrix strategy)
    - ✅ Integration tests with Redis and RabbitMQ
-   - ✅ Coverage reporting (70% minimum)
-   - ✅ Docker image builds
-   - Runs on: Push to `main`/`develop`/`feat/*`, Pull Requests
+   - ✅ Coverage reporting (60% minimum) with HTML and XML reports
+   - ✅ Docker image build validation for all services
+   - ✅ Security scanning (Bandit, Safety)
+   - ✅ JUnit XML test result reporting
+   - Runs on: Push to `main`/`develop`/`feat/*`, Pull Requests, Manual dispatch
 
 2. **Lint Pipeline** (`.github/workflows/lint.yml`)
    - ✅ Black formatting validation
    - ✅ isort import sorting validation
-   - ✅ Pylint static analysis (optional)
-   - ⚡ Fast feedback (~30 seconds)
+   - ✅ Flake8 linting validation
+   - ⚡ Fast feedback (~30-60 seconds)
+   - ✅ Auto-comments on PRs with formatting issues
    - Runs on: Push and Pull Requests
 
 3. **Dependency Updates** (Dependabot)
