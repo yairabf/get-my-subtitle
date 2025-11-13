@@ -2,6 +2,8 @@
 
 The Consumer Service is a dedicated event consumer that listens to subtitle processing events from RabbitMQ and updates job states in Redis. It provides decoupling between workers and state management, enabling better observability and auditability.
 
+> **📖 See Also**: [Main README](../README.md) for project overview, setup instructions, and development guide.
+
 ## Purpose
 
 - **Event Consumption**: Listens to events published to the `subtitle.events` topic exchange
