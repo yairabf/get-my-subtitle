@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import logging
 import sys
 from pathlib import Path
 from uuid import UUID
@@ -13,21 +12,21 @@ from aio_pika.abc import AbstractIncomingMessage
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from common.config import settings
-from common.event_publisher import event_publisher
-from common.logging_config import setup_service_logging
-from common.redis_client import redis_client
-from common.schemas import EventType, SubtitleEvent, SubtitleStatus
-from common.subtitle_parser import (
+from common.config import settings  # noqa: E402
+from common.event_publisher import event_publisher  # noqa: E402
+from common.logging_config import setup_service_logging  # noqa: E402
+from common.redis_client import redis_client  # noqa: E402
+from common.schemas import EventType, SubtitleEvent, SubtitleStatus  # noqa: E402
+from common.subtitle_parser import (  # noqa: E402
     SRTParser,
     extract_text_for_translation,
     merge_translated_chunks,
     merge_translations,
     split_subtitle_content,
 )
-from common.utils import DateTimeUtils
-from translator.checkpoint_manager import CheckpointManager
-from translator.translation_service import SubtitleTranslator
+from common.utils import DateTimeUtils  # noqa: E402
+from translator.checkpoint_manager import CheckpointManager  # noqa: E402
+from translator.translation_service import SubtitleTranslator  # noqa: E402
 
 # Configure logging
 service_logger = setup_service_logging("translator", enable_file_logging=True)

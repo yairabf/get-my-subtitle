@@ -1,7 +1,6 @@
 """Media file scanner that monitors directory for new/updated files."""
 
 import asyncio
-import logging
 from pathlib import Path
 from typing import Optional
 

@@ -2,8 +2,6 @@
 
 import asyncio
 import json
-import logging
-from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -112,7 +110,7 @@ class JellyfinWebSocketClient:
 
         try:
             ws_url = self._build_websocket_url()
-            logger.info(f"🔌 Connecting to Jellyfin WebSocket...")
+            logger.info("🔌 Connecting to Jellyfin WebSocket...")
 
             # Connect to WebSocket
             self.websocket = await websockets.connect(

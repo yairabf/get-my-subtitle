@@ -2,11 +2,9 @@
 
 import asyncio
 import json
-import logging
 import sys
 from pathlib import Path
 from typing import Optional
-from uuid import UUID
 
 import aio_pika
 from aio_pika import ExchangeType
@@ -15,10 +13,10 @@ from aio_pika.abc import AbstractIncomingMessage
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from common.config import settings
-from common.logging_config import setup_service_logging
-from common.redis_client import redis_client
-from common.schemas import EventType, SubtitleEvent, SubtitleStatus
+from common.config import settings  # noqa: E402
+from common.logging_config import setup_service_logging  # noqa: E402
+from common.redis_client import redis_client  # noqa: E402
+from common.schemas import EventType, SubtitleEvent, SubtitleStatus  # noqa: E402
 
 # Configure logging
 service_logger = setup_service_logging("consumer", enable_file_logging=True)
