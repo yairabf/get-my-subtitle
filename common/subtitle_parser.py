@@ -70,8 +70,14 @@ class SRTParser:
                     i += 1
                     continue
 
-                start_time = f"{timestamp_match.group(1)}:{timestamp_match.group(2)}:{timestamp_match.group(3)},{timestamp_match.group(4)}"
-                end_time = f"{timestamp_match.group(5)}:{timestamp_match.group(6)}:{timestamp_match.group(7)},{timestamp_match.group(8)}"
+                start_time = (
+                    f"{timestamp_match.group(1)}:{timestamp_match.group(2)}:"
+                    f"{timestamp_match.group(3)},{timestamp_match.group(4)}"
+                )
+                end_time = (
+                    f"{timestamp_match.group(5)}:{timestamp_match.group(6)}:"
+                    f"{timestamp_match.group(7)},{timestamp_match.group(8)}"
+                )
                 i += 1
 
                 # Parse text (may be multiple lines)

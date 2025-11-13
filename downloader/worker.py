@@ -2,10 +2,8 @@
 
 import asyncio
 import json
-import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict
 from uuid import UUID
 
 import aio_pika
@@ -13,13 +11,13 @@ from aio_pika.abc import AbstractIncomingMessage
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from common.config import settings
-from common.event_publisher import event_publisher
-from common.logging_config import setup_service_logging
-from common.redis_client import redis_client
-from common.schemas import EventType, SubtitleEvent, SubtitleStatus
-from common.utils import DateTimeUtils, PathUtils
-from downloader.opensubtitles_client import (
+from common.config import settings  # noqa: E402
+from common.event_publisher import event_publisher  # noqa: E402
+from common.logging_config import setup_service_logging  # noqa: E402
+from common.redis_client import redis_client  # noqa: E402
+from common.schemas import EventType, SubtitleEvent, SubtitleStatus  # noqa: E402
+from common.utils import DateTimeUtils, PathUtils  # noqa: E402
+from downloader.opensubtitles_client import (  # noqa: E402
     OpenSubtitlesAPIError,
     OpenSubtitlesAuthenticationError,
     OpenSubtitlesClient,
@@ -82,7 +80,7 @@ async def process_message(message: AbstractIncomingMessage) -> None:
             try:
                 video_path = Path(video_url)
                 if video_path.exists() and video_path.is_file():
-                    logger.info(f"📁 Local file detected, calculating hash...")
+                    logger.info("📁 Local file detected, calculating hash...")
                     hash_result = FileHashUtils.calculate_opensubtitles_hash(
                         str(video_path)
                     )
@@ -118,7 +116,7 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                         f"✅ Found {len(search_results)} subtitle(s) by hash search"
                     )
                 else:
-                    logger.info(f"⚠️  No results by hash, falling back to query search")
+                    logger.info("⚠️  No results by hash, falling back to query search")
 
             # Fallback to query search if hash search returned no results
             if not search_results:

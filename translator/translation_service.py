@@ -200,7 +200,7 @@ class SubtitleTranslator:
             parts = segment.split("]", 1)
             if len(parts) == 2:
                 try:
-                    number = int(parts[0].strip())
+                    int(parts[0].strip())  # Validate number format
                     text = parts[1].strip()
                     translations.append(text)
                 except ValueError:

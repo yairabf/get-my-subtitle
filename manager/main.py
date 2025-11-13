@@ -1,7 +1,6 @@
 """FastAPI application for the subtitle management system."""
 
 import asyncio
-import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 from uuid import UUID
