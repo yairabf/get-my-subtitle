@@ -63,6 +63,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
+    - name: Set up Python path
+      run: |
+        echo "PYTHONPATH=${{ github.workspace }}/src:${{ github.workspace }}" >> $GITHUB_ENV
+    
     - name: Run unit tests with coverage
       run: |
         pytest tests/common tests/downloader tests/manager tests/translator tests/scanner \
@@ -81,7 +85,6 @@ jobs:
           --junitxml=junit/test-results-${{ matrix.python-version }}.xml \
           -v
       env:
-        PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}
         REDIS_URL: redis://localhost:6379
         RABBITMQ_URL: amqp://guest:guest@localhost:5672/
     
@@ -148,6 +151,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
+    - name: Set up Python path
+      run: |
+        echo "PYTHONPATH=${{ github.workspace }}/src:${{ github.workspace }}" >> $GITHUB_ENV
+    
     - name: Wait for services
       run: |
         timeout 30 bash -c 'until nc -z localhost 6379; do sleep 1; done'
@@ -158,7 +165,6 @@ jobs:
         pytest tests/integration/ -v -m integration \
           --junitxml=junit/integration-test-results.xml
       env:
-        PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}
         CI: "true"
         GITHUB_ACTIONS: "true"
         REDIS_URL: redis://localhost:6379

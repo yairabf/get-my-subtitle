@@ -9,11 +9,18 @@ Works with:
 import os
 import sys
 import time
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import aio_pika
 import pytest
 import pytest_asyncio
+
+# Add src directory to Python path for imports
+project_root = Path(__file__).parent.parent.parent
+src_path = project_root / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
 
 # Remove cached modules to force reload with new env vars
 modules_to_reload = [
