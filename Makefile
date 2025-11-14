@@ -133,7 +133,7 @@ test-integration-logs: ## View integration test environment logs
 
 test-cov: ## Run tests with coverage report
 	@echo "$(GREEN)Running tests with coverage...$(NC)"
-	$(PYTEST) --cov=src.common --cov=src.manager --cov=src.downloader --cov=src.translator --cov-report=term-missing --cov-report=html
+	$(PYTEST) --cov=common --cov=manager --cov=downloader --cov=translator --cov=scanner --cov-report=term-missing --cov-report=html
 	@echo "$(YELLOW)HTML coverage report generated in htmlcov/index.html$(NC)"
 
 test-watch: ## Run tests in watch mode

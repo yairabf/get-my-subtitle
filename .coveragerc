@@ -1,24 +1,13 @@
 [run]
-source = 
-    common
-    manager
-    downloader
-    translator
-
+source = src
 omit = 
-    */venv/*
     */tests/*
     */test_*.py
     */__pycache__/*
-    */site-packages/*
-    */conftest.py
-    */debug_*.py
+    */venv/*
+    */env/*
 
 [report]
-precision = 2
-show_missing = True
-skip_covered = False
-
 exclude_lines =
     pragma: no cover
     def __repr__
@@ -26,12 +15,4 @@ exclude_lines =
     raise NotImplementedError
     if __name__ == .__main__.:
     if TYPE_CHECKING:
-    @abstract
     @abstractmethod
-
-[html]
-directory = htmlcov
-
-[xml]
-output = coverage.xml
-

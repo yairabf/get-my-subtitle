@@ -73,11 +73,11 @@ jobs:
           --ignore=tests/scanner/test_websocket_client.py \
           --ignore=tests/scanner/test_worker.py \
           -m "not integration" \
-          --cov=src.common \
-          --cov=src.manager \
-          --cov=src.downloader \
-          --cov=src.translator \
-          --cov=src.scanner \
+          --cov=common \
+          --cov=manager \
+          --cov=downloader \
+          --cov=translator \
+          --cov=scanner \
           --cov-report=xml \
           --cov-report=html \
           --cov-report=term-missing \
