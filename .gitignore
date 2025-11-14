@@ -69,7 +69,8 @@ coverage.xml
 htmlcov/
 .tox/
 .nox/
+MagicMock/
 
-# Temporary files
+# Temporary Ma
 *.tmp
 *.temp

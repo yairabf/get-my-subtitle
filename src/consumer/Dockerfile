@@ -8,17 +8,17 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
-COPY consumer/requirements.txt /app/consumer/requirements.txt
+COPY src/consumer/requirements.txt /app/consumer/requirements.txt
 COPY requirements.txt /app/requirements.txt
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r /app/consumer/requirements.txt
 
 # Copy common module
-COPY common/ /app/common/
+COPY src/common/ /app/common/
 
 # Copy consumer code
-COPY consumer/ /app/consumer/
+COPY src/consumer/ /app/consumer/
 
 # Set Python path
 ENV PYTHONPATH=/app

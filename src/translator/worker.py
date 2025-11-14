@@ -9,7 +9,7 @@ from uuid import UUID
 import aio_pika
 from aio_pika.abc import AbstractIncomingMessage
 
-# Add parent directory to path for imports
+# Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.config import settings  # noqa: E402

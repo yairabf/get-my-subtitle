@@ -194,7 +194,7 @@ main() {
     print_header "4. Type Checking (MyPy)"
     
     if command_exists mypy; then
-        if run_cmd "mypy --ignore-missing-imports --no-strict-optional common/ manager/ scanner/ downloader/ translator/" 2; then
+        if run_cmd "mypy --ignore-missing-imports --no-strict-optional src/common/ src/manager/ src/scanner/ src/downloader/ src/translator/" 2; then
             print_success "Type checking passed"
         else
             print_warning "Type checking found issues (non-blocking)"
@@ -211,7 +211,7 @@ main() {
     print_header "5. Security Scanning (Bandit)"
     
     if command_exists bandit; then
-        if run_cmd "bandit -r common/ manager/ scanner/ downloader/ translator/ -ll -f json -o bandit-report.json" 2; then
+        if run_cmd "bandit -r src/common/ src/manager/ src/scanner/ src/downloader/ src/translator/ -ll -f json -o bandit-report.json" 2; then
             print_success "Security scan passed"
         else
             print_warning "Security scan found issues (non-blocking)"

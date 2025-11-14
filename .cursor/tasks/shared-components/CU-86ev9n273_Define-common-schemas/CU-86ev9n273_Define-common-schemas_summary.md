@@ -182,3 +182,4 @@ Successfully added new Pydantic models to `common/schemas.py` for event wrapping
 - ✅ Follows existing code patterns (Field annotations, json_schema_extra examples)
 - ✅ Uses utility functions from common/utils.py for consistency
 
+
