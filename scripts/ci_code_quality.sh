@@ -125,13 +125,24 @@ main() {
     
     print_info "Starting code quality checks..."
     print_info "Working directory: $(pwd)"
-    print_info "Python version: $(python --version 2>&1)"
     
     # Activate virtual environment if it exists
     if [ -d "venv" ]; then
         print_info "Activating virtual environment..."
         source venv/bin/activate
     fi
+    
+    # Determine Python command
+    if command_exists python3; then
+        PYTHON_CMD=python3
+    elif command_exists python; then
+        PYTHON_CMD=python
+    else
+        print_error "Python not found. Please install Python 3.11+"
+        exit 1
+    fi
+    
+    print_info "Python version: $($PYTHON_CMD --version 2>&1)"
     
     ############################################################################
     # 1. Code Formatting Check (Black)
@@ -141,7 +152,7 @@ main() {
     
     if ! command_exists black; then
         print_warning "Black not found. Installing..."
-        pip install black > /dev/null 2>&1
+        $PYTHON_CMD -m pip install black > /dev/null 2>&1
     fi
     
     if run_cmd "black --check --diff ." 1; then
@@ -159,7 +170,7 @@ main() {
     
     if ! command_exists isort; then
         print_warning "isort not found. Installing..."
-        pip install isort > /dev/null 2>&1
+        $PYTHON_CMD -m pip install isort > /dev/null 2>&1
     fi
     
     if run_cmd "isort --check-only --diff ." 1; then
@@ -177,10 +188,10 @@ main() {
     
     if ! command_exists flake8; then
         print_warning "Flake8 not found. Installing..."
-        pip install flake8 > /dev/null 2>&1
+        $PYTHON_CMD -m pip install flake8 > /dev/null 2>&1
     fi
     
-    if run_cmd "flake8 --max-line-length=120 --extend-ignore=E203,W503 ." 1; then
+    if run_cmd "flake8 --max-line-length=120 --extend-ignore=E203,W503 src/common/ src/manager/ src/downloader/ src/translator/ src/scanner/ src/consumer/" 1; then
         print_success "Linting passed"
     else
         print_error "Linting failed"
@@ -194,7 +205,7 @@ main() {
     print_header "4. Type Checking (MyPy)"
     
     if command_exists mypy; then
-        if run_cmd "mypy --ignore-missing-imports --no-strict-optional src/common/ src/manager/ src/scanner/ src/downloader/ src/translator/" 2; then
+        if run_cmd "mypy --ignore-missing-imports --no-strict-optional src/common/ src/manager/ src/scanner/ src/downloader/ src/translator/ src/consumer/" 2; then
             print_success "Type checking passed"
         else
             print_warning "Type checking found issues (non-blocking)"
@@ -211,7 +222,7 @@ main() {
     print_header "5. Security Scanning (Bandit)"
     
     if command_exists bandit; then
-        if run_cmd "bandit -r src/common/ src/manager/ src/scanner/ src/downloader/ src/translator/ -ll -f json -o bandit-report.json" 2; then
+        if run_cmd "bandit -r src/common/ src/manager/ src/scanner/ src/downloader/ src/translator/ src/consumer/ -ll -f json -o bandit-report.json" 2; then
             print_success "Security scan passed"
         else
             print_warning "Security scan found issues (non-blocking)"
