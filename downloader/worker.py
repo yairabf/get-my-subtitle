@@ -332,7 +332,7 @@ async def consume_messages() -> None:
 
         # Connect to RabbitMQ
         logger.info("🔌 Connecting to RabbitMQ...")
-        connection = await aio_pika.connect_robust("amqp://guest:guest@localhost:5672/")
+        connection = await aio_pika.connect_robust(settings.rabbitmq_url)
 
         # Create channel
         channel = await connection.channel()

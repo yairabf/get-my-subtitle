@@ -197,13 +197,22 @@ class SubtitleEventConsumer:
             )
 
             if dedup_result.is_duplicate:
-                logger.warning(
-                    f"⚠️ Duplicate event reached manager for {video_title} - "
-                    f"already processing as job {dedup_result.existing_job_id}. "
-                    f"Scanner-level deduplication may have been bypassed."
-                )
-                # Idempotent behavior: treat as success (already being processed)
-                return
+                # If the existing job_id matches the event job_id, this is the same job
+                # (scanner already registered it), so proceed with processing
+                if dedup_result.existing_job_id == event.job_id:
+                    logger.info(
+                        f"✅ Event for job {event.job_id} matches registered job - "
+                        f"proceeding with processing"
+                    )
+                else:
+                    # Different job_id means this is a true duplicate
+                    logger.warning(
+                        f"⚠️ Duplicate event reached manager for {video_title} - "
+                        f"already processing as job {dedup_result.existing_job_id}. "
+                        f"Scanner-level deduplication may have been bypassed."
+                    )
+                    # Idempotent behavior: treat as success (already being processed)
+                    return
 
             # Enqueue download task via orchestrator
             success = await orchestrator.enqueue_download_task(
