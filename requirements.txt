@@ -1,7 +1,7 @@
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 aio-pika==9.3.1
-pydantic[dotenv]==2.10.4
+pydantic[dotenv]==2.12.4
 pydantic-settings==2.6.1
 redis==5.2.0
 pytest==8.3.4
