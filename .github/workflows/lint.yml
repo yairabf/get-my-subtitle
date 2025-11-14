@@ -46,8 +46,8 @@ jobs:
     - name: Run Flake8 linting
       id: flake8
       run: |
-        flake8 --max-line-length=120 --extend-ignore=E203,W503 common/ manager/ downloader/ translator/ scanner/ consumer/ || echo "::error::Flake8 linting failed. Fix the issues shown above."
-        flake8 --max-line-length=120 --extend-ignore=E203,W503 common/ manager/ downloader/ translator/ scanner/ consumer/ && echo "passed=true" >> $GITHUB_OUTPUT || echo "passed=false" >> $GITHUB_OUTPUT
+        flake8 --max-line-length=120 --extend-ignore=E203,W503 src/common/ src/manager/ src/downloader/ src/translator/ src/scanner/ src/consumer/ || echo "::error::Flake8 linting failed. Fix the issues shown above."
+        flake8 --max-line-length=120 --extend-ignore=E203,W503 src/common/ src/manager/ src/downloader/ src/translator/ src/scanner/ src/consumer/ && echo "passed=true" >> $GITHUB_OUTPUT || echo "passed=false" >> $GITHUB_OUTPUT
     
     - name: Comment on PR with lint results
       if: github.event_name == 'pull_request' && (steps.black.outputs.passed == 'false' || steps.isort.outputs.passed == 'false' || steps.flake8.outputs.passed == 'false')

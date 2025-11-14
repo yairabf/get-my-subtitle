@@ -36,7 +36,7 @@ jobs:
       run: isort --check-only --diff .
     
     - name: Run Flake8 linting
-      run: flake8 --max-line-length=120 --extend-ignore=E203,W503 common/ manager/ downloader/ translator/ scanner/ consumer/
+      run: flake8 --max-line-length=120 --extend-ignore=E203,W503 src/common/ src/manager/ src/downloader/ src/translator/ src/scanner/ src/consumer/
 
   # 2. Unit Tests - Matrix Strategy for Multiple Python Versions
   unit-tests:
@@ -69,11 +69,11 @@ jobs:
           --ignore=tests/scanner/test_websocket_client.py \
           --ignore=tests/scanner/test_worker.py \
           -m "not integration" \
-          --cov=common \
-          --cov=manager \
-          --cov=downloader \
-          --cov=translator \
-          --cov=scanner \
+          --cov=src.common \
+          --cov=src.manager \
+          --cov=src.downloader \
+          --cov=src.translator \
+          --cov=src.scanner \
           --cov-report=xml \
           --cov-report=html \
           --cov-report=term-missing \
@@ -81,6 +81,7 @@ jobs:
           --junitxml=junit/test-results-${{ matrix.python-version }}.xml \
           -v
       env:
+        PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}
         REDIS_URL: redis://localhost:6379
         RABBITMQ_URL: amqp://guest:guest@localhost:5672/
     
@@ -157,6 +158,7 @@ jobs:
         pytest tests/integration/ -v -m integration \
           --junitxml=junit/integration-test-results.xml
       env:
+        PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}
         CI: "true"
         GITHUB_ACTIONS: "true"
         REDIS_URL: redis://localhost:6379
@@ -191,7 +193,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./${{ matrix.service }}/Dockerfile
+        file: ./src/${{ matrix.service }}/Dockerfile
         push: false
         tags: get-my-subtitle-${{ matrix.service }}:test
         cache-from: type=gha
@@ -232,7 +234,7 @@ jobs:
     
     - name: Run Bandit security scan
       run: |
-        bandit -r common/ manager/ downloader/ translator/ scanner/ consumer/ \
+        bandit -r src/common/ src/manager/ src/downloader/ src/translator/ src/scanner/ src/consumer/ \
           -f json -o bandit-report.json || true
       continue-on-error: true
     
