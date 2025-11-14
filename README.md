@@ -329,51 +329,52 @@ See the [Configuration Guide](CONFIGURATION.md) for:
 
 ```
 get-my-subtitle/
-├── manager/               # API + orchestrator service
-│   ├── main.py           # FastAPI application
-│   ├── orchestrator.py   # RabbitMQ orchestration
-│   ├── event_consumer.py # Event consumer
-│   ├── file_service.py   # File operations
-│   ├── schemas.py        # Service-specific schemas
-│   ├── README.md         # Service documentation
-│   ├── Dockerfile        # Manager service container
-│   └── requirements.txt  # Service dependencies
-├── downloader/            # Subtitle fetch worker service
-│   ├── worker.py         # Main worker process
-│   ├── opensubtitles_client.py  # OpenSubtitles API client
-│   ├── README.md         # Service documentation
-│   ├── Dockerfile        # Downloader service container
-│   └── requirements.txt  # Service dependencies
-├── translator/            # Translation worker service
-│   ├── worker.py         # Main worker process
-│   ├── translation_service.py  # Translation logic
-│   ├── checkpoint_manager.py   # Translation checkpoint management
-│   ├── README.md         # Service documentation
-│   ├── Dockerfile        # Translator service container
-│   └── requirements.txt  # Service dependencies
-├── scanner/              # Media detection service
-│   ├── worker.py         # Main worker process
-│   ├── scanner.py        # Media scanner
-│   ├── websocket_client.py  # Jellyfin WebSocket client
-│   ├── webhook_handler.py   # Webhook handler
-│   ├── event_handler.py    # File system event handler
-│   ├── README.md         # Service documentation
-│   ├── Dockerfile        # Scanner service container
-│   └── requirements.txt  # Service dependencies
-├── consumer/             # Event consumer service
-│   ├── worker.py         # Main worker process
-│   ├── README.md         # Service documentation
-│   ├── Dockerfile        # Consumer service container
-│   └── requirements.txt  # Service dependencies
-├── common/                # Shared code
-│   ├── schemas.py        # Shared Pydantic models
-│   ├── utils.py          # Utility functions
-│   ├── config.py         # Configuration management
-│   ├── redis_client.py   # Redis client
-│   ├── event_publisher.py  # Event publishing
-│   ├── logging_config.py  # Logging configuration
-│   ├── retry_utils.py     # Retry utilities
-│   └── subtitle_parser.py # Subtitle parsing
+├── src/                   # Source code directory
+│   ├── manager/          # API + orchestrator service
+│   │   ├── main.py       # FastAPI application
+│   │   ├── orchestrator.py   # RabbitMQ orchestration
+│   │   ├── event_consumer.py # Event consumer
+│   │   ├── file_service.py   # File operations
+│   │   ├── schemas.py        # Service-specific schemas
+│   │   ├── README.md         # Service documentation
+│   │   ├── Dockerfile        # Manager service container
+│   │   └── requirements.txt  # Service dependencies
+│   ├── downloader/       # Subtitle fetch worker service
+│   │   ├── worker.py         # Main worker process
+│   │   ├── opensubtitles_client.py  # OpenSubtitles API client
+│   │   ├── README.md         # Service documentation
+│   │   ├── Dockerfile        # Downloader service container
+│   │   └── requirements.txt  # Service dependencies
+│   ├── translator/       # Translation worker service
+│   │   ├── worker.py         # Main worker process
+│   │   ├── translation_service.py  # Translation logic
+│   │   ├── checkpoint_manager.py   # Translation checkpoint management
+│   │   ├── README.md         # Service documentation
+│   │   ├── Dockerfile        # Translator service container
+│   │   └── requirements.txt  # Service dependencies
+│   ├── scanner/          # Media detection service
+│   │   ├── worker.py         # Main worker process
+│   │   ├── scanner.py        # Media scanner
+│   │   ├── websocket_client.py  # Jellyfin WebSocket client
+│   │   ├── webhook_handler.py   # Webhook handler
+│   │   ├── event_handler.py    # File system event handler
+│   │   ├── README.md         # Service documentation
+│   │   ├── Dockerfile        # Scanner service container
+│   │   └── requirements.txt  # Service dependencies
+│   ├── consumer/         # Event consumer service
+│   │   ├── worker.py         # Main worker process
+│   │   ├── README.md         # Service documentation
+│   │   ├── Dockerfile        # Consumer service container
+│   │   └── requirements.txt  # Service dependencies
+│   └── common/           # Shared code
+│       ├── schemas.py        # Shared Pydantic models
+│       ├── utils.py          # Utility functions
+│       ├── config.py         # Configuration management
+│       ├── redis_client.py   # Redis client
+│       ├── event_publisher.py  # Event publishing
+│       ├── logging_config.py  # Logging configuration
+│       ├── retry_utils.py     # Retry utilities
+│       └── subtitle_parser.py # Subtitle parsing
 ├── tests/                 # Test suite
 │   ├── common/           # Common module tests
 │   ├── manager/          # Manager service tests
@@ -404,11 +405,11 @@ get-my-subtitle/
 ### Service Documentation
 
 Each service has its own README with detailed documentation:
-- [Manager Service](manager/README.md) - API and orchestration
-- [Downloader Service](downloader/README.md) - Subtitle fetching
-- [Translator Service](translator/README.md) - Subtitle translation
-- [Scanner Service](scanner/README.md) - Media detection
-- [Consumer Service](consumer/README.md) - Event processing
+- [Manager Service](src/manager/README.md) - API and orchestration
+- [Downloader Service](src/downloader/README.md) - Subtitle fetching
+- [Translator Service](src/translator/README.md) - Subtitle translation
+- [Scanner Service](src/scanner/README.md) - Media detection
+- [Consumer Service](src/consumer/README.md) - Event processing
 
 ## Contributing
 
