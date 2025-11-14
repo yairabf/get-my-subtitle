@@ -1,5 +1,7 @@
 """Pytest configuration and shared fixtures."""
 
+import sys
+from pathlib import Path
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
@@ -8,6 +10,12 @@ import aio_pika
 import fakeredis.aioredis
 import pytest
 import pytest_asyncio
+
+# Add src directory to Python path for imports
+project_root = Path(__file__).parent.parent
+src_path = project_root / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
 
 from common.redis_client import RedisJobClient
 from common.schemas import SubtitleRequest, SubtitleResponse, SubtitleStatus

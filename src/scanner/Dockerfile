@@ -6,12 +6,12 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies
-COPY scanner/requirements.txt /app/requirements.txt
+COPY src/scanner/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy common and scanner code
-COPY common/ /app/common/
-COPY scanner/ /app/scanner/
+COPY src/common/ /app/common/
+COPY src/scanner/ /app/scanner/
 
 # Set Python path to include /app
 ENV PYTHONPATH=/app

@@ -36,7 +36,7 @@ jobs:
       run: isort --check-only --diff .
     
     - name: Run Flake8 linting
-      run: flake8 --max-line-length=120 --extend-ignore=E203,W503 common/ manager/ downloader/ translator/ scanner/ consumer/
+      run: flake8 --max-line-length=120 --extend-ignore=E203,W503 src/common/ src/manager/ src/downloader/ src/translator/ src/scanner/ src/consumer/
 
   # 2. Unit Tests - Matrix Strategy for Multiple Python Versions
   unit-tests:
@@ -62,6 +62,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+    
+    - name: Set up Python path
+      run: |
+        echo "PYTHONPATH=${{ github.workspace }}/src:${{ github.workspace }}" >> $GITHUB_ENV
     
     - name: Run unit tests with coverage
       run: |
@@ -147,6 +151,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
+    - name: Set up Python path
+      run: |
+        echo "PYTHONPATH=${{ github.workspace }}/src:${{ github.workspace }}" >> $GITHUB_ENV
+    
     - name: Wait for services
       run: |
         timeout 30 bash -c 'until nc -z localhost 6379; do sleep 1; done'
@@ -191,7 +199,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./${{ matrix.service }}/Dockerfile
+        file: ./src/${{ matrix.service }}/Dockerfile
         push: false
         tags: get-my-subtitle-${{ matrix.service }}:test
         cache-from: type=gha
@@ -232,7 +240,7 @@ jobs:
     
     - name: Run Bandit security scan
       run: |
-        bandit -r common/ manager/ downloader/ translator/ scanner/ consumer/ \
+        bandit -r src/common/ src/manager/ src/downloader/ src/translator/ src/scanner/ src/consumer/ \
           -f json -o bandit-report.json || true
       continue-on-error: true
     

@@ -24,9 +24,9 @@ from tests.e2e.utils import (
     get_expected_subtitle_path,
     get_job_details,
     get_job_events,
+    verify_subtitle_file,
     wait_for_file_exists,
     wait_for_job_status,
-    verify_subtitle_file,
 )
 
 
@@ -126,7 +126,9 @@ async def test_get_job_details(http_client, test_media_dir: Path):
         "preferred_sources": ["opensubtitles"],
     }
 
-    create_response = await http_client.post("/subtitles/download", json=request_payload)
+    create_response = await http_client.post(
+        "/subtitles/download", json=request_payload
+    )
     assert create_response.status_code == 201
     job_id = UUID(create_response.json()["id"])
 
@@ -160,7 +162,9 @@ async def test_get_job_status(http_client, test_media_dir: Path):
         "preferred_sources": ["opensubtitles"],
     }
 
-    create_response = await http_client.post("/subtitles/download", json=request_payload)
+    create_response = await http_client.post(
+        "/subtitles/download", json=request_payload
+    )
     assert create_response.status_code == 201
     job_id = UUID(create_response.json()["id"])
 
@@ -193,7 +197,9 @@ async def test_get_job_events(http_client, test_media_dir: Path):
         "preferred_sources": ["opensubtitles"],
     }
 
-    create_response = await http_client.post("/subtitles/download", json=request_payload)
+    create_response = await http_client.post(
+        "/subtitles/download", json=request_payload
+    )
     assert create_response.status_code == 201
     job_id = UUID(create_response.json()["id"])
 
@@ -357,7 +363,9 @@ async def test_full_download_flow_via_api(http_client, test_media_dir: Path):
         "preferred_sources": ["opensubtitles"],
     }
 
-    create_response = await http_client.post("/subtitles/download", json=request_payload)
+    create_response = await http_client.post(
+        "/subtitles/download", json=request_payload
+    )
     assert create_response.status_code == 201
     job_id = UUID(create_response.json()["id"])
 
@@ -419,7 +427,9 @@ async def test_job_state_transitions(http_client, test_media_dir: Path):
         "preferred_sources": ["opensubtitles"],
     }
 
-    create_response = await http_client.post("/subtitles/download", json=request_payload)
+    create_response = await http_client.post(
+        "/subtitles/download", json=request_payload
+    )
     job_id = UUID(create_response.json()["id"])
 
     # Track status changes
@@ -437,7 +447,10 @@ async def test_job_state_transitions(http_client, test_media_dir: Path):
                 previous_status = current_status
 
             # If we reach DONE or FAILED, stop polling
-            if current_status in [SubtitleStatus.DONE.value, SubtitleStatus.FAILED.value]:
+            if current_status in [
+                SubtitleStatus.DONE.value,
+                SubtitleStatus.FAILED.value,
+            ]:
                 break
 
     # Verify we saw at least one status change
@@ -452,4 +465,3 @@ async def test_job_state_transitions(http_client, test_media_dir: Path):
         SubtitleStatus.FAILED.value,
         SubtitleStatus.TRANSLATE_IN_PROGRESS.value,
     ]
-

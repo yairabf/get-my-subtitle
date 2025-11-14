@@ -37,12 +37,12 @@ services:
   manager:
     build:
       context: .
-      dockerfile: ./manager/Dockerfile
+      dockerfile: ./src/manager/Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - ./common:/app/common
-      - ./manager:/app/manager
+      - ./src/common:/app/common
+      - ./src/manager:/app/manager
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
@@ -66,10 +66,10 @@ services:
   downloader:
     build:
       context: .
-      dockerfile: ./downloader/Dockerfile
+      dockerfile: ./src/downloader/Dockerfile
     volumes:
-      - ./common:/app/common
-      - ./downloader:/app/downloader
+      - ./src/common:/app/common
+      - ./src/downloader:/app/downloader
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
@@ -91,10 +91,10 @@ services:
   translator:
     build:
       context: .
-      dockerfile: ./translator/Dockerfile
+      dockerfile: ./src/translator/Dockerfile
     volumes:
-      - ./common:/app/common
-      - ./translator:/app/translator
+      - ./src/common:/app/common
+      - ./src/translator:/app/translator
       - ./storage:/app/storage
     environment:
       REDIS_URL: redis://redis:6379
@@ -117,13 +117,13 @@ services:
   scanner:
     build:
       context: .
-      dockerfile: ./scanner/Dockerfile
+      dockerfile: ./src/scanner/Dockerfile
     ports:
       - "8001:8001"
     volumes:
-      - ./common:/app/common
-      - ./scanner:/app/scanner
-      - ./manager:/app/manager
+      - ./src/common:/app/common
+      - ./src/scanner:/app/scanner
+      - ./src/manager:/app/manager
       - ./test-media:/media:ro  # Mount test media directory
     environment:
       REDIS_URL: redis://redis:6379

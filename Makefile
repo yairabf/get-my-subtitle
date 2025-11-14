@@ -76,15 +76,15 @@ logs: ## Follow logs from all services
 
 dev-manager: ## Run manager locally with hot reload
 	@echo "$(GREEN)Starting manager service locally...$(NC)"
-	@. venv/bin/activate && cd manager && uvicorn main:app --reload --host 0.0.0.0 --port 8000
+	@. venv/bin/activate && cd src/manager && uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 dev-downloader: ## Run downloader worker locally
 	@echo "$(GREEN)Starting downloader worker locally...$(NC)"
-	@. venv/bin/activate && cd downloader && python worker.py
+	@. venv/bin/activate && cd src/downloader && python worker.py
 
 dev-translator: ## Run translator worker locally
 	@echo "$(GREEN)Starting translator worker locally...$(NC)"
-	@. venv/bin/activate && cd translator && python worker.py
+	@. venv/bin/activate && cd src/translator && python worker.py
 
 ##@ Testing
 
@@ -133,7 +133,7 @@ test-integration-logs: ## View integration test environment logs
 
 test-cov: ## Run tests with coverage report
 	@echo "$(GREEN)Running tests with coverage...$(NC)"
-	$(PYTEST) --cov=common --cov=manager --cov=downloader --cov=translator --cov-report=term-missing --cov-report=html
+	$(PYTEST) --cov=common --cov=manager --cov=downloader --cov=translator --cov=scanner --cov-report=term-missing --cov-report=html
 	@echo "$(YELLOW)HTML coverage report generated in htmlcov/index.html$(NC)"
 
 test-watch: ## Run tests in watch mode

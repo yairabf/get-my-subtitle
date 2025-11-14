@@ -105,7 +105,9 @@ async def wait_for_job_status(
                     last_status = current_status
                 elif time.time() - last_print_time > 10:  # Print every 10 seconds
                     elapsed = int(time.time() - start_time)
-                    print(f"  ⏱️  [{elapsed}s] Still waiting... (current: {current_status}, target: {target_status.value})")
+                    print(
+                        f"  ⏱️  [{elapsed}s] Still waiting... (current: {current_status}, target: {target_status.value})"
+                    )
                     last_print_time = time.time()
 
                 if current_status == target_status.value:
@@ -275,4 +277,3 @@ async def get_job_events(
         return None
     except Exception:
         return None
-

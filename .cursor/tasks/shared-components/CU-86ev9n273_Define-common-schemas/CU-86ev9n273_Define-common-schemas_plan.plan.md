@@ -186,3 +186,4 @@ Create `tests/common/test_schemas_new_models.py`:
 - Follows existing code patterns (Field annotations, json_schema_extra examples)
 - Uses utility functions from common/utils.py for consistency
 
+

@@ -21,9 +21,9 @@ from tests.e2e.utils import (
     get_expected_subtitle_path,
     get_job_details,
     get_job_events,
+    verify_subtitle_file,
     wait_for_file_exists,
     wait_for_job_status,
-    verify_subtitle_file,
 )
 
 
@@ -47,7 +47,7 @@ async def test_scanner_file_system_watcher_detects_movie_creates_translation(
     # Use a real movie title for OpenSubtitles search
     video_title = "The Matrix"
     video_path = f"/media/movies/{video_title.replace(' ', '_')}.mp4"
-    
+
     # Create a dummy file to trigger file system watcher
     test_filename = f"{video_title.replace(' ', '_')}.mp4"
     create_test_media_file(test_media_dir, test_filename)
@@ -65,7 +65,9 @@ async def test_scanner_file_system_watcher_detects_movie_creates_translation(
     # Find job for our test file
     test_job = None
     for job in jobs:
-        if video_title in job.get("video_title", "") or test_filename in job.get("video_url", ""):
+        if video_title in job.get("video_title", "") or test_filename in job.get(
+            "video_url", ""
+        ):
             test_job = job
             break
 
@@ -101,7 +103,7 @@ async def test_scanner_file_system_watcher_detects_movie_creates_translation(
         # Verify job completed successfully
         job_details = await get_job_details(http_client, job_id)
         assert job_details["status"] == SubtitleStatus.DONE.value
-        
+
         # Note: Subtitle file location depends on whether it was downloaded or translated
         # Since we're using a fake path, we just verify the job completed
 
@@ -112,10 +114,18 @@ async def test_scanner_file_system_watcher_detects_movie_creates_translation(
 
         # Check for key events in the flow
         event_types = [event.get("event_type") for event in events]
-        assert "media.file.detected" in event_types or "subtitle.requested" in event_types
-        assert "subtitle.download.requested" in event_types or "subtitle.missing" in event_types
+        assert (
+            "media.file.detected" in event_types or "subtitle.requested" in event_types
+        )
+        assert (
+            "subtitle.download.requested" in event_types
+            or "subtitle.missing" in event_types
+        )
         assert "subtitle.translate.requested" in event_types
-        assert "subtitle.translated" in event_types or "translation.completed" in event_types
+        assert (
+            "subtitle.translated" in event_types
+            or "translation.completed" in event_types
+        )
 
     except TimeoutError:
         # If translation wasn't triggered (subtitle was found), that's also valid
@@ -170,7 +180,9 @@ async def test_scanner_webhook_detects_movie_creates_translation(
         "video_url": video_path,
     }
 
-    response = await scanner_http_client.post("/webhooks/jellyfin", json=webhook_payload)
+    response = await scanner_http_client.post(
+        "/webhooks/jellyfin", json=webhook_payload
+    )
     assert response.status_code == 200
     webhook_response = response.json()
 
@@ -193,32 +205,43 @@ async def test_scanner_webhook_detects_movie_creates_translation(
         # Check current status for debugging
         job_details = await get_job_details(http_client, job_id)
         if job_details:
-            current_status = job_details.get('status')
+            current_status = job_details.get("status")
             print(f"⚠️ Job status after webhook: {current_status}")
-            
+
             # If job failed due to dummy video path (expected in e2e tests), that's acceptable
             if current_status == SubtitleStatus.FAILED.value:
-                error_msg = job_details.get('error_message', '')
-                if 'video' in error_msg.lower() and ('not a local file' in error_msg.lower() or 'not found' in error_msg.lower()):
+                error_msg = job_details.get("error_message", "")
+                if "video" in error_msg.lower() and (
+                    "not a local file" in error_msg.lower()
+                    or "not found" in error_msg.lower()
+                ):
                     print(f"✅ Job failed as expected (dummy video path): {error_msg}")
                     # Verify the flow worked up to the download step
                     # Check that job was created and processed (status changed from pending to failed)
-                    assert job_details.get('status') == SubtitleStatus.FAILED.value
+                    assert job_details.get("status") == SubtitleStatus.FAILED.value
                     # Verify job was created by scanner (has video_title and video_url)
-                    assert job_details.get('video_title') == video_title
-                    assert job_details.get('video_url') == video_path
-                    print("✅ Full flow verified: scanner → manager → downloader (failed at save step as expected)")
+                    assert job_details.get("video_title") == video_title
+                    assert job_details.get("video_url") == video_path
+                    print(
+                        "✅ Full flow verified: scanner → manager → downloader (failed at save step as expected)"
+                    )
                     print("   - Scanner created job ✅")
                     print("   - Manager received event and enqueued download ✅")
-                    print("   - Downloader processed task and failed at save (expected) ✅")
+                    print(
+                        "   - Downloader processed task and failed at save (expected) ✅"
+                    )
                     return  # Test passes - flow worked correctly
                 else:
                     # Unexpected failure
-                    raise AssertionError(f"Job failed with unexpected error: {error_msg}")
+                    raise AssertionError(
+                        f"Job failed with unexpected error: {error_msg}"
+                    )
         # Continue anyway - job might have progressed faster
 
     # Wait for download to complete (or fail, triggering translation)
-    print(f"⏳ Waiting for download to complete (may take 30-60 seconds for OpenSubtitles API)...")
+    print(
+        f"⏳ Waiting for download to complete (may take 30-60 seconds for OpenSubtitles API)..."
+    )
     try:
         # Wait for translation to be triggered (if subtitle not found)
         # OR wait for DONE (if subtitle found)
@@ -233,7 +256,9 @@ async def test_scanner_webhook_detects_movie_creates_translation(
             assert status_response["status"] == SubtitleStatus.TRANSLATE_QUEUED.value
 
             # Wait for translation to complete
-            print(f"⏳ Waiting for translation to complete (may take 2-5 minutes for OpenAI API)...")
+            print(
+                f"⏳ Waiting for translation to complete (may take 2-5 minutes for OpenAI API)..."
+            )
             final_status = await wait_for_job_status(
                 http_client, job_id, SubtitleStatus.DONE, max_wait_seconds=300
             )
@@ -251,7 +276,7 @@ async def test_scanner_webhook_detects_movie_creates_translation(
         # Verify subtitle file was created (if translation occurred)
         job_details = await get_job_details(http_client, job_id)
         target_language = job_details.get("target_language")
-        
+
         # Only check for subtitle file if target_language is set and translation occurred
         if target_language:
             # Note: Since we're using a fake path, the subtitle won't be saved next to the video
@@ -264,10 +289,18 @@ async def test_scanner_webhook_detects_movie_creates_translation(
         assert len(events) > 0
 
         event_types = [event.get("event_type") for event in events]
-        assert "media.file.detected" in event_types or "subtitle.requested" in event_types
-        assert "subtitle.download.requested" in event_types or "subtitle.missing" in event_types
+        assert (
+            "media.file.detected" in event_types or "subtitle.requested" in event_types
+        )
+        assert (
+            "subtitle.download.requested" in event_types
+            or "subtitle.missing" in event_types
+        )
         assert "subtitle.translate.requested" in event_types
-        assert "subtitle.translated" in event_types or "translation.completed" in event_types
+        assert (
+            "subtitle.translated" in event_types
+            or "translation.completed" in event_types
+        )
 
     except TimeoutError:
         # If translation wasn't triggered (subtitle was found), check if job completed
@@ -297,7 +330,7 @@ async def test_scanner_flow_job_status_progression(
     Test that job status progresses correctly through all stages.
 
     Expected progression:
-    PENDING → DOWNLOAD_QUEUED → DOWNLOAD_IN_PROGRESS → 
+    PENDING → DOWNLOAD_QUEUED → DOWNLOAD_IN_PROGRESS →
     TRANSLATE_QUEUED → TRANSLATE_IN_PROGRESS → DONE
     """
     # Use a real movie title
@@ -315,7 +348,9 @@ async def test_scanner_flow_job_status_progression(
         "video_url": video_path,
     }
 
-    response = await scanner_http_client.post("/webhooks/jellyfin", json=webhook_payload)
+    response = await scanner_http_client.post(
+        "/webhooks/jellyfin", json=webhook_payload
+    )
     assert response.status_code == 200
     job_id = UUID(response.json()["job_id"])
 
@@ -343,7 +378,10 @@ async def test_scanner_flow_job_status_progression(
             if job_details:
                 current_status = job_details.get("status")
                 # If we're at DONE or FAILED, that's acceptable
-                if current_status in [SubtitleStatus.DONE.value, SubtitleStatus.FAILED.value]:
+                if current_status in [
+                    SubtitleStatus.DONE.value,
+                    SubtitleStatus.FAILED.value,
+                ]:
                     statuses_seen.append(current_status)
                     break
             # Otherwise, continue to next status
@@ -358,4 +396,3 @@ async def test_scanner_flow_job_status_progression(
         SubtitleStatus.DONE.value,
         SubtitleStatus.FAILED.value,
     ], f"Job did not complete. Final status: {final_job['status']}"
-
