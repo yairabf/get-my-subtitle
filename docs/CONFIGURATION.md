@@ -2,7 +2,7 @@
 
 This guide explains how to configure the `.env` file and `docker-compose.yml` for different deployment scenarios.
 
-> **📖 See Also**: [Main README](README.md) for project overview and [Development Guide](DEVELOPMENT.md) for development setup.
+> **📖 See Also**: [Main README](../README.md) for project overview and [Development Guide](DEVELOPMENT.md) for development setup.
 
 ## Table of Contents
 
@@ -704,4 +704,5 @@ volumes:
 - Check what's using the port: `lsof -i :8000`
 
 For more troubleshooting help, see the [Development Guide](DEVELOPMENT.md#troubleshooting).
+
 

@@ -2,7 +2,7 @@
 
 This guide provides comprehensive information for local development, including setup, debugging, and troubleshooting.
 
-> **📖 See Also**: [Main README](README.md) for project overview and deployment options.
+> **📖 See Also**: [Main README](../README.md) for project overview and deployment options.
 
 ## Table of Contents
 
@@ -731,4 +731,5 @@ The hooks use the same configuration as CI/CD, ensuring consistency across local
 1. Create a new service class in `translator/services/`
 2. Implement the required interface
 3. Register the service in the translator worker
+
 

@@ -2,7 +2,7 @@
 
 This guide provides comprehensive testing guidance, from quick verification to full integration testing.
 
-> **📖 See Also**: [Main README](README.md) for project overview and [Development Guide](DEVELOPMENT.md) for development setup.
+> **📖 See Also**: [Main README](../README.md) for project overview and [Development Guide](DEVELOPMENT.md) for development setup.
 
 ## Table of Contents
 
@@ -425,6 +425,7 @@ wait
 ```
 
 For more detailed testing information, see:
-- [Logging Documentation](docs/LOGGING.md) - Logging configuration and usage
+- [Logging Documentation](LOGGING.md) - Logging configuration and usage
 - Service-specific READMEs for service-specific testing
+
 

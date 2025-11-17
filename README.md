@@ -143,15 +143,15 @@ docker-compose logs -f
 - Set `SUBTITLE_STORAGE_PATH` to a persistent volume path
 - Configure `JELLYFIN_URL` and `JELLYFIN_API_KEY` if using Jellyfin integration
 - Set up reverse proxy (nginx/traefik) for the Manager API
-- See [Configuration Guide](CONFIGURATION.md) for detailed production setup
+- See [Configuration Guide](docs/CONFIGURATION.md) for detailed production setup
 
 ## Documentation
 
 ### Main Guides
 
-- **[Configuration Guide](CONFIGURATION.md)** - Complete environment variable and Docker Compose configuration reference
-- **[Development Guide](DEVELOPMENT.md)** - Local development setup, debugging, and workflows
-- **[Testing Guide](TESTING.md)** - Testing documentation and test execution
+- **[Configuration Guide](docs/CONFIGURATION.md)** - Complete environment variable and Docker Compose configuration reference
+- **[Development Guide](docs/DEVELOPMENT.md)** - Local development setup, debugging, and workflows
+- **[Testing Guide](docs/TESTING.md)** - Testing documentation and test execution
 
 ### Service Documentation
 
@@ -178,7 +178,7 @@ Each service has detailed documentation:
 5. Run `make check` to ensure code quality
 6. Submit a pull request
 
-For detailed development instructions, see the [Development Guide](DEVELOPMENT.md).
+For detailed development instructions, see the [Development Guide](docs/DEVELOPMENT.md).
 
 ## License
 
