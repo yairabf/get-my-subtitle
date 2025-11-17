@@ -113,6 +113,36 @@ services:
     networks:
       - integration-test-network
 
+  # Consumer service (processes events and updates Redis status)
+  consumer:
+    build:
+      context: .
+      dockerfile: ./src/consumer/Dockerfile
+    volumes:
+      - ./src/common:/app/common
+      - ./src/consumer:/app/consumer
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      LOG_LEVEL: INFO
+      ENVIRONMENT: integration-test
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      manager:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r = redis.Redis(host='redis', port=6379); r.ping()"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks:
+      - integration-test-network
+
   # Scanner service (publishes SUBTITLE_REQUESTED events)
   scanner:
     build:

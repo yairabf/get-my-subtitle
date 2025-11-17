@@ -16,9 +16,10 @@ from aio_pika.abc import (
 
 from common.config import settings
 from common.duplicate_prevention import DuplicatePreventionService
+from common.event_publisher import event_publisher
 from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleRequest, SubtitleStatus
-from common.utils import ValidationUtils
+from common.utils import DateTimeUtils, ValidationUtils
 from manager.orchestrator import orchestrator
 
 logger = logging.getLogger(__name__)
@@ -41,34 +42,43 @@ class SubtitleEventConsumer:
         self.routing_key = "subtitle.requested"
         self.is_consuming = False
 
-    async def connect(self) -> None:
-        """Establish connection to RabbitMQ and bind queue to topic exchange."""
-        try:
-            self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
-            self.channel = await self.connection.channel()
+    async def connect(self, max_retries: int = 10, retry_delay: float = 3.0) -> None:
+        """Establish connection to RabbitMQ and bind queue to topic exchange with retry logic."""
+        for attempt in range(max_retries):
+            try:
+                self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+                self.channel = await self.connection.channel()
 
-            # Declare topic exchange (should already exist from event_publisher)
-            self.exchange = await self.channel.declare_exchange(
-                self.exchange_name, ExchangeType.TOPIC, durable=True
-            )
+                # Declare topic exchange (should already exist from event_publisher)
+                self.exchange = await self.channel.declare_exchange(
+                    self.exchange_name, ExchangeType.TOPIC, durable=True
+                )
 
-            # Declare durable queue for this consumer
-            self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
+                # Declare durable queue for this consumer
+                self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
 
-            # Bind queue to exchange with routing key for SUBTITLE_REQUESTED
-            await self.queue.bind(exchange=self.exchange, routing_key=self.routing_key)
+                # Bind queue to exchange with routing key for SUBTITLE_REQUESTED
+                await self.queue.bind(exchange=self.exchange, routing_key=self.routing_key)
 
-            logger.info(
-                f"Connected to RabbitMQ - Queue '{self.queue_name}' bound to "
-                f"exchange '{self.exchange_name}' with routing key '{self.routing_key}'"
-            )
+                logger.info(
+                    f"Connected to RabbitMQ - Queue '{self.queue_name}' bound to "
+                    f"exchange '{self.exchange_name}' with routing key '{self.routing_key}'"
+                )
+                return  # Success, exit retry loop
 
-        except Exception as e:
-            logger.warning(f"Failed to connect to RabbitMQ for event consumption: {e}")
-            logger.warning(
-                "Running in mock mode - events will not be consumed from queue"
-            )
-            # Don't raise the exception, allow the service to start in mock mode
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Failed to connect to RabbitMQ (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {retry_delay}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.warning(f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}")
+                    logger.warning(
+                        "Running in mock mode - events will not be consumed from queue"
+                    )
+                    # Don't raise the exception, allow the service to start in mock mode
 
     async def disconnect(self) -> None:
         """Close connection to RabbitMQ."""
@@ -169,12 +179,15 @@ class SubtitleEventConsumer:
                     f"language={language}"
                 )
                 logger.error(error_msg)
-                await redis_client.update_phase(
-                    event.job_id,
-                    SubtitleStatus.FAILED,
+                # Publish failure event instead of updating Redis directly
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
                     source="manager",
-                    metadata={"error_message": error_msg},
+                    payload={"error_message": error_msg},
                 )
+                await event_publisher.publish_event(failure_event)
                 return
 
             # Create SubtitleRequest from event payload
@@ -221,12 +234,15 @@ class SubtitleEventConsumer:
 
             if not success:
                 logger.error(f"Failed to enqueue download task for job {event.job_id}")
-                await redis_client.update_phase(
-                    event.job_id,
-                    SubtitleStatus.FAILED,
+                # Publish failure event instead of updating Redis directly
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
                     source="manager",
-                    metadata={"error_message": "Failed to enqueue download task"},
+                    payload={"error_message": "Failed to enqueue download task"},
                 )
+                await event_publisher.publish_event(failure_event)
                 return
 
             logger.info(f"Successfully enqueued download task for job {event.job_id}")
@@ -235,17 +251,19 @@ class SubtitleEventConsumer:
             error_msg = f"Error processing subtitle request: {e}"
             logger.error(error_msg, exc_info=True)
 
-            # Update job status to FAILED
+            # Publish failure event instead of updating Redis directly
             try:
-                await redis_client.update_phase(
-                    event.job_id,
-                    SubtitleStatus.FAILED,
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
                     source="manager",
-                    metadata={"error_message": str(e)},
+                    payload={"error_message": str(e)},
                 )
-            except Exception as redis_error:
+                await event_publisher.publish_event(failure_event)
+            except Exception as publish_error:
                 logger.error(
-                    f"Failed to update job status in Redis: {redis_error}",
+                    f"Failed to publish failure event: {publish_error}",
                     exc_info=True,
                 )
 

@@ -22,6 +22,14 @@ def mock_redis_client():
 
 
 @pytest.fixture
+def mock_event_publisher():
+    """Create mock event publisher."""
+    with patch("manager.event_consumer.event_publisher") as mock:
+        mock.publish_event = AsyncMock(return_value=True)
+        yield mock
+
+
+@pytest.fixture
 def mock_orchestrator():
     """Create mock orchestrator."""
     with patch("manager.event_consumer.orchestrator") as mock:
@@ -122,7 +130,7 @@ class TestSubtitleEventConsumer:
 
     @pytest.mark.asyncio
     async def test_process_subtitle_request_success(
-        self, mock_orchestrator, mock_redis_client, sample_subtitle_requested_event
+        self, mock_orchestrator, mock_redis_client, mock_event_publisher, sample_subtitle_requested_event
     ):
         """Test successful processing of SUBTITLE_REQUESTED event."""
         consumer = SubtitleEventConsumer()
@@ -144,32 +152,34 @@ class TestSubtitleEventConsumer:
         # Verify job_id
         assert call_args[0][1] == sample_subtitle_requested_event.job_id
 
-        # Redis should not be called on success
+        # Redis should not be called on success (event-driven)
         mock_redis_client.update_phase.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_subtitle_request_enqueue_failure(
-        self, mock_orchestrator, mock_redis_client, sample_subtitle_requested_event
+        self, mock_orchestrator, mock_redis_client, mock_event_publisher, sample_subtitle_requested_event
     ):
-        """Test handling of enqueue failure."""
+        """Test handling of enqueue failure - should publish JOB_FAILED event."""
         mock_orchestrator.enqueue_download_task = AsyncMock(return_value=False)
 
         consumer = SubtitleEventConsumer()
         await consumer._process_subtitle_request(sample_subtitle_requested_event)
 
-        # Verify Redis was updated with FAILED status
-        mock_redis_client.update_phase.assert_called_once_with(
-            sample_subtitle_requested_event.job_id,
-            SubtitleStatus.FAILED,
-            source="manager",
-            metadata={"error_message": "Failed to enqueue download task"},
-        )
+        # Verify JOB_FAILED event was published instead of direct Redis update
+        mock_event_publisher.publish_event.assert_called_once()
+        event = mock_event_publisher.publish_event.call_args[0][0]
+        assert event.event_type == EventType.JOB_FAILED
+        assert event.job_id == sample_subtitle_requested_event.job_id
+        assert event.payload["error_message"] == "Failed to enqueue download task"
+
+        # Verify NO direct Redis update (event-driven)
+        mock_redis_client.update_phase.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_subtitle_request_exception_handling(
-        self, mock_orchestrator, mock_redis_client, sample_subtitle_requested_event
+        self, mock_orchestrator, mock_redis_client, mock_event_publisher, sample_subtitle_requested_event
     ):
-        """Test exception handling during event processing."""
+        """Test exception handling during event processing - should publish JOB_FAILED event."""
         mock_orchestrator.enqueue_download_task = AsyncMock(
             side_effect=Exception("Unexpected error")
         )
@@ -179,18 +189,21 @@ class TestSubtitleEventConsumer:
         # Should not raise exception
         await consumer._process_subtitle_request(sample_subtitle_requested_event)
 
-        # Verify Redis was updated with FAILED status
-        mock_redis_client.update_phase.assert_called_once()
-        call_args = mock_redis_client.update_phase.call_args
-        assert call_args[0][0] == sample_subtitle_requested_event.job_id
-        assert call_args[0][1] == SubtitleStatus.FAILED
-        assert "error_message" in call_args[1]["metadata"]
+        # Verify JOB_FAILED event was published instead of direct Redis update
+        mock_event_publisher.publish_event.assert_called_once()
+        event = mock_event_publisher.publish_event.call_args[0][0]
+        assert event.event_type == EventType.JOB_FAILED
+        assert event.job_id == sample_subtitle_requested_event.job_id
+        assert "error_message" in event.payload
+
+        # Verify NO direct Redis update (event-driven)
+        mock_redis_client.update_phase.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_subtitle_request_missing_payload_fields(
-        self, mock_orchestrator, mock_redis_client
+        self, mock_orchestrator, mock_redis_client, mock_event_publisher
     ):
-        """Test handling of event with missing required payload fields."""
+        """Test handling of event with missing required payload fields - should publish JOB_FAILED event."""
         job_id = uuid4()
         incomplete_event = SubtitleEvent(
             event_type=EventType.SUBTITLE_REQUESTED,
@@ -206,11 +219,15 @@ class TestSubtitleEventConsumer:
         consumer = SubtitleEventConsumer()
         await consumer._process_subtitle_request(incomplete_event)
 
-        # Should update Redis with error
-        mock_redis_client.update_phase.assert_called_once()
-        call_args = mock_redis_client.update_phase.call_args
-        assert call_args[0][1] == SubtitleStatus.FAILED
-        assert "error_message" in call_args[1]["metadata"]
+        # Verify JOB_FAILED event was published instead of direct Redis update
+        mock_event_publisher.publish_event.assert_called_once()
+        event = mock_event_publisher.publish_event.call_args[0][0]
+        assert event.event_type == EventType.JOB_FAILED
+        assert event.job_id == job_id
+        assert "error_message" in event.payload
+
+        # Verify NO direct Redis update (event-driven)
+        mock_redis_client.update_phase.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_message_callback_valid_event(
