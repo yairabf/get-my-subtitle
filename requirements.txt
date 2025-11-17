@@ -10,7 +10,7 @@ pytest-cov==6.0.0
 # pytest-docker is incompatible with pytest 8.x
 # Using GitHub Actions services in CI and manual docker-compose locally
 fakeredis[aioredis]==2.25.1
-black==24.10.0
+black==25.11.0
 isort==5.13.2
 pre-commit>=3.0.0
 flake8>=7.0.0
