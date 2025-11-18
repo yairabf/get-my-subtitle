@@ -76,6 +76,7 @@ services:
       - ./src/common:/app/common
       - ./src/downloader:/app/downloader
       - ./storage:/app/storage
+      - ${SCANNER_MEDIA_PATH:-./test-media}:/media:rw  # Read-write access to save subtitles next to video files (configurable via .env)
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
@@ -111,6 +112,7 @@ services:
       - ./src/common:/app/common
       - ./src/translator:/app/translator
       - ./storage:/app/storage
+      - ${SCANNER_MEDIA_PATH:-./test-media}:/media:rw  # Read-write access to save translated subtitles next to video files (configurable via .env)
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
