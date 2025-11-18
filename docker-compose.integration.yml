@@ -154,12 +154,13 @@ services:
       - ./src/common:/app/common
       - ./src/scanner:/app/scanner
       - ./src/manager:/app/manager
-      - ./test-media:/media:ro  # Mount test media directory
+      - ${SCANNER_MEDIA_PATH:-./test-media}:/media:ro  # Mount test media directory (configurable via .env)
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
+      SCANNER_MEDIA_PATH: /media  # Container path (matches mount point)
       SCANNER_ENABLED: "false"  # Disable automatic scanning in tests
     depends_on:
       manager:
