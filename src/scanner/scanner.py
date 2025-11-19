@@ -119,6 +119,42 @@ class MediaScanner:
         self.running = False
         logger.info("✅ File system watcher stopped")
 
+    async def scan_library(self) -> None:
+        """
+        Manually scan the library for media files.
+        
+        This walks the configured media directory and triggers processing
+        for all found media files.
+        """
+        media_path = Path(settings.scanner_media_path)
+        if not media_path.exists() or not media_path.is_dir():
+            logger.error(f"Cannot scan: Media path invalid: {media_path}")
+            return
+
+        logger.info(f"🔍 Starting manual library scan on: {media_path}")
+        
+        count = 0
+        try:
+            # Walk the directory tree
+            if settings.scanner_watch_recursive:
+                files_iterator = media_path.rglob("*")
+            else:
+                files_iterator = media_path.glob("*")
+                
+            for file_path in files_iterator:
+                if file_path.is_file() and self.event_handler._is_media_file(str(file_path)):
+                    # Trigger processing for the file
+                    # We use the internal processing method directly
+                    await self.event_handler._process_media_file(str(file_path))
+                    count += 1
+                    # Small yield to prevent blocking the event loop too long
+                    await asyncio.sleep(0.01)
+            
+            logger.info(f"✅ Manual scan completed. Processed {count} files.")
+            
+        except Exception as e:
+            logger.error(f"Error during manual scan: {e}", exc_info=True)
+
     def is_running(self) -> bool:
         """
         Check if scanner is running.
@@ -151,6 +187,13 @@ class MediaScanner:
 
             result = await self.webhook_handler.process_webhook(webhook_payload)
             return result.model_dump()
+
+        @app.post("/scan")
+        async def trigger_manual_scan():
+            """Trigger a manual scan of the media library."""
+            # Run scan in background to not block the request
+            asyncio.create_task(self.scan_library())
+            return {"status": "accepted", "message": "Manual scan initiated"}
 
         @app.get("/health")
         async def health_check():

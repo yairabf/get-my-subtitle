@@ -10,7 +10,8 @@ The scanner provides three complementary methods for detecting new media:
 
 1. **WebSocket Listener** (Primary): Real-time notifications from Jellyfin server
 2. **Webhook Endpoint** (Secondary): HTTP endpoint for Jellyfin webhook plugin
-3. **File System Watcher** (Fallback): Local file monitoring with `watchdog`
+3. **Manual Scan** (On-Demand): Triggered via API for full library reconciliation
+4. **File System Watcher** (Fallback): Local file monitoring with `watchdog`
 
 When new media is detected through any method, the scanner:
 
@@ -161,6 +162,13 @@ python worker.py
 4. **Job Creation**: Subtitle request is created and stored in Redis
 5. **Event Publishing**: `MEDIA_FILE_DETECTED` event is published to RabbitMQ
 6. **Task Enqueueing**: Download task is enqueued via orchestrator
+
+### Manual Scan Flow (On-Demand)
+
+1. **Trigger**: POST request to `/scan` endpoint (usually from Manager service)
+2. **Execution**: Scanner iterates through all files in the configured media directory
+3. **Processing**: Each file is processed as if it was just detected (validation, job creation, event publishing)
+4. **Background**: Scan runs asynchronously to avoid blocking the API
 
 ### Fallback Strategy
 

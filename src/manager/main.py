@@ -495,6 +495,48 @@ async def handle_jellyfin_webhook(payload: JellyfinWebhookPayload):
         )
 
 
+@app.post("/scan", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_manual_scan():
+    """
+    Trigger a manual scan of the media library.
+    
+    This sends a request to the Scanner service to initiate a full scan
+    of the configured media directory.
+    """
+    import httpx
+    
+    try:
+        scanner_url = f"http://{settings.scanner_webhook_host}:{settings.scanner_webhook_port}/scan"
+        logger.info(f"Triggering manual scan via {scanner_url}")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(scanner_url, timeout=5.0)
+            
+        if response.status_code != 200:
+            logger.error(f"Scanner returned error: {response.text}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Scanner service returned error: {response.status_code}"
+            )
+            
+        return {"status": "accepted", "message": "Manual scan initiated"}
+        
+    except httpx.RequestError as e:
+        logger.error(f"Failed to connect to scanner service: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Scanner service is unreachable"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error triggering manual scan: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
 
