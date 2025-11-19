@@ -56,9 +56,8 @@ class TestSubtitleMissingEventPublishing:
                 mock_redis.update_phase = AsyncMock(return_value=True)
 
                 with patch("downloader.worker.opensubtitles_client") as mock_client:
-                    # No subtitles found in requested language
-                    mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
-                    mock_client.search_subtitles = AsyncMock(return_value=[])
+                    # Determine if hash search will be called (local file vs remote URL)
+                    is_local_file = video_file is not None
 
                     if auto_translate and fallback_found:
                         # Fallback search finds English subtitle
@@ -68,34 +67,63 @@ class TestSubtitleMissingEventPublishing:
                                 "SubLanguageID": "en",
                             }
                         ]
-                        # First search (requested language) returns empty
-                        # Then fallback search returns result
-                        mock_client.search_subtitles_by_hash.side_effect = [
-                            [],  # First search (he) - empty
-                            mock_fallback_result,  # Fallback search (en) - found
-                        ]
-                        mock_client.search_subtitles.side_effect = [
-                            [],  # First search (he) - empty
-                            mock_fallback_result,  # Fallback search (en) - found
-                        ]
+                        # Mock the search sequence based on whether hash is calculated
+                        if is_local_file:
+                            # Local file: hash search first, then metadata
+                            # Sequence: hash(he) -> metadata(he) -> hash(en) -> metadata(en)
+                            mock_client.search_subtitles_by_hash = AsyncMock(
+                                side_effect=[
+                                    [],  # First search (he) - empty
+                                    mock_fallback_result,  # Fallback search (en) - found
+                                ]
+                            )
+                            mock_client.search_subtitles = AsyncMock(
+                                side_effect=[
+                                    [],  # First search (he) - empty (only called if hash empty)
+                                    # Fallback metadata search won't be called if hash found result
+                                ]
+                            )
+                        else:
+                            # Remote URL: no hash, only metadata search
+                            # Sequence: metadata(he) -> metadata(en)
+                            mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
+                            mock_client.search_subtitles = AsyncMock(
+                                side_effect=[
+                                    [],  # First search (he) - empty
+                                    mock_fallback_result,  # Fallback search (en) - found
+                                ]
+                            )
                         mock_client.download_subtitle = AsyncMock(
-                            return_value=Path(video_file).parent / "test.en.srt"
+                            return_value=Path(video_file).parent / "test.en.srt" if video_file else Path("/tmp/test.en.srt")
                         )
                     elif auto_translate and not fallback_found:
                         # No subtitles found in any language
-                        mock_client.search_subtitles_by_hash.return_value = []
-                        mock_client.search_subtitles.return_value = []
-                        # Also mock the "any language" search
-                        mock_client.search_subtitles_by_hash.side_effect = [
-                            [],  # Requested language
-                            [],  # Default language
-                            [],  # Any language (hash)
-                        ]
-                        mock_client.search_subtitles.side_effect = [
-                            [],  # Requested language
-                            [],  # Default language
-                            [],  # Any language (metadata)
-                        ]
+                        if is_local_file:
+                            # Local file: hash searches for he, en, any; metadata searches for he, en, any
+                            mock_client.search_subtitles_by_hash = AsyncMock(
+                                side_effect=[[], [], []]  # he, en, any
+                            )
+                            mock_client.search_subtitles = AsyncMock(
+                                side_effect=[[], [], []]  # he, en, any (only if hash empty)
+                            )
+                        else:
+                            # Remote URL: only metadata searches
+                            mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
+                            mock_client.search_subtitles = AsyncMock(
+                                side_effect=[[], [], []]  # he, en, any
+                            )
+                        # No download should occur when no subtitle is found
+                        mock_client.download_subtitle = AsyncMock()
+                    else:
+                        # Translation disabled - only initial search
+                        if is_local_file:
+                            mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
+                            mock_client.search_subtitles = AsyncMock(return_value=[])
+                        else:
+                            mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
+                            mock_client.search_subtitles = AsyncMock(return_value=[])
+                        # No download should occur when translation is disabled and subtitle not found
+                        mock_client.download_subtitle = AsyncMock()
 
                     with patch("downloader.worker.event_publisher") as mock_publisher:
                         mock_publisher.publish_event = AsyncMock()
@@ -349,10 +377,13 @@ class TestDownloaderWorker:
                             mock_fallback_result,  # Fallback search (en) - found
                         ]
                     )
+                    # Metadata search only called when hash search returns empty
+                    # hash(he) -> [] -> metadata(he) -> []
+                    # hash(en) -> [result] -> metadata(en) NOT called
                     mock_client.search_subtitles = AsyncMock(
                         side_effect=[
-                            [],  # First search (he) - empty
-                            mock_fallback_result,  # Fallback search (en) - found
+                            [],  # First search (he) - empty (only called because hash was empty)
+                            # Fallback metadata search won't be called because hash(en) found result
                         ]
                     )
                     mock_client.download_subtitle = AsyncMock(
@@ -1286,10 +1317,13 @@ class TestFallbackSubtitleSearch:
                             mock_fallback_result,  # English fallback - found
                         ]
                     )
+                    # Metadata search only called when hash search returns empty
+                    # hash(he) -> [] -> metadata(he) -> []
+                    # hash(en) -> [result] -> metadata(en) NOT called
                     mock_client.search_subtitles = AsyncMock(
                         side_effect=[
-                            [],  # Hebrew search - empty
-                            mock_fallback_result,  # English fallback - found
+                            [],  # Hebrew search - empty (only called because hash was empty)
+                            # English fallback metadata search won't be called because hash(en) found result
                         ]
                     )
                     mock_client.download_subtitle = AsyncMock(
@@ -1362,11 +1396,15 @@ class TestFallbackSubtitleSearch:
                             mock_any_language_result,  # Any language - found Spanish
                         ]
                     )
+                    # Metadata search only called when hash search returns empty
+                    # hash(he) -> [] -> metadata(he) -> []
+                    # hash(en) -> [] -> metadata(en) -> []
+                    # hash(None) -> [result] -> metadata(None) NOT called
                     mock_client.search_subtitles = AsyncMock(
                         side_effect=[
-                            [],  # Hebrew search - empty
-                            [],  # English fallback - empty
-                            mock_any_language_result,  # Any language - found Spanish
+                            [],  # Hebrew search - empty (only called because hash was empty)
+                            [],  # English fallback - empty (only called because hash was empty)
+                            # Any language metadata search won't be called because hash(None) found result
                         ]
                     )
                     mock_client.download_subtitle = AsyncMock(
@@ -1419,11 +1457,12 @@ class TestFallbackSubtitleSearch:
 
             with patch("downloader.worker.opensubtitles_client") as mock_client:
                 # No subtitles found in any language
+                # Remote URL - no hash search, only metadata search
                 mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
-                mock_client.search_subtitles = AsyncMock(return_value=[])
-                # Mock the sequence: requested -> default -> any language
-                mock_client.search_subtitles_by_hash.side_effect = [[], [], []]
-                mock_client.search_subtitles.side_effect = [[], [], []]
+                # Mock the sequence: metadata(he) -> metadata(en) -> metadata(any)
+                mock_client.search_subtitles = AsyncMock(
+                    side_effect=[[], [], []]  # he, en, any - all empty
+                )
 
                 with patch("downloader.worker.event_publisher") as mock_publisher:
                     mock_publisher.publish_event = AsyncMock()
@@ -1481,8 +1520,14 @@ class TestFallbackSubtitleSearch:
                     mock_client.search_subtitles_by_hash = AsyncMock(
                         side_effect=[[], mock_fallback_result]
                     )
+                    # Metadata search only called when hash search returns empty
+                    # hash(he) -> [] -> metadata(he) -> []
+                    # hash(en) -> [result] -> metadata(en) NOT called
                     mock_client.search_subtitles = AsyncMock(
-                        side_effect=[[], mock_fallback_result]
+                        side_effect=[
+                            [],  # Hebrew search - empty (only called because hash was empty)
+                            # Fallback metadata search won't be called because hash(en) found result
+                        ]
                     )
                     mock_client.download_subtitle = AsyncMock(
                         return_value=Path(video_url).parent / "test_movie.fr.srt"
@@ -1545,8 +1590,14 @@ class TestFallbackSubtitleSearch:
                     mock_client.search_subtitles_by_hash = AsyncMock(
                         side_effect=[[], mock_fallback_result]
                     )
+                    # Metadata search only called when hash search returns empty
+                    # hash(he) -> [] -> metadata(he) -> []
+                    # hash(en) -> [result] -> metadata(en) NOT called
                     mock_client.search_subtitles = AsyncMock(
-                        side_effect=[[], mock_fallback_result]
+                        side_effect=[
+                            [],  # Hebrew search - empty (only called because hash was empty)
+                            # Fallback metadata search won't be called because hash(en) found result
+                        ]
                     )
                     mock_client.download_subtitle = AsyncMock(
                         return_value=Path(video_url).parent / "test_movie.en.srt"
