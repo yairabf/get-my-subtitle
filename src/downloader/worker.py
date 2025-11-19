@@ -197,32 +197,177 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                             f"✅ Subtitle downloaded! Published SUBTITLE_READY event for job {request_id}"
                         )
             else:
-                # Subtitle not found - check if translation is enabled
-                logger.warning(f"⚠️  No subtitle found for job {request_id}")
+                # Subtitle not found in requested language - try fallback search
+                logger.warning(
+                    f"⚠️  No subtitle found for language '{language}' for job {request_id}"
+                )
 
                 if request_id:
                     # Check if auto-translate is enabled
                     if settings.jellyfin_auto_translate:
-                        # Translation enabled - request fallback translation
+                        # Translation enabled - search for fallback subtitle
                         logger.info(
-                            f"📤 Translation enabled, requesting translation for job {request_id}"
+                            f"🔍 Translation enabled, searching for fallback subtitle for job {request_id}"
                         )
-                        event = SubtitleEvent(
-                            event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
-                            job_id=request_id,
-                            timestamp=DateTimeUtils.get_current_utc_datetime(),
-                            source="downloader",
-                            payload={
-                                "subtitle_file_path": f"/subtitles/fallback_{request_id}.en.srt",
-                                "source_language": "en",
-                                "target_language": language,
-                                "reason": "subtitle_not_found",
-                            },
-                        )
-                        await event_publisher.publish_event(event)
+
+                        # Try to find fallback subtitle (prefer default source language, then any language)
+                        fallback_language = settings.jellyfin_default_source_language
+                        fallback_search_results = []
+
+                        # Step 1: Search for default source language (usually English)
                         logger.info(
-                            f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}"
+                            f"🔍 Searching for fallback subtitle in language: {fallback_language}"
                         )
+
+                        # Try hash-based search with fallback language
+                        if movie_hash:
+                            logger.info(
+                                f"🔍 Searching by hash for fallback language: {fallback_language}"
+                            )
+                            fallback_search_results = (
+                                await opensubtitles_client.search_subtitles_by_hash(
+                                    movie_hash=movie_hash,
+                                    file_size=file_size,
+                                    languages=[fallback_language],
+                                )
+                            )
+
+                        # If no results, try metadata search with fallback language
+                        if not fallback_search_results:
+                            logger.info(
+                                f"🔍 Searching by metadata for fallback language: {fallback_language}"
+                            )
+                            fallback_search_results = (
+                                await opensubtitles_client.search_subtitles(
+                                    imdb_id=imdb_id,
+                                    query=video_title,
+                                    languages=[fallback_language],
+                                )
+                            )
+
+                        # Step 2: If still no results, search for ANY language
+                        if not fallback_search_results:
+                            logger.info(
+                                "🔍 No subtitle found in default language, searching for ANY available language"
+                            )
+                            if movie_hash:
+                                fallback_search_results = (
+                                    await opensubtitles_client.search_subtitles_by_hash(
+                                        movie_hash=movie_hash,
+                                        file_size=file_size,
+                                        languages=None,  # Search all languages
+                                    )
+                                )
+
+                            if not fallback_search_results:
+                                fallback_search_results = (
+                                    await opensubtitles_client.search_subtitles(
+                                        imdb_id=imdb_id,
+                                        query=video_title,
+                                        languages=None,  # Search all languages
+                                    )
+                                )
+
+                        if fallback_search_results:
+                            # Found a fallback subtitle - download it
+                            logger.info(
+                                f"✅ Found {len(fallback_search_results)} fallback subtitle(s)"
+                            )
+                            best_fallback = fallback_search_results[0]
+
+                            # Extract actual language from API response
+                            found_language = best_fallback.get(
+                                "SubLanguageID", fallback_language
+                            )
+                            subtitle_id = best_fallback.get("IDSubtitleFile")
+
+                            logger.info(
+                                f"📥 Found subtitle in language '{found_language}', downloading..."
+                            )
+
+                            # Determine output path - save with the found language code
+                            output_path = PathUtils.generate_subtitle_path_from_video(
+                                video_url, found_language
+                            )
+
+                            if not output_path:
+                                # video_url is not a local file - cannot save to video directory
+                                logger.error(
+                                    f"❌ Cannot save fallback subtitle: video_url is not a local file path: {video_url}"
+                                )
+                                event = SubtitleEvent(
+                                    event_type=EventType.JOB_FAILED,
+                                    job_id=request_id,
+                                    timestamp=DateTimeUtils.get_current_utc_datetime(),
+                                    source="downloader",
+                                    payload={
+                                        "error_message": "Cannot save subtitle: video is not a local file",
+                                        "error_type": "invalid_video_path",
+                                        "video_url": video_url,
+                                    },
+                                )
+                                await event_publisher.publish_event(event)
+                            else:
+                                logger.info(
+                                    f"📁 Will save fallback subtitle to: {output_path}"
+                                )
+
+                                # Ensure parent directory exists
+                                output_path.parent.mkdir(parents=True, exist_ok=True)
+
+                                # Download the fallback subtitle
+                                subtitle_path = (
+                                    await opensubtitles_client.download_subtitle(
+                                        subtitle_id=str(subtitle_id),
+                                        output_path=output_path,
+                                    )
+                                )
+
+                                logger.info(
+                                    f"✅ Downloaded fallback subtitle in '{found_language}' to: {subtitle_path}"
+                                )
+
+                                # Publish translation request with ACTUAL subtitle path
+                                event = SubtitleEvent(
+                                    event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
+                                    job_id=request_id,
+                                    timestamp=DateTimeUtils.get_current_utc_datetime(),
+                                    source="downloader",
+                                    payload={
+                                        "subtitle_file_path": str(
+                                            subtitle_path
+                                        ),  # Actual path to downloaded file
+                                        "source_language": found_language,  # Actual language from API
+                                        "target_language": language,  # Originally requested language
+                                        "reason": "subtitle_not_found_in_target_language",
+                                    },
+                                )
+                                await event_publisher.publish_event(event)
+                                logger.info(
+                                    f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id} "
+                                    f"(source: {found_language} -> target: {language})"
+                                )
+                        else:
+                            # No subtitle found in ANY language - publish SUBTITLE_MISSING
+                            logger.warning(
+                                f"❌ No subtitle found in any language for job {request_id}"
+                            )
+                            event = SubtitleEvent(
+                                event_type=EventType.SUBTITLE_MISSING,
+                                job_id=request_id,
+                                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                                source="downloader",
+                                payload={
+                                    "language": language,
+                                    "reason": "subtitle_not_found_any_language",
+                                    "video_url": video_url,
+                                    "video_title": video_title,
+                                },
+                            )
+                            await event_publisher.publish_event(event)
+                            logger.info(
+                                f"📤 Published SUBTITLE_MISSING event for job {request_id}"
+                            )
                     else:
                         # Translation disabled - publish SUBTITLE_MISSING
                         logger.warning(
@@ -262,10 +407,16 @@ async def process_message(message: AbstractIncomingMessage) -> None:
 
         except (OpenSubtitlesAPIError, OpenSubtitlesAuthenticationError) as e:
             logger.error(f"❌ OpenSubtitles API error: {e}")
-            logger.warning(f"⚠️  Falling back to translation for job {request_id}")
+            logger.warning(
+                f"⚠️  API error occurred, falling back to translation for job {request_id}. "
+                f"Note: This is a fallback scenario - no subtitle was downloaded."
+            )
 
             if request_id:
                 # Fallback to translation on API errors
+                # Note: In this case, we cannot download a subtitle due to API error,
+                # so we use a placeholder path. The translator will need to handle this case.
+                # This is a fallback scenario when the API is unavailable.
                 event = SubtitleEvent(
                     event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
                     job_id=request_id,
@@ -273,15 +424,17 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                     source="downloader",
                     payload={
                         "subtitle_file_path": f"/subtitles/fallback_{request_id}.en.srt",
-                        "source_language": "en",
+                        "source_language": settings.jellyfin_default_source_language,
                         "target_language": language,
-                        "reason": "api_error",
+                        "reason": "api_error_fallback",
+                        "error_note": "Subtitle file not available due to API error - this is a fallback scenario",
                     },
                 )
                 await event_publisher.publish_event(event)
 
-                logger.info(
-                    f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id}"
+                logger.warning(
+                    f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id} "
+                    f"(fallback scenario - API error prevented subtitle download)"
                 )
 
         logger.info("✅ Message processed successfully!")

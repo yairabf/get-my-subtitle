@@ -57,12 +57,17 @@ class SubtitleEventConsumer:
                 # Declare durable queue for this consumer
                 self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
 
-                # Bind queue to exchange with routing key for SUBTITLE_REQUESTED
+                # Bind queue to exchange with routing keys for both SUBTITLE_REQUESTED and SUBTITLE_TRANSLATE_REQUESTED
                 await self.queue.bind(exchange=self.exchange, routing_key=self.routing_key)
+                # Also bind to translation request events from downloader
+                await self.queue.bind(
+                    exchange=self.exchange, routing_key="subtitle.translate.requested"
+                )
 
                 logger.info(
                     f"Connected to RabbitMQ - Queue '{self.queue_name}' bound to "
-                    f"exchange '{self.exchange_name}' with routing key '{self.routing_key}'"
+                    f"exchange '{self.exchange_name}' with routing keys: "
+                    f"'{self.routing_key}' and 'subtitle.translate.requested'"
                 )
                 return  # Success, exit retry loop
 
@@ -99,8 +104,8 @@ class SubtitleEventConsumer:
         try:
             self.is_consuming = True
             logger.info(
-                f"Starting to consume SUBTITLE_REQUESTED events from queue "
-                f"'{self.queue_name}'"
+                f"Starting to consume events (SUBTITLE_REQUESTED, SUBTITLE_TRANSLATE_REQUESTED) "
+                f"from queue '{self.queue_name}'"
             )
 
             async with self.queue.iterator() as queue_iter:
@@ -135,16 +140,20 @@ class SubtitleEventConsumer:
                     f"Received event {event.event_type.value} for job {event.job_id}"
                 )
 
-                # Only process SUBTITLE_REQUESTED events
-                if event.event_type != EventType.SUBTITLE_REQUESTED:
+                # Route to appropriate handler based on event type
+                if event.event_type == EventType.SUBTITLE_REQUESTED:
+                    # Process the subtitle request
+                    await self._process_subtitle_request(event)
+                elif event.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED:
+                    # Process translation request from downloader
+                    await self._process_translation_request(event)
+                else:
                     logger.debug(
                         f"Ignoring event type {event.event_type.value}, "
-                        f"only processing {EventType.SUBTITLE_REQUESTED.value}"
+                        f"only processing {EventType.SUBTITLE_REQUESTED.value} and "
+                        f"{EventType.SUBTITLE_TRANSLATE_REQUESTED.value}"
                     )
                     return
-
-                # Process the subtitle request
-                await self._process_subtitle_request(event)
 
             except Exception as e:
                 logger.error(f"Failed to process message: {e}", exc_info=True)
@@ -252,6 +261,97 @@ class SubtitleEventConsumer:
             logger.error(error_msg, exc_info=True)
 
             # Publish failure event instead of updating Redis directly
+            try:
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
+                    source="manager",
+                    payload={"error_message": str(e)},
+                )
+                await event_publisher.publish_event(failure_event)
+            except Exception as publish_error:
+                logger.error(
+                    f"Failed to publish failure event: {publish_error}",
+                    exc_info=True,
+                )
+
+    async def _process_translation_request(self, event: SubtitleEvent) -> None:
+        """
+        Process a SUBTITLE_TRANSLATE_REQUESTED event by enqueuing translation task.
+
+        Args:
+            event: SubtitleEvent containing translation request details in payload
+        """
+        try:
+            payload = event.payload
+
+            # Extract required fields from payload
+            subtitle_file_path = payload.get("subtitle_file_path")
+            source_language = payload.get("source_language")
+            target_language = payload.get("target_language")
+
+            # Validate required fields
+            if (
+                not ValidationUtils.is_non_empty_string(subtitle_file_path)
+                or not ValidationUtils.is_non_empty_string(source_language)
+                or not ValidationUtils.is_non_empty_string(target_language)
+            ):
+                error_msg = (
+                    f"Missing required fields in translation event payload: "
+                    f"subtitle_file_path={subtitle_file_path}, "
+                    f"source_language={source_language}, "
+                    f"target_language={target_language}"
+                )
+                logger.error(error_msg)
+                # Publish failure event
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
+                    source="manager",
+                    payload={"error_message": error_msg},
+                )
+                await event_publisher.publish_event(failure_event)
+                return
+
+            logger.info(
+                f"Processing translation request for job {event.job_id}: "
+                f"{subtitle_file_path} ({source_language} -> {target_language})"
+            )
+
+            # Enqueue translation task via orchestrator
+            success = await orchestrator.enqueue_translation_task(
+                event.job_id,
+                subtitle_file_path,
+                source_language,
+                target_language,
+            )
+
+            if not success:
+                logger.error(
+                    f"Failed to enqueue translation task for job {event.job_id}"
+                )
+                # Publish failure event
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
+                    source="manager",
+                    payload={"error_message": "Failed to enqueue translation task"},
+                )
+                await event_publisher.publish_event(failure_event)
+                return
+
+            logger.info(
+                f"Successfully enqueued translation task for job {event.job_id}"
+            )
+
+        except Exception as e:
+            error_msg = f"Error processing translation request: {e}"
+            logger.error(error_msg, exc_info=True)
+
+            # Publish failure event
             try:
                 failure_event = SubtitleEvent(
                     event_type=EventType.JOB_FAILED,
