@@ -162,17 +162,23 @@ jobs:
     
     - name: Start Manager and Consumer services
       run: |
-        # Start Manager and Consumer services, connecting to GitHub Actions services
-        REDIS_URL=redis://host.docker.internal:6379 \
-        RABBITMQ_URL=amqp://guest:guest@host.docker.internal:5672/ \
-        docker-compose -f docker-compose.integration.yml up -d manager consumer
+        # Get the host IP address (GitHub Actions services are on the host)
+        # On Linux GitHub Actions runners, we can use host.docker.internal or the gateway IP
+        # First, try to start services with network_mode host, or use gateway IP
+        echo "Starting Manager and Consumer services..."
+        # Use docker run instead of docker-compose to have more control over networking
+        # Or use docker-compose with overrides
+        docker-compose -f docker-compose.integration.yml \
+          --env-file <(echo "REDIS_URL=redis://172.17.0.1:6379") \
+          --env-file <(echo "RABBITMQ_URL=amqp://guest:guest@172.17.0.1:5672/") \
+          up -d manager consumer || \
+        docker-compose -f docker-compose.integration.yml \
+          -e REDIS_URL=redis://172.17.0.1:6379 \
+          -e RABBITMQ_URL=amqp://guest:guest@172.17.0.1:5672/ \
+          up -d manager consumer
         echo "Waiting for Manager and Consumer services to be ready..."
         sleep 20
         docker-compose -f docker-compose.integration.yml ps
-      env:
-        # Use host.docker.internal to access GitHub Actions services from Docker containers
-        REDIS_URL: redis://host.docker.internal:6379
-        RABBITMQ_URL: amqp://guest:guest@host.docker.internal:5672/
     
     - name: Run integration tests
       run: |
