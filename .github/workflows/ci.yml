@@ -170,9 +170,10 @@ jobs:
         # Start services with environment variable overrides
         # We need to override the REDIS_URL and RABBITMQ_URL to point to host services
         # Use 'docker compose' (V2) instead of 'docker-compose' (V1)
+        # Use --no-deps to skip starting redis/rabbitmq (already provided by GitHub Actions)
         REDIS_URL="redis://${GATEWAY_IP}:6379" \
         RABBITMQ_URL="amqp://guest:guest@${GATEWAY_IP}:5672/" \
-        docker compose -f docker-compose.integration.yml up -d --build manager consumer
+        docker compose -f docker-compose.integration.yml up -d --build --no-deps manager consumer
         
         echo "Waiting for Manager and Consumer services to be ready..."
         sleep 20
