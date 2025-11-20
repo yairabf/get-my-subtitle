@@ -350,9 +350,6 @@ class TestEventConsumerDuplicatePrevention:
         """Test handling of events with missing required fields."""
         job_id = uuid4()
 
-        # Mock Redis client
-        mock_redis_client.update_phase = AsyncMock()
-
         # Create event with missing video_url
         event = SubtitleEvent(
             event_type=EventType.SUBTITLE_REQUESTED,
@@ -368,19 +365,25 @@ class TestEventConsumerDuplicatePrevention:
             },
         )
 
-        # Process event - should handle gracefully
-        await event_consumer._process_subtitle_request(event)
+        with patch("manager.event_consumer.event_publisher") as mock_publisher:
+            mock_publisher.publish_event = AsyncMock()
 
-        # Duplicate check should not be called (validation fails first)
-        mock_duplicate_prevention.check_and_register.assert_not_called()
+            # Process event - should handle gracefully
+            await event_consumer._process_subtitle_request(event)
 
-        # Orchestrator should not be called
-        mock_orchestrator.enqueue_download_task.assert_not_called()
+            # Duplicate check should not be called (validation fails first)
+            mock_duplicate_prevention.check_and_register.assert_not_called()
 
-        # Should update job status to FAILED
-        mock_redis_client.update_phase.assert_called_once()
-        call_args = mock_redis_client.update_phase.call_args
-        assert call_args[0][1] == SubtitleStatus.FAILED
+            # Orchestrator should not be called
+            mock_orchestrator.enqueue_download_task.assert_not_called()
+
+            # Should publish JOB_FAILED event (event-driven, not direct Redis update)
+            mock_publisher.publish_event.assert_called_once()
+            event_call = mock_publisher.publish_event.call_args[0][0]
+            assert event_call.event_type == EventType.JOB_FAILED
+            assert event_call.job_id == job_id
+            assert "error_message" in event_call.payload
+            assert "Missing required fields" in event_call.payload["error_message"]
 
     async def test_process_subtitle_request_enqueue_failure_with_duplicate(
         self,

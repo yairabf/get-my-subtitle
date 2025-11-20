@@ -962,17 +962,23 @@ class TestWorkerIntegration:
             mock_redis.update_phase = AsyncMock(return_value=True)
 
             with patch("downloader.worker.opensubtitles_client") as mock_client:
+                mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
                 mock_client.search_subtitles = AsyncMock(return_value=[])
 
                 with patch("downloader.worker.event_publisher") as mock_publisher:
                     mock_publisher.publish_event = AsyncMock()
 
-                    await process_message(mock_message)
+                    with patch("downloader.worker.settings") as mock_settings:
+                        # Disable translation to avoid fallback searches
+                        mock_settings.jellyfin_auto_translate = False
 
-                    # Should still attempt search with None values
-                    mock_client.search_subtitles.assert_called_once_with(
-                        imdb_id=None, query=None, languages=["en"]
-                    )
+                        await process_message(mock_message)
+
+                        # Should still attempt search with None values
+                        # Only one call expected since translation is disabled
+                        mock_client.search_subtitles.assert_called_once_with(
+                            imdb_id=None, query=None, languages=["en"]
+                        )
 
 
 class TestSubtitleSaveLocation:
