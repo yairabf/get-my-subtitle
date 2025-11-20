@@ -198,7 +198,7 @@ jobs:
     - name: Cleanup services
       if: always()
       run: |
-        docker-compose -f docker-compose.integration.yml down -v
+        docker compose -f docker-compose.integration.yml down -v
     
     - name: Upload integration test results
       if: always()
