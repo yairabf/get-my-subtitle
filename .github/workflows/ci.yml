@@ -160,6 +160,13 @@ jobs:
         timeout 30 bash -c 'until nc -z localhost 6379; do sleep 1; done'
         timeout 30 bash -c 'until nc -z localhost 5672; do sleep 1; done'
     
+    - name: Start Manager and Consumer services
+      run: |
+        docker-compose -f docker-compose.integration.yml up -d manager consumer
+        echo "Waiting for Manager and Consumer services to be ready..."
+        sleep 20
+        docker-compose -f docker-compose.integration.yml ps
+    
     - name: Run integration tests
       run: |
         pytest tests/integration/ -v -m integration \
@@ -169,6 +176,16 @@ jobs:
         GITHUB_ACTIONS: "true"
         REDIS_URL: redis://localhost:6379
         RABBITMQ_URL: amqp://guest:guest@localhost:5672/
+    
+    - name: Show service logs on failure
+      if: failure()
+      run: |
+        docker-compose -f docker-compose.integration.yml logs manager consumer
+    
+    - name: Cleanup services
+      if: always()
+      run: |
+        docker-compose -f docker-compose.integration.yml down -v
     
     - name: Upload integration test results
       if: always()
