@@ -269,15 +269,20 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
         },
     )
 
+    # Start the consumer to process events (Manager's event consumer) BEFORE publishing
+    # This ensures the consumer is ready to receive events
+    # Note: Consumer service (for DOWNLOAD_REQUESTED) should be running in Docker
+    logger.info("Starting Manager event consumer...")
+    consumer_task = asyncio.create_task(consumer.start_consuming())
+    
+    # Give consumer a moment to start consuming
+    await asyncio.sleep(0.2)
+    logger.info(f"Consumer is_consuming: {consumer.is_consuming}, queue: {consumer.queue_name}")
+
     # Publish the event (as Scanner would do)
     success = await event_publisher.publish_event(subtitle_requested_event)
     assert success is True
     logger.info(f"✅ Published SUBTITLE_REQUESTED event for job {job_id}")
-
-    # Start the consumer to process events (Manager's event consumer)
-    # Note: Consumer service (for DOWNLOAD_REQUESTED) should be running in Docker
-    logger.info("Starting Manager event consumer...")
-    consumer_task = asyncio.create_task(consumer.start_consuming())
 
     try:
         # Wait for message to be processed (give it up to 20 seconds)
@@ -380,13 +385,20 @@ async def test_multiple_events_processed_sequentially(
         )
         events.append(event)
 
+    # Start the consumer to process events (Manager's event consumer) BEFORE publishing
+    # This ensures the consumer is ready to receive events
+    # Note: Consumer service (for DOWNLOAD_REQUESTED) should be running in Docker
+    logger.info("Starting Manager event consumer...")
+    consumer_task = asyncio.create_task(consumer.start_consuming())
+    
+    # Give consumer a moment to start consuming
+    await asyncio.sleep(0.2)
+    logger.info(f"Consumer is_consuming: {consumer.is_consuming}, queue: {consumer.queue_name}")
+
     # Publish all events
     for event in events:
         await event_publisher.publish_event(event)
-
-    # Start the consumer to process events (Manager's event consumer)
-    # Note: Consumer service (for DOWNLOAD_REQUESTED) should be running in Docker
-    consumer_task = asyncio.create_task(consumer.start_consuming())
+        logger.info(f"✅ Published SUBTITLE_REQUESTED event for job {event.job_id}")
 
     try:
         # Wait for all messages to be processed (Consumer service in Docker will process DOWNLOAD_REQUESTED)
