@@ -162,10 +162,17 @@ jobs:
     
     - name: Start Manager and Consumer services
       run: |
+        # Start Manager and Consumer services, connecting to GitHub Actions services
+        REDIS_URL=redis://host.docker.internal:6379 \
+        RABBITMQ_URL=amqp://guest:guest@host.docker.internal:5672/ \
         docker-compose -f docker-compose.integration.yml up -d manager consumer
         echo "Waiting for Manager and Consumer services to be ready..."
         sleep 20
         docker-compose -f docker-compose.integration.yml ps
+      env:
+        # Use host.docker.internal to access GitHub Actions services from Docker containers
+        REDIS_URL: redis://host.docker.internal:6379
+        RABBITMQ_URL: amqp://guest:guest@host.docker.internal:5672/
     
     - name: Run integration tests
       run: |
