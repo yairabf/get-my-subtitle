@@ -430,8 +430,16 @@ async def test_multiple_events_processed_sequentially(
             assert job.video_title == f"Test Movie {job_id}"
 
     finally:
-        # No cleanup needed - Docker services handle their own consumers
-        pass
+        # Stop consumer
+        consumer.stop()
+        try:
+            await asyncio.wait_for(consumer_task, timeout=2.0)
+        except asyncio.TimeoutError:
+            consumer_task.cancel()
+            try:
+                await consumer_task
+            except asyncio.CancelledError:
+                pass
 
 
 
