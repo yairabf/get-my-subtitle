@@ -44,8 +44,8 @@ services:
       - ./src/common:/app/common
       - ./src/manager:/app/manager
     environment:
-      REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
     depends_on:
@@ -72,8 +72,8 @@ services:
       - ./src/downloader:/app/downloader
       - ${SCANNER_MEDIA_PATH:-./test-media}:/media:rw  # Read-write access to save subtitles next to video files (configurable via .env)
     environment:
-      REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
     depends_on:
@@ -99,8 +99,8 @@ services:
       - ./storage:/app/storage
       - ${SCANNER_MEDIA_PATH:-./test-media}:/media:rw  # Read-write access to save translated subtitles next to video files (configurable via .env)
     environment:
-      REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
     depends_on:
@@ -124,8 +124,8 @@ services:
       - ./src/common:/app/common
       - ./src/consumer:/app/consumer
     environment:
-      REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
     depends_on:
@@ -158,8 +158,8 @@ services:
       - ./src/manager:/app/manager
       - ${SCANNER_MEDIA_PATH:-./test-media}:/media:ro  # Mount test media directory (configurable via .env)
     environment:
-      REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
       SCANNER_MEDIA_PATH: /media  # Container path (matches mount point)
