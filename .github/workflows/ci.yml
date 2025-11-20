@@ -162,23 +162,26 @@ jobs:
     
     - name: Start Manager and Consumer services
       run: |
-        # Get the host IP address (GitHub Actions services are on the host)
-        # On Linux GitHub Actions runners, we can use host.docker.internal or the gateway IP
-        # First, try to start services with network_mode host, or use gateway IP
-        echo "Starting Manager and Consumer services..."
-        # Use docker run instead of docker-compose to have more control over networking
-        # Or use docker-compose with overrides
-        docker-compose -f docker-compose.integration.yml \
-          --env-file <(echo "REDIS_URL=redis://172.17.0.1:6379") \
-          --env-file <(echo "RABBITMQ_URL=amqp://guest:guest@172.17.0.1:5672/") \
-          up -d manager consumer || \
-        docker-compose -f docker-compose.integration.yml \
-          -e REDIS_URL=redis://172.17.0.1:6379 \
-          -e RABBITMQ_URL=amqp://guest:guest@172.17.0.1:5672/ \
-          up -d manager consumer
+        # Get the Docker bridge gateway IP (usually 172.17.0.1)
+        # This allows containers to access services on the host (GitHub Actions services)
+        GATEWAY_IP=$(docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' | head -1 || echo "172.17.0.1")
+        echo "Using gateway IP: $GATEWAY_IP"
+        
+        # Start services with environment variable overrides
+        # We need to override the REDIS_URL and RABBITMQ_URL to point to host services
+        # Use 'docker compose' (V2) instead of 'docker-compose' (V1)
+        REDIS_URL="redis://${GATEWAY_IP}:6379" \
+        RABBITMQ_URL="amqp://guest:guest@${GATEWAY_IP}:5672/" \
+        docker compose -f docker-compose.integration.yml up -d --build manager consumer
+        
         echo "Waiting for Manager and Consumer services to be ready..."
         sleep 20
-        docker-compose -f docker-compose.integration.yml ps
+        
+        # Check service status
+        docker compose -f docker-compose.integration.yml ps
+        
+        # Show logs if services aren't healthy
+        docker compose -f docker-compose.integration.yml logs --tail=50 manager consumer
     
     - name: Run integration tests
       run: |
