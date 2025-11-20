@@ -273,9 +273,9 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
     success = await event_publisher.publish_event(subtitle_requested_event)
     assert success is True
 
-    # Note: Manager's event consumer is already running in Docker (via lifespan)
-    # and Consumer service is also running in Docker
-    # Both will process events automatically
+    # Start the consumer to process events (Manager's event consumer)
+    # Note: Consumer service (for DOWNLOAD_REQUESTED) should be running in Docker
+    consumer_task = asyncio.create_task(consumer.start_consuming())
 
     try:
         # Wait for message to be processed (give it up to 20 seconds)
@@ -363,8 +363,9 @@ async def test_multiple_events_processed_sequentially(
     for event in events:
         await event_publisher.publish_event(event)
 
-    # Note: Manager's event consumer and Consumer service are already running in Docker
-    # Both will process events automatically
+    # Start the consumer to process events (Manager's event consumer)
+    # Note: Consumer service (for DOWNLOAD_REQUESTED) should be running in Docker
+    consumer_task = asyncio.create_task(consumer.start_consuming())
 
     try:
         # Wait for all messages to be processed (Consumer service in Docker will process DOWNLOAD_REQUESTED)
