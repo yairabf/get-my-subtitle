@@ -272,9 +272,11 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
     # Publish the event (as Scanner would do)
     success = await event_publisher.publish_event(subtitle_requested_event)
     assert success is True
+    logger.info(f"✅ Published SUBTITLE_REQUESTED event for job {job_id}")
 
     # Start the consumer to process events (Manager's event consumer)
     # Note: Consumer service (for DOWNLOAD_REQUESTED) should be running in Docker
+    logger.info("Starting Manager event consumer...")
     consumer_task = asyncio.create_task(consumer.start_consuming())
 
     try:
@@ -290,10 +292,16 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
             # Check if job was updated in Redis (indicates Consumer processed DOWNLOAD_REQUESTED)
             job = await redis_client.get_job(job_id)
             if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
+                logger.info(f"✅ Job {job_id} status updated to DOWNLOAD_QUEUED after {attempt + 1} attempts")
                 break
+            
+            # Log progress every 50 attempts
+            if (attempt + 1) % 50 == 0:
+                logger.info(f"⏳ Waiting for job {job_id} to be processed... Status: {job.status if job else 'None'} (attempt {attempt + 1}/200)")
         else:
             # Get final job state for debugging
             final_job = await redis_client.get_job(job_id)
+            logger.error(f"❌ Timeout waiting for event to be processed. Final job status: {final_job.status if final_job else 'None'}")
             pytest.fail(
                 f"Timeout waiting for event to be processed after {attempt + 1} attempts. "
                 f"Final job status: {final_job.status if final_job else 'None'}, "
@@ -310,8 +318,21 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
         assert job.target_language == "es"
 
     finally:
-        # No cleanup needed - Docker services handle their own consumers
-        pass
+        # Stop consumer properly before event loop closes
+        logger.info("Stopping Manager event consumer...")
+        consumer.stop()
+        try:
+            # Give consumer a moment to stop gracefully
+            await asyncio.sleep(0.1)
+            # Cancel the task if it's still running
+            if not consumer_task.done():
+                consumer_task.cancel()
+                try:
+                    await asyncio.wait_for(consumer_task, timeout=1.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+        except Exception as e:
+            logger.warning(f"Error during consumer cleanup: {e}")
 
 
 @pytest.mark.asyncio
@@ -430,16 +451,21 @@ async def test_multiple_events_processed_sequentially(
             assert job.video_title == f"Test Movie {job_id}"
 
     finally:
-        # Stop consumer
+        # Stop consumer properly before event loop closes
+        logger.info("Stopping Manager event consumer...")
         consumer.stop()
         try:
-            await asyncio.wait_for(consumer_task, timeout=2.0)
-        except asyncio.TimeoutError:
-            consumer_task.cancel()
-            try:
-                await consumer_task
-            except asyncio.CancelledError:
-                pass
+            # Give consumer a moment to stop gracefully
+            await asyncio.sleep(0.1)
+            # Cancel the task if it's still running
+            if not consumer_task.done():
+                consumer_task.cancel()
+                try:
+                    await asyncio.wait_for(consumer_task, timeout=1.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+        except Exception as e:
+            logger.warning(f"Error during consumer cleanup: {e}")
 
 
 
