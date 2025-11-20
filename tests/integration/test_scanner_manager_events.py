@@ -228,14 +228,17 @@ async def event_consumer_service():
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_scanner_publishes_manager_consumes_end_to_end(
-    setup_services, consumer, ensure_consumer_healthy
+    setup_services, ensure_consumer_healthy
 ):
     """
     Test end-to-end event flow:
     1. Scanner creates job in Redis and publishes SUBTITLE_REQUESTED event
-    2. Manager consumes event from RabbitMQ
+    2. Manager service (running in Docker) consumes event from RabbitMQ
     3. Manager enqueues download task and publishes DOWNLOAD_REQUESTED event
     4. Consumer service (running in Docker) processes DOWNLOAD_REQUESTED and updates status to DOWNLOAD_QUEUED
+    
+    Note: We rely on the Docker Manager service to consume events, not a test consumer.
+    This ensures we test the actual production flow.
     """
     job_id = uuid4()
     # Use unique video title to avoid duplicate detection
@@ -269,85 +272,58 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
         },
     )
 
-    # Start the consumer to process events (Manager's event consumer) BEFORE publishing
-    # This ensures the consumer is ready to receive events
-    # Note: Consumer service (for DOWNLOAD_REQUESTED) should be running in Docker
-    logger.info("Starting Manager event consumer...")
-    consumer_task = asyncio.create_task(consumer.start_consuming())
-    
-    # Give consumer a moment to start consuming
-    await asyncio.sleep(0.2)
-    logger.info(f"Consumer is_consuming: {consumer.is_consuming}, queue: {consumer.queue_name}")
-
     # Publish the event (as Scanner would do)
+    # The Docker Manager service will consume it and publish DOWNLOAD_REQUESTED
     success = await event_publisher.publish_event(subtitle_requested_event)
     assert success is True
     logger.info(f"✅ Published SUBTITLE_REQUESTED event for job {job_id}")
 
-    try:
-        # Wait for message to be processed (give it up to 20 seconds)
-        # Manager processes SUBTITLE_REQUESTED -> publishes DOWNLOAD_REQUESTED
-        # Docker Consumer service processes DOWNLOAD_REQUESTED -> updates status to DOWNLOAD_QUEUED
-        # Add initial delay to allow events to propagate
-        await asyncio.sleep(0.5)
-        
-        for attempt in range(200):  # 200 attempts * 0.1s = 20s max
-            await asyncio.sleep(0.1)
+    # Wait for message to be processed (give it up to 20 seconds)
+    # Manager (Docker) processes SUBTITLE_REQUESTED -> publishes DOWNLOAD_REQUESTED
+    # Consumer service (Docker) processes DOWNLOAD_REQUESTED -> updates status to DOWNLOAD_QUEUED
+    # Add initial delay to allow events to propagate
+    await asyncio.sleep(1.0)  # Give Manager service time to consume and process
+    
+    for attempt in range(200):  # 200 attempts * 0.1s = 20s max
+        await asyncio.sleep(0.1)
 
-            # Check if job was updated in Redis (indicates Consumer processed DOWNLOAD_REQUESTED)
-            job = await redis_client.get_job(job_id)
-            if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
-                logger.info(f"✅ Job {job_id} status updated to DOWNLOAD_QUEUED after {attempt + 1} attempts")
-                break
-            
-            # Log progress every 50 attempts
-            if (attempt + 1) % 50 == 0:
-                logger.info(f"⏳ Waiting for job {job_id} to be processed... Status: {job.status if job else 'None'} (attempt {attempt + 1}/200)")
-        else:
-            # Get final job state for debugging
-            final_job = await redis_client.get_job(job_id)
-            logger.error(f"❌ Timeout waiting for event to be processed. Final job status: {final_job.status if final_job else 'None'}")
-            pytest.fail(
-                f"Timeout waiting for event to be processed after {attempt + 1} attempts. "
-                f"Final job status: {final_job.status if final_job else 'None'}, "
-                f"job_id: {job_id}"
-            )
-
-        # Verify the job was updated correctly
+        # Check if job was updated in Redis (indicates Consumer processed DOWNLOAD_REQUESTED)
         job = await redis_client.get_job(job_id)
-        assert job is not None, "Job should exist in Redis"
-        assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
-        assert job.video_url == f"/media/movies/integration_test_{job_id}.mp4"
-        assert job.video_title == unique_video_title
-        assert job.language == "en"
-        assert job.target_language == "es"
+        if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
+            logger.info(f"✅ Job {job_id} status updated to DOWNLOAD_QUEUED after {attempt + 1} attempts")
+            break
+        
+        # Log progress every 50 attempts
+        if (attempt + 1) % 50 == 0:
+            logger.info(f"⏳ Waiting for job {job_id} to be processed... Status: {job.status if job else 'None'} (attempt {attempt + 1}/200)")
+    else:
+        # Get final job state for debugging
+        final_job = await redis_client.get_job(job_id)
+        logger.error(f"❌ Timeout waiting for event to be processed. Final job status: {final_job.status if final_job else 'None'}")
+        pytest.fail(
+            f"Timeout waiting for event to be processed after {attempt + 1} attempts. "
+            f"Final job status: {final_job.status if final_job else 'None'}, "
+            f"job_id: {job_id}"
+        )
 
-    finally:
-        # Stop consumer properly before event loop closes
-        logger.info("Stopping Manager event consumer...")
-        consumer.stop()
-        try:
-            # Give consumer a moment to stop gracefully
-            await asyncio.sleep(0.1)
-            # Cancel the task if it's still running
-            if not consumer_task.done():
-                consumer_task.cancel()
-                try:
-                    await asyncio.wait_for(consumer_task, timeout=1.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    pass
-        except Exception as e:
-            logger.warning(f"Error during consumer cleanup: {e}")
+    # Verify the job was updated correctly
+    job = await redis_client.get_job(job_id)
+    assert job is not None, "Job should exist in Redis"
+    assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
+    assert job.video_url == f"/media/movies/integration_test_{job_id}.mp4"
+    assert job.video_title == unique_video_title
+    assert job.language == "en"
+    assert job.target_language == "es"
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_multiple_events_processed_sequentially(
-    setup_services, consumer, ensure_consumer_healthy
+    setup_services, ensure_consumer_healthy
 ):
     """
     Test that multiple SUBTITLE_REQUESTED events are processed in order.
-    Note: Consumer service is already running in Docker and will process DOWNLOAD_REQUESTED events.
+    Note: Manager and Consumer services are running in Docker and will process events.
     """
     job_ids = [uuid4() for _ in range(3)]
     events = []
@@ -385,99 +361,72 @@ async def test_multiple_events_processed_sequentially(
         )
         events.append(event)
 
-    # Start the consumer to process events (Manager's event consumer) BEFORE publishing
-    # This ensures the consumer is ready to receive events
-    # Note: Consumer service (for DOWNLOAD_REQUESTED) should be running in Docker
-    logger.info("Starting Manager event consumer...")
-    consumer_task = asyncio.create_task(consumer.start_consuming())
-    
-    # Give consumer a moment to start consuming
-    await asyncio.sleep(0.2)
-    logger.info(f"Consumer is_consuming: {consumer.is_consuming}, queue: {consumer.queue_name}")
-
     # Publish all events
+    # The Docker Manager service will consume them and publish DOWNLOAD_REQUESTED events
     for event in events:
         await event_publisher.publish_event(event)
         logger.info(f"✅ Published SUBTITLE_REQUESTED event for job {event.job_id}")
 
-    try:
-        # Wait for all messages to be processed (Consumer service in Docker will process DOWNLOAD_REQUESTED)
-        # Add initial delay to allow events to propagate and Consumer to be ready
-        await asyncio.sleep(1.0)
+    # Wait for all messages to be processed (Consumer service in Docker will process DOWNLOAD_REQUESTED)
+    # Add initial delay to allow events to propagate and Manager/Consumer to be ready
+    await asyncio.sleep(1.0)
+    
+    all_processed = False
+    last_processed_count = 0
+    no_progress_count = 0
+    
+    for attempt in range(300):  # 300 attempts * 0.1s = 30s max
+        await asyncio.sleep(0.1)
+
+        # Check if all jobs were processed (Consumer should have updated status)
+        processed_count = 0
+        for job_id in job_ids:
+            job = await redis_client.get_job(job_id)
+            if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
+                processed_count += 1
+
+        # Check if we made progress
+        if processed_count > last_processed_count:
+            no_progress_count = 0
+            last_processed_count = processed_count
+        else:
+            no_progress_count += 1
+
+        if processed_count == len(job_ids):
+            all_processed = True
+            break
         
-        all_processed = False
-        last_processed_count = 0
-        no_progress_count = 0
-        
-        for attempt in range(300):  # 300 attempts * 0.1s = 30s max
-            await asyncio.sleep(0.1)
-
-            # Check if all jobs were processed (Consumer should have updated status)
-            processed_count = 0
-            for job_id in job_ids:
-                job = await redis_client.get_job(job_id)
-                if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
-                    processed_count += 1
-
-            # Check if we made progress
-            if processed_count > last_processed_count:
-                no_progress_count = 0
-                last_processed_count = processed_count
-            else:
-                no_progress_count += 1
-
-            if processed_count == len(job_ids):
-                all_processed = True
-                break
-            
-            # If no progress for 50 attempts (5 seconds), log status for debugging
-            if no_progress_count == 50:
-                job_statuses = {}
-                for job_id in job_ids:
-                    job = await redis_client.get_job(job_id)
-                    job_statuses[job_id] = job.status if job else "None"
-                logger.info(
-                    f"Waiting for events to be processed... "
-                    f"Processed: {processed_count}/{len(job_ids)}. "
-                    f"Statuses: {job_statuses}"
-                )
-                no_progress_count = 0  # Reset counter
-
-        if not all_processed:
-            # Get status of all jobs for debugging
+        # If no progress for 50 attempts (5 seconds), log status for debugging
+        if no_progress_count == 50:
             job_statuses = {}
             for job_id in job_ids:
                 job = await redis_client.get_job(job_id)
                 job_statuses[job_id] = job.status if job else "None"
-            pytest.fail(
-                f"Not all events were processed within timeout. "
+            logger.info(
+                f"Waiting for events to be processed... "
                 f"Processed: {processed_count}/{len(job_ids)}. "
-                f"Job statuses: {job_statuses}"
+                f"Statuses: {job_statuses}"
             )
+            no_progress_count = 0  # Reset counter
 
-        # Verify all jobs were created correctly
+    if not all_processed:
+        # Get status of all jobs for debugging
+        job_statuses = {}
         for job_id in job_ids:
             job = await redis_client.get_job(job_id)
-            assert job is not None
-            assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
-            assert job.video_title == f"Test Movie {job_id}"
+            job_statuses[job_id] = job.status if job else "None"
+        pytest.fail(
+            f"Not all events were processed within timeout. "
+            f"Processed: {processed_count}/{len(job_ids)}. "
+            f"Job statuses: {job_statuses}"
+        )
 
-    finally:
-        # Stop consumer properly before event loop closes
-        logger.info("Stopping Manager event consumer...")
-        consumer.stop()
-        try:
-            # Give consumer a moment to stop gracefully
-            await asyncio.sleep(0.1)
-            # Cancel the task if it's still running
-            if not consumer_task.done():
-                consumer_task.cancel()
-                try:
-                    await asyncio.wait_for(consumer_task, timeout=1.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    pass
-        except Exception as e:
-            logger.warning(f"Error during consumer cleanup: {e}")
+    # Verify all jobs were created correctly
+    for job_id in job_ids:
+        job = await redis_client.get_job(job_id)
+        assert job is not None
+        assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
+        assert job.video_title == f"Test Movie {job_id}"
 
 
 
