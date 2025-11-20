@@ -38,24 +38,24 @@ class TestSubtitleMissingEventPublishing:
                 video_file = tmp_file.name
 
         try:
-        mock_message = MagicMock()
-        mock_message.body = json.dumps(
-            {
-                "request_id": str(request_id),
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
                     "video_url": video_file if video_file else "https://example.com/video.mp4",
-                "video_title": "Test Video",
+                    "video_title": "Test Video",
                     "language": "he",  # Request Hebrew, but not found
-            }
-        ).encode()
-        mock_message.routing_key = "subtitle.download"
-        mock_message.exchange = ""
-        mock_message.message_id = "test-message-id"
-        mock_message.timestamp = None
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
 
-        with patch("downloader.worker.redis_client") as mock_redis:
-            mock_redis.update_phase = AsyncMock(return_value=True)
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
 
-            with patch("downloader.worker.opensubtitles_client") as mock_client:
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
                     # Determine if hash search will be called (local file vs remote URL)
                     is_local_file = video_file is not None
 
@@ -118,28 +118,28 @@ class TestSubtitleMissingEventPublishing:
                         # Translation disabled - only initial search
                         if is_local_file:
                             mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
-                mock_client.search_subtitles = AsyncMock(return_value=[])
+                            mock_client.search_subtitles = AsyncMock(return_value=[])
                         else:
                             mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
                             mock_client.search_subtitles = AsyncMock(return_value=[])
                         # No download should occur when translation is disabled and subtitle not found
                         mock_client.download_subtitle = AsyncMock()
 
-                with patch("downloader.worker.event_publisher") as mock_publisher:
-                    mock_publisher.publish_event = AsyncMock()
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
 
-                    with patch("downloader.worker.settings") as mock_settings:
-                        mock_settings.jellyfin_auto_translate = auto_translate
+                        with patch("downloader.worker.settings") as mock_settings:
+                            mock_settings.jellyfin_auto_translate = auto_translate
                             mock_settings.jellyfin_default_source_language = "en"
 
-                        await process_message(mock_message)
+                            await process_message(mock_message)
 
-                        # Verify correct event was published
+                            # Verify correct event was published
                             assert mock_publisher.publish_event.call_count > 0
-                        event_call = mock_publisher.publish_event.call_args[0][0]
-                        assert event_call.event_type == expected_event_type
-                        assert event_call.job_id == request_id
-                        assert event_call.payload["reason"] == expected_reason
+                            event_call = mock_publisher.publish_event.call_args[0][0]
+                            assert event_call.event_type == expected_event_type
+                            assert event_call.job_id == request_id
+                            assert event_call.payload["reason"] == expected_reason
 
                             if auto_translate and fallback_found:
                                 # Verify fallback subtitle was downloaded
@@ -345,24 +345,24 @@ class TestDownloaderWorker:
             video_url = tmp_file.name
 
         try:
-        mock_message = MagicMock()
-        mock_message.body = json.dumps(
-            {
-                "request_id": str(request_id),
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
                     "video_url": video_url,
-                "video_title": "Obscure Movie",
+                    "video_title": "Obscure Movie",
                     "language": "he",  # Request Hebrew
-            }
-        ).encode()
-        mock_message.routing_key = "subtitle.download"
-        mock_message.exchange = ""
-        mock_message.message_id = "test-message-id"
-        mock_message.timestamp = None
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
 
-        with patch("downloader.worker.redis_client") as mock_redis:
-            mock_redis.update_phase = AsyncMock(return_value=True)
+            with patch("downloader.worker.redis_client") as mock_redis:
+                mock_redis.update_phase = AsyncMock(return_value=True)
 
-            with patch("downloader.worker.opensubtitles_client") as mock_client:
+                with patch("downloader.worker.opensubtitles_client") as mock_client:
                     # No subtitles found in requested language (Hebrew)
                     # But fallback search finds English subtitle
                     mock_fallback_result = [
@@ -390,25 +390,25 @@ class TestDownloaderWorker:
                         return_value=Path(video_url).parent / "obscure_movie.en.srt"
                     )
 
-                with patch("downloader.worker.event_publisher") as mock_publisher:
-                    mock_publisher.publish_event = AsyncMock()
+                    with patch("downloader.worker.event_publisher") as mock_publisher:
+                        mock_publisher.publish_event = AsyncMock()
 
                         with patch("downloader.worker.settings") as mock_settings:
                             mock_settings.jellyfin_auto_translate = True
                             mock_settings.jellyfin_default_source_language = "en"
 
-                    await process_message(mock_message)
+                            await process_message(mock_message)
 
                             # Verify fallback subtitle was downloaded
                             mock_client.download_subtitle.assert_called_once()
 
                             # Verify SUBTITLE_TRANSLATE_REQUESTED event was published with actual path
-                    mock_publisher.publish_event.assert_called_once()
-                    event_call = mock_publisher.publish_event.call_args[0][0]
-                    assert (
-                        event_call.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
-                    )
-                    assert event_call.job_id == request_id
+                            mock_publisher.publish_event.assert_called_once()
+                            event_call = mock_publisher.publish_event.call_args[0][0]
+                            assert (
+                                event_call.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                            )
+                            assert event_call.job_id == request_id
                             assert event_call.payload["reason"] == "subtitle_not_found_in_target_language"
                             # Verify actual file path is used, not placeholder
                             assert "subtitle_file_path" in event_call.payload
@@ -511,14 +511,14 @@ class TestDownloaderWorker:
                     with patch("downloader.worker.settings") as mock_settings:
                         mock_settings.jellyfin_default_source_language = "en"
 
-                    await process_message(mock_message)
+                        await process_message(mock_message)
 
-                    # Verify fallback to translation
-                    mock_publisher.publish_event.assert_called_once()
-                    event_call = mock_publisher.publish_event.call_args[0][0]
-                    assert (
-                        event_call.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
-                    )
+                        # Verify fallback to translation
+                        mock_publisher.publish_event.assert_called_once()
+                        event_call = mock_publisher.publish_event.call_args[0][0]
+                        assert (
+                            event_call.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                        )
                         assert event_call.payload["reason"] == "api_error_fallback"
                         # API error fallback still uses placeholder (can't download due to API error)
                         assert "error_note" in event_call.payload
