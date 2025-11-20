@@ -196,7 +196,7 @@ jobs:
     - name: Show service logs on failure
       if: failure()
       run: |
-        docker-compose -f docker-compose.integration.yml logs manager consumer
+        docker compose -f docker-compose.integration.yml logs manager consumer
     
     - name: Cleanup services
       if: always()
