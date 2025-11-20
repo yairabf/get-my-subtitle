@@ -949,6 +949,7 @@ class TestWorkerIntegration:
         mock_message.body = json.dumps(
             {
                 "request_id": str(request_id),
+                "video_url": None,  # No video URL
                 # No video_title or imdb_id
                 "language": "en",
             }
