@@ -394,59 +394,60 @@ async def test_multiple_events_processed_sequentially(
         await event_publisher.publish_event(event)
         logger.info(f"✅ Published SUBTITLE_REQUESTED event for job {event.job_id}")
 
-    # Wait for all messages to be processed (Consumer service in Docker will process DOWNLOAD_REQUESTED)
-    # Add initial delay to allow events to propagate and Manager/Consumer to be ready
-    await asyncio.sleep(1.0)
-    
-    all_processed = False
-    last_processed_count = 0
-    no_progress_count = 0
-    
-    for attempt in range(300):  # 300 attempts * 0.1s = 30s max
-        await asyncio.sleep(0.1)
-
-        # Check if all jobs were processed (Consumer should have updated status)
-        processed_count = 0
-        for job_id in job_ids:
-            job = await redis_client.get_job(job_id)
-            if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
-                processed_count += 1
-
-        # Check if we made progress
-        if processed_count > last_processed_count:
-            no_progress_count = 0
-            last_processed_count = processed_count
-        else:
-            no_progress_count += 1
-
-        if processed_count == len(job_ids):
-            all_processed = True
-            break
+    try:
+        # Wait for all messages to be processed (Consumer service in Docker will process DOWNLOAD_REQUESTED)
+        # Add initial delay to allow events to propagate and Manager/Consumer to be ready
+        await asyncio.sleep(1.0)
         
-        # If no progress for 50 attempts (5 seconds), log status for debugging
-        if no_progress_count == 50:
+        all_processed = False
+        last_processed_count = 0
+        no_progress_count = 0
+        
+        for attempt in range(300):  # 300 attempts * 0.1s = 30s max
+            await asyncio.sleep(0.1)
+
+            # Check if all jobs were processed (Consumer should have updated status)
+            processed_count = 0
+            for job_id in job_ids:
+                job = await redis_client.get_job(job_id)
+                if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
+                    processed_count += 1
+
+            # Check if we made progress
+            if processed_count > last_processed_count:
+                no_progress_count = 0
+                last_processed_count = processed_count
+            else:
+                no_progress_count += 1
+
+            if processed_count == len(job_ids):
+                all_processed = True
+                break
+            
+            # If no progress for 50 attempts (5 seconds), log status for debugging
+            if no_progress_count == 50:
+                job_statuses = {}
+                for job_id in job_ids:
+                    job = await redis_client.get_job(job_id)
+                    job_statuses[job_id] = job.status if job else "None"
+                logger.info(
+                    f"Waiting for events to be processed... "
+                    f"Processed: {processed_count}/{len(job_ids)}. "
+                    f"Statuses: {job_statuses}"
+                )
+                no_progress_count = 0  # Reset counter
+
+        if not all_processed:
+            # Get status of all jobs for debugging
             job_statuses = {}
             for job_id in job_ids:
                 job = await redis_client.get_job(job_id)
                 job_statuses[job_id] = job.status if job else "None"
-            logger.info(
-                f"Waiting for events to be processed... "
+            pytest.fail(
+                f"Not all events were processed within timeout. "
                 f"Processed: {processed_count}/{len(job_ids)}. "
-                f"Statuses: {job_statuses}"
+                f"Job statuses: {job_statuses}"
             )
-            no_progress_count = 0  # Reset counter
-
-    if not all_processed:
-        # Get status of all jobs for debugging
-        job_statuses = {}
-        for job_id in job_ids:
-            job = await redis_client.get_job(job_id)
-            job_statuses[job_id] = job.status if job else "None"
-        pytest.fail(
-            f"Not all events were processed within timeout. "
-            f"Processed: {processed_count}/{len(job_ids)}. "
-            f"Job statuses: {job_statuses}"
-        )
 
         # Verify all jobs were created correctly
         for job_id in job_ids:
