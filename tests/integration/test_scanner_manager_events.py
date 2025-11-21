@@ -55,7 +55,7 @@ async def setup_services():
 
 
 @pytest_asyncio.fixture(scope="function")
-async def ensure_consumer_healthy():
+async def ensure_consumer_healthy(setup_services):
     """
     Ensure the Consumer service in Docker is healthy and can actually process events.
     
@@ -63,6 +63,8 @@ async def ensure_consumer_healthy():
     1. Waits for Consumer queue to exist and be bound
     2. Sends a test event and verifies it's processed
     3. Ensures Consumer is actually consuming, not just connected
+    
+    Depends on setup_services to ensure event_publisher and redis_client are connected.
     """
     import aio_pika
     from common.config import settings
