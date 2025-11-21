@@ -199,6 +199,21 @@ Progress values:
 - `completed`: 100%
 - `failed`: 0%
 
+#### Manual Library Scan
+```http
+POST /scan
+```
+
+Triggers a manual scan of the media library by the scanner service. This is useful for forcing a sync when the file watcher might have missed changes or after system downtime.
+
+**Response:**
+```json
+{
+  "status": "accepted",
+  "message": "Manual scan initiated"
+}
+```
+
 #### Jellyfin Webhook
 ```http
 POST /webhooks/jellyfin

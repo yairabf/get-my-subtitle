@@ -733,3 +733,4 @@ The hooks use the same configuration as CI/CD, ensuring consistency across local
 3. Register the service in the translator worker
 
 
+

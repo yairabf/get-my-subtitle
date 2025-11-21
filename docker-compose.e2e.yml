@@ -76,6 +76,7 @@ services:
       - ./src/common:/app/common
       - ./src/downloader:/app/downloader
       - ./storage:/app/storage
+      - ${SCANNER_MEDIA_PATH:-./test-media}:/media:rw  # Read-write access to save subtitles next to video files (configurable via .env)
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
@@ -111,6 +112,7 @@ services:
       - ./src/common:/app/common
       - ./src/translator:/app/translator
       - ./storage:/app/storage
+      - ${SCANNER_MEDIA_PATH:-./test-media}:/media:rw  # Read-write access to save translated subtitles next to video files (configurable via .env)
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
@@ -175,13 +177,13 @@ services:
       - ./src/common:/app/common
       - ./src/scanner:/app/scanner
       - ./src/manager:/app/manager
-      - ./test-media:/media:rw  # Read-write for test file creation
+      - ${SCANNER_MEDIA_PATH:-./test-media}:/media:rw  # Read-write for test file creation (configurable via .env)
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       LOG_LEVEL: INFO
       ENVIRONMENT: e2e-test
-      SCANNER_MEDIA_PATH: /media
+      SCANNER_MEDIA_PATH: /media  # Container path (matches mount point)
       SCANNER_ENABLED: "true"  # Enable file system watcher for e2e tests
       OPENSUBTITLES_USERNAME: ${OPENSUBTITLES_USERNAME}
       OPENSUBTITLES_PASSWORD: ${OPENSUBTITLES_PASSWORD}

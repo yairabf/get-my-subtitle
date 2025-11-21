@@ -10,7 +10,6 @@ from aio_pika.abc import AbstractChannel, AbstractConnection
 
 from common.config import settings
 from common.event_publisher import event_publisher
-from common.redis_client import redis_client
 from common.schemas import (
     DownloadTask,
     EventType,
@@ -42,8 +41,10 @@ class SubtitleOrchestrator:
             # Declare queues
             await self._declare_queues()
 
-            # Connect event publisher
-            await event_publisher.connect()
+            # Event publisher is connected in main.py lifespan, no need to connect here
+            # Just ensure it's connected (idempotent)
+            if not event_publisher.connection or event_publisher.connection.is_closed:
+                await event_publisher.connect(max_retries=10, retry_delay=3.0)
 
             logger.info("Connected to RabbitMQ successfully")
         except Exception as e:
@@ -129,11 +130,7 @@ class SubtitleOrchestrator:
             )
             await event_publisher.publish_event(event)
 
-            # Update job status to DOWNLOAD_QUEUED in Redis
-            await redis_client.update_phase(
-                request_id, SubtitleStatus.DOWNLOAD_QUEUED, source="manager"
-            )
-
+            # Status will be updated by Consumer when it processes the DOWNLOAD_REQUESTED event
             logger.info(f"Download task enqueued for request {request_id}")
             return True
 
@@ -200,11 +197,7 @@ class SubtitleOrchestrator:
             )
             await event_publisher.publish_event(event)
 
-            # Update job status to TRANSLATE_QUEUED in Redis
-            await redis_client.update_phase(
-                request_id, SubtitleStatus.TRANSLATE_QUEUED, source="manager"
-            )
-
+            # Status will be updated by Consumer when it processes the TRANSLATE_REQUESTED event
             logger.info(f"Translation task enqueued for request {request_id}")
             return True
 

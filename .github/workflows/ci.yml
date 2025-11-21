@@ -160,6 +160,44 @@ jobs:
         timeout 30 bash -c 'until nc -z localhost 6379; do sleep 1; done'
         timeout 30 bash -c 'until nc -z localhost 5672; do sleep 1; done'
     
+    - name: Start Manager and Consumer services
+      run: |
+        # On GitHub Actions Linux runners, containers can access host services via host.docker.internal
+        # or via the Docker bridge gateway IP. Let's try host.docker.internal first, fallback to gateway IP
+        # Get the Docker bridge gateway IP (usually 172.17.0.1)
+        GATEWAY_IP=$(docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' | head -1 || echo "172.17.0.1")
+        echo "Docker bridge gateway IP: $GATEWAY_IP"
+        
+        # Try host.docker.internal first (works on newer Docker versions)
+        # If that doesn't work, fall back to gateway IP
+        HOST_IP="host.docker.internal"
+        echo "Using host IP: $HOST_IP (will fallback to gateway IP $GATEWAY_IP if needed)"
+        
+        # Start services with environment variable overrides
+        # We need to override the REDIS_URL and RABBITMQ_URL to point to host services
+        # Use 'docker compose' (V2) instead of 'docker-compose' (V1)
+        # Use --no-deps to skip starting redis/rabbitmq (already provided by GitHub Actions)
+        REDIS_URL="redis://${HOST_IP}:6379" \
+        RABBITMQ_URL="amqp://guest:guest@${HOST_IP}:5672/" \
+        docker compose -f docker-compose.integration.yml up -d --build --no-deps manager consumer
+        
+        echo "Waiting for Manager and Consumer services to be ready..."
+        sleep 20
+        
+        # Check service status
+        docker compose -f docker-compose.integration.yml ps
+        
+        # Show service logs to verify connectivity
+        echo "=== Manager logs ==="
+        docker compose -f docker-compose.integration.yml logs --tail=30 manager || true
+        echo "=== Consumer logs ==="
+        docker compose -f docker-compose.integration.yml logs --tail=30 consumer || true
+        
+        # Test connectivity from containers
+        echo "Testing connectivity from Manager container..."
+        docker compose -f docker-compose.integration.yml exec -T manager python -c "import socket; s = socket.socket(); s.settimeout(2); result = s.connect_ex(('${HOST_IP}', 5672)); print(f'RabbitMQ connection test: {result} (0=success)'); s.close()" || \
+        docker compose -f docker-compose.integration.yml exec -T manager python -c "import socket; s = socket.socket(); s.settimeout(2); result = s.connect_ex(('${GATEWAY_IP}', 5672)); print(f'RabbitMQ connection test (gateway): {result} (0=success)'); s.close()" || true
+    
     - name: Run integration tests
       run: |
         pytest tests/integration/ -v -m integration \
@@ -169,6 +207,16 @@ jobs:
         GITHUB_ACTIONS: "true"
         REDIS_URL: redis://localhost:6379
         RABBITMQ_URL: amqp://guest:guest@localhost:5672/
+    
+    - name: Show service logs on failure
+      if: failure()
+      run: |
+        docker compose -f docker-compose.integration.yml logs manager consumer
+    
+    - name: Cleanup services
+      if: always()
+      run: |
+        docker compose -f docker-compose.integration.yml down -v
     
     - name: Upload integration test results
       if: always()

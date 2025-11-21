@@ -132,6 +132,128 @@ class TestSubtitleMissingHandler:
             assert event_arg.job_id == job_id
 
 
+class TestDownloadRequestedHandler:
+    """Test DOWNLOAD_REQUESTED event handler in consumer."""
+
+    @pytest.mark.asyncio
+    async def test_handle_download_requested_updates_job_status(self):
+        """Test that handle_download_requested updates job status to DOWNLOAD_QUEUED."""
+        consumer = EventConsumer()
+        job_id = uuid4()
+
+        event = SubtitleEvent(
+            event_type=EventType.SUBTITLE_DOWNLOAD_REQUESTED,
+            job_id=job_id,
+            timestamp=datetime.now(timezone.utc),
+            source="manager",
+            payload={
+                "video_url": "https://example.com/video.mp4",
+                "video_title": "Test Video",
+                "language": "en",
+            },
+        )
+
+        with patch("consumer.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock()
+            mock_redis.record_event = AsyncMock()
+
+            await consumer.handle_download_requested(event)
+
+            # Verify job status was updated to DOWNLOAD_QUEUED
+            mock_redis.update_phase.assert_called_once_with(
+                job_id,
+                SubtitleStatus.DOWNLOAD_QUEUED,
+                source="consumer",
+                metadata=event.payload,
+            )
+
+    @pytest.mark.asyncio
+    async def test_handle_download_requested_records_event(self):
+        """Test that handle_download_requested records event in history."""
+        consumer = EventConsumer()
+        job_id = uuid4()
+
+        event = SubtitleEvent(
+            event_type=EventType.SUBTITLE_DOWNLOAD_REQUESTED,
+            job_id=job_id,
+            timestamp=datetime.now(timezone.utc),
+            source="manager",
+            payload={"video_url": "https://example.com/video.mp4"},
+        )
+
+        with patch("consumer.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock()
+            mock_redis.record_event = AsyncMock()
+
+            await consumer.handle_download_requested(event)
+
+            # Verify event was recorded
+            mock_redis.record_event.assert_called_once_with(
+                job_id, event.event_type.value, event.payload, source="consumer"
+            )
+
+
+class TestTranslateRequestedHandler:
+    """Test TRANSLATE_REQUESTED event handler in consumer."""
+
+    @pytest.mark.asyncio
+    async def test_handle_translate_requested_updates_job_status(self):
+        """Test that handle_translate_requested updates job status to TRANSLATE_QUEUED."""
+        consumer = EventConsumer()
+        job_id = uuid4()
+
+        event = SubtitleEvent(
+            event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
+            job_id=job_id,
+            timestamp=datetime.now(timezone.utc),
+            source="manager",
+            payload={
+                "subtitle_file_path": "/path/to/subtitle.srt",
+                "source_language": "en",
+                "target_language": "es",
+            },
+        )
+
+        with patch("consumer.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock()
+            mock_redis.record_event = AsyncMock()
+
+            await consumer.handle_translate_requested(event)
+
+            # Verify job status was updated to TRANSLATE_QUEUED
+            mock_redis.update_phase.assert_called_once_with(
+                job_id,
+                SubtitleStatus.TRANSLATE_QUEUED,
+                source="consumer",
+                metadata=event.payload,
+            )
+
+    @pytest.mark.asyncio
+    async def test_handle_translate_requested_records_event(self):
+        """Test that handle_translate_requested records event in history."""
+        consumer = EventConsumer()
+        job_id = uuid4()
+
+        event = SubtitleEvent(
+            event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
+            job_id=job_id,
+            timestamp=datetime.now(timezone.utc),
+            source="manager",
+            payload={"source_language": "en", "target_language": "es"},
+        )
+
+        with patch("consumer.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock()
+            mock_redis.record_event = AsyncMock()
+
+            await consumer.handle_translate_requested(event)
+
+            # Verify event was recorded
+            mock_redis.record_event.assert_called_once_with(
+                job_id, event.event_type.value, event.payload, source="consumer"
+            )
+
+
 class TestConsumerEventRouting:
     """Test event routing in consumer."""
 
