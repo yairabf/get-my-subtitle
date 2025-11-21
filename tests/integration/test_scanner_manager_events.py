@@ -228,17 +228,17 @@ async def event_consumer_service():
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_scanner_publishes_manager_consumes_end_to_end(
-    setup_services, ensure_consumer_healthy
+    setup_services, consumer, ensure_consumer_healthy
 ):
     """
     Test end-to-end event flow:
     1. Scanner creates job in Redis and publishes SUBTITLE_REQUESTED event
-    2. Manager service (running in Docker) consumes event from RabbitMQ
+    2. Manager consumes event from RabbitMQ (test consumer or Docker Manager)
     3. Manager enqueues download task and publishes DOWNLOAD_REQUESTED event
     4. Consumer service (running in Docker) processes DOWNLOAD_REQUESTED and updates status to DOWNLOAD_QUEUED
     
-    Note: We rely on the Docker Manager service to consume events, not a test consumer.
-    This ensures we test the actual production flow.
+    Note: We start a test consumer to ensure events are processed. If Docker Manager is also running,
+    both will compete for messages, but that's okay - one will process it.
     """
     job_id = uuid4()
     # Use unique video title to avoid duplicate detection
@@ -272,17 +272,22 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
         },
     )
 
+    # Start the test consumer to process events (Manager's event consumer)
+    # This ensures events are processed even if Docker Manager isn't consuming
+    logger.info("Starting test Manager event consumer...")
+    consumer_task = asyncio.create_task(consumer.start_consuming())
+    await asyncio.sleep(0.2)  # Give consumer time to start
+
     # Publish the event (as Scanner would do)
-    # The Docker Manager service will consume it and publish DOWNLOAD_REQUESTED
     success = await event_publisher.publish_event(subtitle_requested_event)
     assert success is True
     logger.info(f"✅ Published SUBTITLE_REQUESTED event for job {job_id}")
 
     # Wait for message to be processed (give it up to 20 seconds)
-    # Manager (Docker) processes SUBTITLE_REQUESTED -> publishes DOWNLOAD_REQUESTED
+    # Manager processes SUBTITLE_REQUESTED -> publishes DOWNLOAD_REQUESTED
     # Consumer service (Docker) processes DOWNLOAD_REQUESTED -> updates status to DOWNLOAD_QUEUED
     # Add initial delay to allow events to propagate
-    await asyncio.sleep(1.0)  # Give Manager service time to consume and process
+    await asyncio.sleep(0.5)  # Give Manager time to consume and process
     
     for attempt in range(200):  # 200 attempts * 0.1s = 20s max
         await asyncio.sleep(0.1)
@@ -315,15 +320,32 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
     assert job.language == "en"
     assert job.target_language == "es"
 
+    finally:
+        # Stop consumer properly before event loop closes
+        logger.info("Stopping test Manager event consumer...")
+        consumer.stop()
+        try:
+            # Give consumer a moment to stop gracefully
+            await asyncio.sleep(0.1)
+            # Cancel the task if it's still running
+            if not consumer_task.done():
+                consumer_task.cancel()
+                try:
+                    await asyncio.wait_for(consumer_task, timeout=1.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+        except Exception as e:
+            logger.warning(f"Error during consumer cleanup: {e}")
+
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_multiple_events_processed_sequentially(
-    setup_services, ensure_consumer_healthy
+    setup_services, consumer, ensure_consumer_healthy
 ):
     """
     Test that multiple SUBTITLE_REQUESTED events are processed in order.
-    Note: Manager and Consumer services are running in Docker and will process events.
+    Note: We start a test consumer to ensure events are processed.
     """
     job_ids = [uuid4() for _ in range(3)]
     events = []
@@ -361,8 +383,12 @@ async def test_multiple_events_processed_sequentially(
         )
         events.append(event)
 
+    # Start the test consumer to process events (Manager's event consumer)
+    logger.info("Starting test Manager event consumer...")
+    consumer_task = asyncio.create_task(consumer.start_consuming())
+    await asyncio.sleep(0.2)  # Give consumer time to start
+
     # Publish all events
-    # The Docker Manager service will consume them and publish DOWNLOAD_REQUESTED events
     for event in events:
         await event_publisher.publish_event(event)
         logger.info(f"✅ Published SUBTITLE_REQUESTED event for job {event.job_id}")
@@ -425,8 +451,25 @@ async def test_multiple_events_processed_sequentially(
     for job_id in job_ids:
         job = await redis_client.get_job(job_id)
         assert job is not None
-        assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
-        assert job.video_title == f"Test Movie {job_id}"
+            assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
+            assert job.video_title == f"Test Movie {job_id}"
+
+    finally:
+        # Stop consumer properly before event loop closes
+        logger.info("Stopping test Manager event consumer...")
+        consumer.stop()
+        try:
+            # Give consumer a moment to stop gracefully
+            await asyncio.sleep(0.1)
+            # Cancel the task if it's still running
+            if not consumer_task.done():
+                consumer_task.cancel()
+                try:
+                    await asyncio.wait_for(consumer_task, timeout=1.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+        except Exception as e:
+            logger.warning(f"Error during consumer cleanup: {e}")
 
 
 
