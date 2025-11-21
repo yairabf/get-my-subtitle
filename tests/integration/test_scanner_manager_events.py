@@ -448,14 +448,14 @@ async def test_multiple_events_processed_sequentially(
             f"Job statuses: {job_statuses}"
         )
 
-    # Verify all jobs were created correctly
-    for job_id in job_ids:
-        job = await redis_client.get_job(job_id)
-        assert job is not None
+        # Verify all jobs were created correctly
+        for job_id in job_ids:
+            job = await redis_client.get_job(job_id)
+            assert job is not None
             assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
             assert job.video_title == f"Test Movie {job_id}"
 
-        finally:
+    finally:
         # Stop consumer properly before event loop closes
         logger.info("Stopping test Manager event consumer...")
         consumer.stop()
