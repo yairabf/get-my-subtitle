@@ -293,33 +293,33 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
         for attempt in range(200):  # 200 attempts * 0.1s = 20s max
             await asyncio.sleep(0.1)
 
-        # Check if job was updated in Redis (indicates Consumer processed DOWNLOAD_REQUESTED)
-        job = await redis_client.get_job(job_id)
-        if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
-            logger.info(f"✅ Job {job_id} status updated to DOWNLOAD_QUEUED after {attempt + 1} attempts")
-            break
-        
-        # Log progress every 50 attempts
-        if (attempt + 1) % 50 == 0:
-            logger.info(f"⏳ Waiting for job {job_id} to be processed... Status: {job.status if job else 'None'} (attempt {attempt + 1}/200)")
-    else:
-        # Get final job state for debugging
-        final_job = await redis_client.get_job(job_id)
-        logger.error(f"❌ Timeout waiting for event to be processed. Final job status: {final_job.status if final_job else 'None'}")
-        pytest.fail(
-            f"Timeout waiting for event to be processed after {attempt + 1} attempts. "
-            f"Final job status: {final_job.status if final_job else 'None'}, "
-            f"job_id: {job_id}"
-        )
+            # Check if job was updated in Redis (indicates Consumer processed DOWNLOAD_REQUESTED)
+            job = await redis_client.get_job(job_id)
+            if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
+                logger.info(f"✅ Job {job_id} status updated to DOWNLOAD_QUEUED after {attempt + 1} attempts")
+                break
+            
+            # Log progress every 50 attempts
+            if (attempt + 1) % 50 == 0:
+                logger.info(f"⏳ Waiting for job {job_id} to be processed... Status: {job.status if job else 'None'} (attempt {attempt + 1}/200)")
+        else:
+            # Get final job state for debugging
+            final_job = await redis_client.get_job(job_id)
+            logger.error(f"❌ Timeout waiting for event to be processed. Final job status: {final_job.status if final_job else 'None'}")
+            pytest.fail(
+                f"Timeout waiting for event to be processed after {attempt + 1} attempts. "
+                f"Final job status: {final_job.status if final_job else 'None'}, "
+                f"job_id: {job_id}"
+            )
 
-    # Verify the job was updated correctly
-    job = await redis_client.get_job(job_id)
-    assert job is not None, "Job should exist in Redis"
-    assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
-    assert job.video_url == f"/media/movies/integration_test_{job_id}.mp4"
-    assert job.video_title == unique_video_title
-    assert job.language == "en"
-    assert job.target_language == "es"
+        # Verify the job was updated correctly
+        job = await redis_client.get_job(job_id)
+        assert job is not None, "Job should exist in Redis"
+        assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
+        assert job.video_url == f"/media/movies/integration_test_{job_id}.mp4"
+        assert job.video_title == unique_video_title
+        assert job.language == "en"
+        assert job.target_language == "es"
 
     finally:
         # Stop consumer properly before event loop closes
