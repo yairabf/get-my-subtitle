@@ -291,7 +291,7 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
     
     try:
         for attempt in range(200):  # 200 attempts * 0.1s = 20s max
-        await asyncio.sleep(0.1)
+            await asyncio.sleep(0.1)
 
         # Check if job was updated in Redis (indicates Consumer processed DOWNLOAD_REQUESTED)
         job = await redis_client.get_job(job_id)
