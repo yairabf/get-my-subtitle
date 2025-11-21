@@ -276,9 +276,10 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
 
     # Start the test consumer to process events (Manager's event consumer)
     # This ensures events are processed even if Docker Manager isn't consuming
-    logger.info("Starting test Manager event consumer...")
+    logger.info("🚀 Starting test Manager event consumer...")
     consumer_task = asyncio.create_task(consumer.start_consuming())
-    await asyncio.sleep(0.2)  # Give consumer time to start
+    await asyncio.sleep(0.5)  # Give consumer time to start and bind to queue
+    logger.info(f"✅ Test consumer started. Queue: {consumer.queue_name}, Routing Key: {consumer.routing_key}")
 
     # Publish the event (as Scanner would do)
     success = await event_publisher.publish_event(subtitle_requested_event)
@@ -387,9 +388,10 @@ async def test_multiple_events_processed_sequentially(
         events.append(event)
 
     # Start the test consumer to process events (Manager's event consumer)
-    logger.info("Starting test Manager event consumer...")
+    logger.info("🚀 Starting test Manager event consumer...")
     consumer_task = asyncio.create_task(consumer.start_consuming())
-    await asyncio.sleep(0.2)  # Give consumer time to start
+    await asyncio.sleep(0.5)  # Give consumer time to start and bind to queue
+    logger.info(f"✅ Test consumer started. Queue: {consumer.queue_name}, Routing Key: {consumer.routing_key}")
 
     # Publish all events
     for event in events:
