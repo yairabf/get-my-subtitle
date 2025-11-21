@@ -455,7 +455,7 @@ async def test_multiple_events_processed_sequentially(
             assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
             assert job.video_title == f"Test Movie {job_id}"
 
-    finally:
+        finally:
         # Stop consumer properly before event loop closes
         logger.info("Stopping test Manager event consumer...")
         consumer.stop()
