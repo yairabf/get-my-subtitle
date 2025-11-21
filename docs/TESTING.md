@@ -99,28 +99,78 @@ pytest tests/common/test_utils.py::test_function_name -v
 
 ### Integration Tests
 
+Integration tests verify connections between all services (Manager, Consumer, Downloader, Translator, Scanner) using the full Docker environment.
+
+**What Integration Tests Cover:**
+- Event flow: Scanner → Manager → Downloader → Consumer → Redis
+- Event flow: Manager → Translator → Consumer → Redis
+- RabbitMQ message routing and exchange bindings
+- Redis state updates from Consumer service
+- Service-to-service communication
+- Event history tracking
+
+**What Integration Tests DON'T Cover:**
+- External API calls (OpenSubtitles, OpenAI) - covered in E2E tests
+- Actual subtitle downloads - mocked in integration tests
+- Actual translations - mocked in integration tests
+
 **Prerequisites:**
-- Services must be running (RabbitMQ, Redis)
-- Use `make up-infra` or `docker-compose up redis rabbitmq`
+- Docker and Docker Compose installed
+- No services running on ports 5672 (RabbitMQ), 6379 (Redis), 8000 (Manager)
 
-**Run Tests:**
+**Running Integration Tests Locally:**
+
 ```bash
-# Run all integration tests
-make test-integration
-
-# Run with full Docker environment
+# Option 1: Automatic (recommended)
+# Starts Docker environment, runs tests, tears down
 make test-integration-full
 
-# Run specific integration test
-pytest tests/integration/test_scanner_manager_events.py -v
+# Option 2: Manual control
+# Start environment
+make test-integration-up
 
-# Run with debug logging
-pytest tests/integration/ --log-cli-level=DEBUG -v
+# Run tests (in another terminal)
+pytest tests/integration/ -v -m integration
+
+# View logs if tests fail
+make test-integration-logs
+
+# Stop environment
+make test-integration-down
 ```
 
 **Integration Test Environment:**
-- **CI (GitHub Actions)**: Services provided automatically
-- **Local**: Start services with `make up-infra` or use `docker-compose.integration.yml`
+
+Uses `docker-compose.integration.yml` which includes:
+- RabbitMQ (message broker)
+- Redis (state storage)
+- Manager (API + orchestration)
+- Consumer (event processor)
+- Downloader (with mocked OpenSubtitles)
+- Translator (with mocked OpenAI)
+- Scanner (disabled auto-scan)
+
+**Debugging Integration Tests:**
+
+```bash
+# View service logs
+docker-compose -f docker-compose.integration.yml logs -f manager consumer
+
+# Check service health
+docker-compose -f docker-compose.integration.yml ps
+
+# Inspect RabbitMQ
+open http://localhost:15672  # guest/guest
+
+# Inspect Redis
+docker-compose -f docker-compose.integration.yml exec redis redis-cli
+```
+
+**CI Integration:**
+
+In CI (GitHub Actions), services are provided automatically. Tests connect to:
+- `localhost:5672` (RabbitMQ)
+- `localhost:6379` (Redis)
 
 ### Test Coverage
 ```bash
