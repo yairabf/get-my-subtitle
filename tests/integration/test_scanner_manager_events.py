@@ -289,7 +289,8 @@ async def test_scanner_publishes_manager_consumes_end_to_end(
     # Add initial delay to allow events to propagate
     await asyncio.sleep(0.5)  # Give Manager time to consume and process
     
-    for attempt in range(200):  # 200 attempts * 0.1s = 20s max
+    try:
+        for attempt in range(200):  # 200 attempts * 0.1s = 20s max
         await asyncio.sleep(0.1)
 
         # Check if job was updated in Redis (indicates Consumer processed DOWNLOAD_REQUESTED)
