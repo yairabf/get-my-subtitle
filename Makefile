@@ -106,6 +106,10 @@ test-integration-full: ## Run integration tests with full Docker environment
 	@docker-compose -f docker-compose.integration.yml up -d --build
 	@echo "$(YELLOW)Waiting for services to be healthy (30s)...$(NC)"
 	@sleep 30
+	@echo "$(YELLOW)Restarting Manager and Consumer to ensure clean state...$(NC)"
+	@docker-compose -f docker-compose.integration.yml restart manager consumer
+	@echo "$(YELLOW)Waiting for services to be ready (8s)...$(NC)"
+	@sleep 8
 	@docker-compose -f docker-compose.integration.yml ps
 	@echo "$(GREEN)Running integration tests...$(NC)"
 	@$(PYTEST) tests/integration/ -v -m integration --log-cli-level=INFO || \
