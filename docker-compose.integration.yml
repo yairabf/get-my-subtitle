@@ -48,6 +48,9 @@ services:
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
+      # Mock credentials for integration tests
+      OPENSUBTITLES_USERNAME: "mock_user"
+      OPENSUBTITLES_PASSWORD: "mock_password"
     depends_on:
       redis:
         condition: service_healthy
@@ -76,6 +79,10 @@ services:
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
+      # Mock credentials for integration tests (prevents actual API calls)
+      OPENSUBTITLES_USERNAME: "mock_user"
+      OPENSUBTITLES_PASSWORD: "mock_password"
+      OPENSUBTITLES_API_KEY: "mock_api_key"
     depends_on:
       manager:
         condition: service_healthy
@@ -103,6 +110,8 @@ services:
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
+      # Mock credentials for integration tests (prevents actual API calls)
+      OPENAI_API_KEY: "sk-mock-api-key-for-integration-tests"
     depends_on:
       manager:
         condition: service_healthy
