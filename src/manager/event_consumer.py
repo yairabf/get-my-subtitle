@@ -107,13 +107,21 @@ class SubtitleEventConsumer:
                 f"Starting to consume events (SUBTITLE_REQUESTED, SUBTITLE_TRANSLATE_REQUESTED) "
                 f"from queue '{self.queue_name}'"
             )
+            
+            # Verify channel is still valid
+            if self.channel and hasattr(self.channel, 'is_closed') and self.channel.is_closed:
+                logger.error("Channel is closed, cannot start consuming")
+                return
 
+            logger.info(f"Queue iterator starting for queue '{self.queue_name}'")
             async with self.queue.iterator() as queue_iter:
+                logger.info(f"Queue iterator created, waiting for messages on '{self.queue_name}'...")
                 async for message in queue_iter:
                     if not self.is_consuming:
                         logger.info("Consumer stopped, breaking message loop")
                         break
 
+                    logger.debug(f"Received message from queue '{self.queue_name}', routing_key: {message.routing_key}")
                     await self._on_message(message)
 
         except asyncio.CancelledError:
@@ -121,7 +129,9 @@ class SubtitleEventConsumer:
             raise
         except Exception as e:
             logger.error(f"Error in event consumer loop: {e}", exc_info=True)
-            raise
+            # Don't raise - allow the service to continue running
+            # The error will be logged and can be investigated
+            logger.error("Event consumer loop failed, but service will continue running")
 
     async def _on_message(self, message: AbstractIncomingMessage) -> None:
         """
@@ -134,10 +144,12 @@ class SubtitleEventConsumer:
             try:
                 # Parse message body as SubtitleEvent
                 event_data = message.body.decode()
+                logger.debug(f"Parsing event data: {event_data[:200]}...")  # Log first 200 chars
                 event = SubtitleEvent.model_validate_json(event_data)
 
                 logger.info(
-                    f"Received event {event.event_type.value} for job {event.job_id}"
+                    f"Received event {event.event_type.value} for job {event.job_id} "
+                    f"(routing_key: {message.routing_key})"
                 )
 
                 # Route to appropriate handler based on event type

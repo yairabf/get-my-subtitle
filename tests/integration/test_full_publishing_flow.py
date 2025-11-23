@@ -202,15 +202,16 @@ class TestTranslationRequestPublishingFlow:
             "subtitle.translation", durable=True
         )
         # Get message immediately before Translator consumes it
-        task_message = await task_queue.get(timeout=0.5)
-        if task_message is None:
-            # Message was consumed by Translator - that's fine, proves it was published
-            # The event verification above confirms the task was enqueued
-            pass
-        else:
+        from aio_pika.exceptions import QueueEmpty
+        try:
+            task_message = await task_queue.get(timeout=0.5)
             # Message still in queue - verify it
             assert task_message is not None
             await task_message.ack()
+        except QueueEmpty:
+            # Message was consumed by Translator - that's fine, proves it was published
+            # The event verification above confirms the task was enqueued
+            pass
 
     async def test_translation_task_can_be_consumed(
         self, test_orchestrator, rabbitmq_channel
@@ -233,15 +234,16 @@ class TestTranslationRequestPublishingFlow:
         )
 
         # Assert - Consume and validate immediately before Translator consumes it
-        message = await task_queue.get(timeout=0.5)
-        if message is None:
+        from aio_pika.exceptions import QueueEmpty
+        try:
+            message = await task_queue.get(timeout=0.5)
+            # Parse and validate task
+            task_data = json.loads(message.body.decode())
+            translation_task = TranslationTask(**task_data)
+        except QueueEmpty:
             # Message was consumed by Translator - that's fine, proves it was published
             # Verify event was published instead
             pytest.skip("Message consumed by Translator worker - event publishing verified separately")
-
-        # Parse and validate task
-        task_data = json.loads(message.body.decode())
-        translation_task = TranslationTask(**task_data)
 
         assert str(translation_task.request_id) == str(request_id)
         assert translation_task.subtitle_file_path == "/storage/test_subtitle.srt"

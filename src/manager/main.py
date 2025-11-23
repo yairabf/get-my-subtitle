@@ -53,7 +53,20 @@ async def lifespan(app: FastAPI):
     # Connect and start event consumer (with retries for Docker startup)
     logger.info("Starting event consumer for SUBTITLE_REQUESTED events...")
     await event_consumer.connect(max_retries=10, retry_delay=3.0)
-    consumer_task = asyncio.create_task(event_consumer.start_consuming())
+    
+    # Verify consumer is connected before starting
+    if event_consumer.queue is None or event_consumer.channel is None:
+        logger.error("Event consumer not properly connected, cannot start consuming")
+    else:
+        consumer_task = asyncio.create_task(event_consumer.start_consuming())
+        # Add error handler to catch task exceptions
+        def handle_task_exception(task):
+            try:
+                task.result()  # This will raise if task failed
+            except Exception as e:
+                logger.error(f"Event consumer task failed: {e}", exc_info=True)
+        consumer_task.add_done_callback(handle_task_exception)
+        logger.info(f"Event consumer task started: {consumer_task}")
 
     logger.info("API startup complete")
 
