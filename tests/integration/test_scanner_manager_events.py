@@ -6,6 +6,7 @@ In CI, these services should be started via docker-compose before running tests.
 
 import asyncio
 import logging
+import subprocess
 from uuid import uuid4
 
 import aio_pika
@@ -29,11 +30,22 @@ async def setup_services():
     Set up Redis, RabbitMQ, and orchestrator for testing.
     
     This fixture:
-    1. Purges the Manager's queue to ensure test isolation
-    2. Connects to all required services
-    3. Verifies connections are working
-    4. Provides diagnostics about queue status
+    1. Ensures Manager and Consumer services are ready
+    2. Purges the Manager's queue to ensure test isolation
+    3. Connects to all required services
+    4. Verifies connections are working
+    5. Provides diagnostics about queue status
     """
+    # Ensure services are ready (restart if needed)
+    logger.info("Ensuring Manager and Consumer services are ready...")
+    services_ready = await ensure_services_ready()
+    if not services_ready:
+        pytest.skip(
+            "Manager and Consumer services are not ready. "
+            "Please ensure Docker services are running: "
+            "docker-compose -f docker-compose.integration.yml up -d"
+        )
+    
     # Purge Manager's queue to clear backlog from previous tests
     # This is critical for test isolation when running the full suite
     logger.info("Purging Manager queue for test isolation...")
@@ -44,9 +56,13 @@ async def setup_services():
     if initial_count > 0:
         logger.warning(f"Manager queue still has {initial_count} messages after purge")
     
-    # Check Manager consumer health
+    # Verify Manager consumer is still healthy after purge
     consumer_health = await check_manager_consumer_health()
     logger.info(f"Manager consumer health: {consumer_health}")
+    
+    if not (consumer_health.get("status") == "consuming" and consumer_health.get("connected")):
+        logger.warning("Manager consumer not healthy after setup, attempting one more restart...")
+        await ensure_services_ready(max_retries=1)
     
     # Connect services with timeout
     try:
@@ -155,6 +171,60 @@ async def check_manager_consumer_health() -> dict:
     except Exception as e:
         logger.warning(f"Could not check Manager consumer health: {e}")
     return {"status": "unknown", "connected": False}
+
+
+async def ensure_services_ready(max_retries: int = 3) -> bool:
+    """
+    Ensure Manager and Consumer services are ready and consuming events.
+    Restarts them if they're not healthy.
+    
+    Args:
+        max_retries: Maximum number of restart attempts
+        
+    Returns:
+        True if services are ready, False otherwise
+    """
+    for attempt in range(max_retries):
+        # Check Manager consumer health
+        manager_health = await check_manager_consumer_health()
+        manager_ready = (
+            manager_health.get("status") == "consuming"
+            and manager_health.get("connected") is True
+        )
+        
+        if manager_ready:
+            logger.info(f"✅ Manager consumer is ready (attempt {attempt + 1})")
+            return True
+        
+        logger.warning(
+            f"⚠️ Manager consumer not ready (attempt {attempt + 1}/{max_retries}): {manager_health}"
+        )
+        
+        if attempt < max_retries - 1:
+            # Restart services
+            logger.info("Restarting Manager and Consumer services...")
+            try:
+                subprocess.run(
+                    [
+                        "docker-compose",
+                        "-f",
+                        "docker-compose.integration.yml",
+                        "restart",
+                        "manager",
+                        "consumer",
+                    ],
+                    check=True,
+                    capture_output=True,
+                    timeout=30,
+                )
+                logger.info("Services restarted, waiting for them to be ready...")
+                await asyncio.sleep(8)  # Wait for services to start
+            except Exception as e:
+                logger.warning(f"Failed to restart services: {e}")
+                await asyncio.sleep(2)
+    
+    logger.error("❌ Services failed to become ready after all retries")
+    return False
 
 
 async def wait_for_event_in_redis(
