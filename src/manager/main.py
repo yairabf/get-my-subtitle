@@ -9,10 +9,11 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from common.config import settings
+from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
-from common.schemas import SubtitleStatus
-from common.utils import StatusProgressCalculator
+from common.schemas import EventType, SubtitleEvent, SubtitleStatus
+from common.utils import DateTimeUtils, StatusProgressCalculator
 from manager.event_consumer import event_consumer
 from manager.orchestrator import orchestrator
 from manager.schemas import (
@@ -42,12 +43,30 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting subtitle management API...")
     await redis_client.connect()
+    
+    # Connect event publisher first (with retries for Docker startup)
+    logger.info("Connecting event publisher...")
+    await event_publisher.connect(max_retries=10, retry_delay=3.0)
+    
     await orchestrator.connect()
 
-    # Connect and start event consumer
+    # Connect and start event consumer (with retries for Docker startup)
     logger.info("Starting event consumer for SUBTITLE_REQUESTED events...")
-    await event_consumer.connect()
-    consumer_task = asyncio.create_task(event_consumer.start_consuming())
+    await event_consumer.connect(max_retries=10, retry_delay=3.0)
+    
+    # Verify consumer is connected before starting
+    if event_consumer.queue is None or event_consumer.channel is None:
+        logger.error("Event consumer not properly connected, cannot start consuming")
+    else:
+        consumer_task = asyncio.create_task(event_consumer.start_consuming())
+        # Add error handler to catch task exceptions
+        def handle_task_exception(task):
+            try:
+                task.result()  # This will raise if task failed
+            except Exception as e:
+                logger.error(f"Event consumer task failed: {e}", exc_info=True)
+        consumer_task.add_done_callback(handle_task_exception)
+        logger.info(f"Event consumer task started: {consumer_task}")
 
     logger.info("API startup complete")
 
@@ -72,6 +91,7 @@ async def lifespan(app: FastAPI):
 
     await event_consumer.disconnect()
     await orchestrator.disconnect()
+    await event_publisher.disconnect()
     await redis_client.disconnect()
     logger.info("API shutdown complete")
 
@@ -225,9 +245,18 @@ async def request_subtitle_download(request: SubtitleRequestCreate):
         )
 
         if not success:
+            # Publish failure event - Consumer will update status
+            failure_event = SubtitleEvent(
+                event_type=EventType.JOB_FAILED,
+                job_id=subtitle_response.id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="manager",
+                payload={"error_message": "Failed to enqueue download task"},
+            )
+            await event_publisher.publish_event(failure_event)
+            # Set status in response object for API response (not saved to Redis)
             subtitle_response.status = SubtitleStatus.FAILED
             subtitle_response.error_message = "Failed to enqueue download task"
-            await redis_client.save_job(subtitle_response)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to enqueue download task",
@@ -329,9 +358,18 @@ async def translate_subtitle_file(request: SubtitleTranslateRequest):
         )
 
         if not success:
+            # Publish failure event - Consumer will update status
+            failure_event = SubtitleEvent(
+                event_type=EventType.JOB_FAILED,
+                job_id=subtitle_response.id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="manager",
+                payload={"error_message": "Failed to enqueue translation task"},
+            )
+            await event_publisher.publish_event(failure_event)
+            # Set status in response object for API response (not saved to Redis)
             subtitle_response.status = SubtitleStatus.FAILED
             subtitle_response.error_message = "Failed to enqueue translation task"
-            await redis_client.save_job(subtitle_response)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to enqueue translation task",
@@ -437,9 +475,16 @@ async def handle_jellyfin_webhook(payload: JellyfinWebhookPayload):
             )
 
         if not success:
-            subtitle_response.status = SubtitleStatus.FAILED
-            subtitle_response.error_message = "Failed to enqueue download task"
-            await redis_client.save_job(subtitle_response)
+            # Publish failure event - Consumer will update status
+            failure_event = SubtitleEvent(
+                event_type=EventType.JOB_FAILED,
+                job_id=subtitle_response.id,
+                timestamp=DateTimeUtils.get_current_utc_datetime(),
+                source="manager",
+                payload={"error_message": "Failed to enqueue download task"},
+            )
+            await event_publisher.publish_event(failure_event)
+            # Note: Status will be updated by Consumer, not directly here
             return WebhookAcknowledgement(
                 status="error",
                 job_id=subtitle_response.id,
@@ -460,6 +505,48 @@ async def handle_jellyfin_webhook(payload: JellyfinWebhookPayload):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
+        )
+
+
+@app.post("/scan", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_manual_scan():
+    """
+    Trigger a manual scan of the media library.
+    
+    This sends a request to the Scanner service to initiate a full scan
+    of the configured media directory.
+    """
+    import httpx
+    
+    try:
+        scanner_url = f"http://{settings.scanner_webhook_host}:{settings.scanner_webhook_port}/scan"
+        logger.info(f"Triggering manual scan via {scanner_url}")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(scanner_url, timeout=5.0)
+            
+        if response.status_code != 200:
+            logger.error(f"Scanner returned error: {response.text}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Scanner service returned error: {response.status_code}"
+            )
+            
+        return {"status": "accepted", "message": "Manual scan initiated"}
+        
+    except httpx.RequestError as e:
+        logger.error(f"Failed to connect to scanner service: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Scanner service is unreachable"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error triggering manual scan: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
         )
 
 

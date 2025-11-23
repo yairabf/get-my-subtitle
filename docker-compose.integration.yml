@@ -48,6 +48,9 @@ services:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
+      # Mock credentials for integration tests
+      OPENSUBTITLES_USERNAME: "mock_user"
+      OPENSUBTITLES_PASSWORD: "mock_password"
     depends_on:
       redis:
         condition: service_healthy
@@ -55,10 +58,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 15s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - integration-test-network
 
@@ -70,11 +73,16 @@ services:
     volumes:
       - ./src/common:/app/common
       - ./src/downloader:/app/downloader
+      - ${SCANNER_MEDIA_PATH:-./test-media}:/media:rw  # Read-write access to save subtitles next to video files (configurable via .env)
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
+      # Mock credentials for integration tests (prevents actual API calls)
+      OPENSUBTITLES_USERNAME: "mock_user"
+      OPENSUBTITLES_PASSWORD: "mock_password"
+      OPENSUBTITLES_API_KEY: "mock_api_key"
     depends_on:
       manager:
         condition: service_healthy
@@ -96,11 +104,14 @@ services:
       - ./src/common:/app/common
       - ./src/translator:/app/translator
       - ./storage:/app/storage
+      - ${SCANNER_MEDIA_PATH:-./test-media}:/media:rw  # Read-write access to save translated subtitles next to video files (configurable via .env)
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
+      # Mock credentials for integration tests (prevents actual API calls)
+      OPENAI_API_KEY: "sk-mock-api-key-for-integration-tests"
     depends_on:
       manager:
         condition: service_healthy
@@ -110,6 +121,36 @@ services:
       timeout: 3s
       retries: 5
       start_period: 15s
+    networks:
+      - integration-test-network
+
+  # Consumer service (processes events and updates Redis status)
+  consumer:
+    build:
+      context: .
+      dockerfile: ./src/consumer/Dockerfile
+    volumes:
+      - ./src/common:/app/common
+      - ./src/consumer:/app/consumer
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      LOG_LEVEL: INFO
+      ENVIRONMENT: integration-test
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      manager:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r = redis.Redis(host='redis', port=6379); r.ping()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - integration-test-network
 
@@ -124,12 +165,13 @@ services:
       - ./src/common:/app/common
       - ./src/scanner:/app/scanner
       - ./src/manager:/app/manager
-      - ./test-media:/media:ro  # Mount test media directory
+      - ${SCANNER_MEDIA_PATH:-./test-media}:/media:ro  # Mount test media directory (configurable via .env)
     environment:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       LOG_LEVEL: INFO
       ENVIRONMENT: integration-test
+      SCANNER_MEDIA_PATH: /media  # Container path (matches mount point)
       SCANNER_ENABLED: "false"  # Disable automatic scanning in tests
     depends_on:
       manager:

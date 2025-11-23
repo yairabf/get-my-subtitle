@@ -16,9 +16,10 @@ from aio_pika.abc import (
 
 from common.config import settings
 from common.duplicate_prevention import DuplicatePreventionService
+from common.event_publisher import event_publisher
 from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleRequest, SubtitleStatus
-from common.utils import ValidationUtils
+from common.utils import DateTimeUtils, ValidationUtils
 from manager.orchestrator import orchestrator
 
 logger = logging.getLogger(__name__)
@@ -41,34 +42,48 @@ class SubtitleEventConsumer:
         self.routing_key = "subtitle.requested"
         self.is_consuming = False
 
-    async def connect(self) -> None:
-        """Establish connection to RabbitMQ and bind queue to topic exchange."""
-        try:
-            self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
-            self.channel = await self.connection.channel()
+    async def connect(self, max_retries: int = 10, retry_delay: float = 3.0) -> None:
+        """Establish connection to RabbitMQ and bind queue to topic exchange with retry logic."""
+        for attempt in range(max_retries):
+            try:
+                self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+                self.channel = await self.connection.channel()
 
-            # Declare topic exchange (should already exist from event_publisher)
-            self.exchange = await self.channel.declare_exchange(
-                self.exchange_name, ExchangeType.TOPIC, durable=True
-            )
+                # Declare topic exchange (should already exist from event_publisher)
+                self.exchange = await self.channel.declare_exchange(
+                    self.exchange_name, ExchangeType.TOPIC, durable=True
+                )
 
-            # Declare durable queue for this consumer
-            self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
+                # Declare durable queue for this consumer
+                self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
 
-            # Bind queue to exchange with routing key for SUBTITLE_REQUESTED
-            await self.queue.bind(exchange=self.exchange, routing_key=self.routing_key)
+                # Bind queue to exchange with routing keys for both SUBTITLE_REQUESTED and SUBTITLE_TRANSLATE_REQUESTED
+                await self.queue.bind(exchange=self.exchange, routing_key=self.routing_key)
+                # Also bind to translation request events from downloader
+                await self.queue.bind(
+                    exchange=self.exchange, routing_key="subtitle.translate.requested"
+                )
 
-            logger.info(
-                f"Connected to RabbitMQ - Queue '{self.queue_name}' bound to "
-                f"exchange '{self.exchange_name}' with routing key '{self.routing_key}'"
-            )
+                logger.info(
+                    f"Connected to RabbitMQ - Queue '{self.queue_name}' bound to "
+                    f"exchange '{self.exchange_name}' with routing keys: "
+                    f"'{self.routing_key}' and 'subtitle.translate.requested'"
+                )
+                return  # Success, exit retry loop
 
-        except Exception as e:
-            logger.warning(f"Failed to connect to RabbitMQ for event consumption: {e}")
-            logger.warning(
-                "Running in mock mode - events will not be consumed from queue"
-            )
-            # Don't raise the exception, allow the service to start in mock mode
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Failed to connect to RabbitMQ (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {retry_delay}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.warning(f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}")
+                    logger.warning(
+                        "Running in mock mode - events will not be consumed from queue"
+                    )
+                    # Don't raise the exception, allow the service to start in mock mode
 
     async def disconnect(self) -> None:
         """Close connection to RabbitMQ."""
@@ -89,16 +104,24 @@ class SubtitleEventConsumer:
         try:
             self.is_consuming = True
             logger.info(
-                f"Starting to consume SUBTITLE_REQUESTED events from queue "
-                f"'{self.queue_name}'"
+                f"Starting to consume events (SUBTITLE_REQUESTED, SUBTITLE_TRANSLATE_REQUESTED) "
+                f"from queue '{self.queue_name}'"
             )
+            
+            # Verify channel is still valid
+            if self.channel and hasattr(self.channel, 'is_closed') and self.channel.is_closed:
+                logger.error("Channel is closed, cannot start consuming")
+                return
 
+            logger.info(f"Queue iterator starting for queue '{self.queue_name}'")
             async with self.queue.iterator() as queue_iter:
+                logger.info(f"Queue iterator created, waiting for messages on '{self.queue_name}'...")
                 async for message in queue_iter:
                     if not self.is_consuming:
                         logger.info("Consumer stopped, breaking message loop")
                         break
 
+                    logger.debug(f"Received message from queue '{self.queue_name}', routing_key: {message.routing_key}")
                     await self._on_message(message)
 
         except asyncio.CancelledError:
@@ -106,7 +129,9 @@ class SubtitleEventConsumer:
             raise
         except Exception as e:
             logger.error(f"Error in event consumer loop: {e}", exc_info=True)
-            raise
+            # Don't raise - allow the service to continue running
+            # The error will be logged and can be investigated
+            logger.error("Event consumer loop failed, but service will continue running")
 
     async def _on_message(self, message: AbstractIncomingMessage) -> None:
         """
@@ -119,22 +144,28 @@ class SubtitleEventConsumer:
             try:
                 # Parse message body as SubtitleEvent
                 event_data = message.body.decode()
+                logger.debug(f"Parsing event data: {event_data[:200]}...")  # Log first 200 chars
                 event = SubtitleEvent.model_validate_json(event_data)
 
                 logger.info(
-                    f"Received event {event.event_type.value} for job {event.job_id}"
+                    f"Received event {event.event_type.value} for job {event.job_id} "
+                    f"(routing_key: {message.routing_key})"
                 )
 
-                # Only process SUBTITLE_REQUESTED events
-                if event.event_type != EventType.SUBTITLE_REQUESTED:
+                # Route to appropriate handler based on event type
+                if event.event_type == EventType.SUBTITLE_REQUESTED:
+                    # Process the subtitle request
+                    await self._process_subtitle_request(event)
+                elif event.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED:
+                    # Process translation request from downloader
+                    await self._process_translation_request(event)
+                else:
                     logger.debug(
                         f"Ignoring event type {event.event_type.value}, "
-                        f"only processing {EventType.SUBTITLE_REQUESTED.value}"
+                        f"only processing {EventType.SUBTITLE_REQUESTED.value} and "
+                        f"{EventType.SUBTITLE_TRANSLATE_REQUESTED.value}"
                     )
                     return
-
-                # Process the subtitle request
-                await self._process_subtitle_request(event)
 
             except Exception as e:
                 logger.error(f"Failed to process message: {e}", exc_info=True)
@@ -169,12 +200,15 @@ class SubtitleEventConsumer:
                     f"language={language}"
                 )
                 logger.error(error_msg)
-                await redis_client.update_phase(
-                    event.job_id,
-                    SubtitleStatus.FAILED,
+                # Publish failure event instead of updating Redis directly
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
                     source="manager",
-                    metadata={"error_message": error_msg},
+                    payload={"error_message": error_msg},
                 )
+                await event_publisher.publish_event(failure_event)
                 return
 
             # Create SubtitleRequest from event payload
@@ -221,12 +255,15 @@ class SubtitleEventConsumer:
 
             if not success:
                 logger.error(f"Failed to enqueue download task for job {event.job_id}")
-                await redis_client.update_phase(
-                    event.job_id,
-                    SubtitleStatus.FAILED,
+                # Publish failure event instead of updating Redis directly
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
                     source="manager",
-                    metadata={"error_message": "Failed to enqueue download task"},
+                    payload={"error_message": "Failed to enqueue download task"},
                 )
+                await event_publisher.publish_event(failure_event)
                 return
 
             logger.info(f"Successfully enqueued download task for job {event.job_id}")
@@ -235,17 +272,110 @@ class SubtitleEventConsumer:
             error_msg = f"Error processing subtitle request: {e}"
             logger.error(error_msg, exc_info=True)
 
-            # Update job status to FAILED
+            # Publish failure event instead of updating Redis directly
             try:
-                await redis_client.update_phase(
-                    event.job_id,
-                    SubtitleStatus.FAILED,
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
                     source="manager",
-                    metadata={"error_message": str(e)},
+                    payload={"error_message": str(e)},
                 )
-            except Exception as redis_error:
+                await event_publisher.publish_event(failure_event)
+            except Exception as publish_error:
                 logger.error(
-                    f"Failed to update job status in Redis: {redis_error}",
+                    f"Failed to publish failure event: {publish_error}",
+                    exc_info=True,
+                )
+
+    async def _process_translation_request(self, event: SubtitleEvent) -> None:
+        """
+        Process a SUBTITLE_TRANSLATE_REQUESTED event by enqueuing translation task.
+
+        Args:
+            event: SubtitleEvent containing translation request details in payload
+        """
+        try:
+            payload = event.payload
+
+            # Extract required fields from payload
+            subtitle_file_path = payload.get("subtitle_file_path")
+            source_language = payload.get("source_language")
+            target_language = payload.get("target_language")
+
+            # Validate required fields
+            if (
+                not ValidationUtils.is_non_empty_string(subtitle_file_path)
+                or not ValidationUtils.is_non_empty_string(source_language)
+                or not ValidationUtils.is_non_empty_string(target_language)
+            ):
+                error_msg = (
+                    f"Missing required fields in translation event payload: "
+                    f"subtitle_file_path={subtitle_file_path}, "
+                    f"source_language={source_language}, "
+                    f"target_language={target_language}"
+                )
+                logger.error(error_msg)
+                # Publish failure event
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
+                    source="manager",
+                    payload={"error_message": error_msg},
+                )
+                await event_publisher.publish_event(failure_event)
+                return
+
+            logger.info(
+                f"Processing translation request for job {event.job_id}: "
+                f"{subtitle_file_path} ({source_language} -> {target_language})"
+            )
+
+            # Enqueue translation task via orchestrator
+            success = await orchestrator.enqueue_translation_task(
+                event.job_id,
+                subtitle_file_path,
+                source_language,
+                target_language,
+            )
+
+            if not success:
+                logger.error(
+                    f"Failed to enqueue translation task for job {event.job_id}"
+                )
+                # Publish failure event
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
+                    source="manager",
+                    payload={"error_message": "Failed to enqueue translation task"},
+                )
+                await event_publisher.publish_event(failure_event)
+                return
+
+            logger.info(
+                f"Successfully enqueued translation task for job {event.job_id}"
+            )
+
+        except Exception as e:
+            error_msg = f"Error processing translation request: {e}"
+            logger.error(error_msg, exc_info=True)
+
+            # Publish failure event
+            try:
+                failure_event = SubtitleEvent(
+                    event_type=EventType.JOB_FAILED,
+                    job_id=event.job_id,
+                    timestamp=DateTimeUtils.get_current_utc_datetime(),
+                    source="manager",
+                    payload={"error_message": str(e)},
+                )
+                await event_publisher.publish_event(failure_event)
+            except Exception as publish_error:
+                logger.error(
+                    f"Failed to publish failure event: {publish_error}",
                     exc_info=True,
                 )
 

@@ -57,6 +57,7 @@ services:
     volumes:
       - ./src/common:/app/common
       - ./src/downloader:/app/downloader
+      - ${SCANNER_MEDIA_PATH:-/media}:/media:rw  # Read-write access to save subtitles next to video files
     env_file:
       - .env
     environment:
@@ -80,6 +81,7 @@ services:
       - ./src/common:/app/common
       - ./src/translator:/app/translator
       - ./storage:/app/storage
+      - ${SCANNER_MEDIA_PATH:-/media}:/media:rw  # Read-write access to save translated subtitles next to video files
     env_file:
       - .env
     environment:
@@ -127,7 +129,7 @@ services:
       - ./src/common:/app/common
       - ./src/scanner:/app/scanner
       - ./src/manager:/app/manager
-      - /media:/media:ro
+      - ${SCANNER_MEDIA_PATH:-/media}:/media:ro
     env_file:
       - .env
     environment:

@@ -104,23 +104,31 @@ test-integration: ## Run integration tests only (requires services)
 test-integration-full: ## Run integration tests with full Docker environment
 	@echo "$(GREEN)Starting integration test environment...$(NC)"
 	@docker-compose -f docker-compose.integration.yml up -d --build
-	@echo "$(YELLOW)Waiting for services to be healthy...$(NC)"
-	@sleep 15
+	@echo "$(YELLOW)Waiting for services to be healthy (30s)...$(NC)"
+	@sleep 30
+	@echo "$(YELLOW)Restarting Manager and Consumer to ensure clean state...$(NC)"
+	@docker-compose -f docker-compose.integration.yml restart manager consumer
+	@echo "$(YELLOW)Waiting for services to be ready (8s)...$(NC)"
+	@sleep 8
 	@docker-compose -f docker-compose.integration.yml ps
 	@echo "$(GREEN)Running integration tests...$(NC)"
-	@$(PYTEST) -m integration --log-cli-level=INFO || (echo "$(RED)Tests failed$(NC)" && docker-compose -f docker-compose.integration.yml logs && docker-compose -f docker-compose.integration.yml down && exit 1)
-	@echo "$(GREEN)Integration tests completed successfully$(NC)"
-	@docker-compose -f docker-compose.integration.yml down
+	@$(PYTEST) tests/integration/ -v -m integration --log-cli-level=INFO || \
+		(echo "$(RED)Tests failed - showing logs:$(NC)" && \
+		 docker-compose -f docker-compose.integration.yml logs --tail=100 manager consumer downloader && \
+		 docker-compose -f docker-compose.integration.yml down -v && exit 1)
+	@echo "$(GREEN)Integration tests passed!$(NC)"
+	@docker-compose -f docker-compose.integration.yml down -v
 	@echo "$(GREEN)Integration test environment cleaned up$(NC)"
 
 test-integration-up: ## Start integration test environment only
 	@echo "$(GREEN)Starting integration test environment...$(NC)"
 	@docker-compose -f docker-compose.integration.yml up -d --build
-	@echo "$(YELLOW)Waiting for services to be healthy...$(NC)"
-	@sleep 15
+	@echo "$(YELLOW)Waiting for services to be healthy (30s)...$(NC)"
+	@sleep 30
 	@docker-compose -f docker-compose.integration.yml ps
 	@echo "$(GREEN)Integration test environment is ready$(NC)"
-	@echo "$(YELLOW)Run 'make test-integration' to execute tests$(NC)"
+	@echo "$(YELLOW)Run 'pytest tests/integration/ -v -m integration' to execute tests$(NC)"
+	@echo "$(YELLOW)Run 'make test-integration-logs' to view logs$(NC)"
 	@echo "$(YELLOW)Run 'make test-integration-down' to stop environment$(NC)"
 
 test-integration-down: ## Stop integration test environment
@@ -130,6 +138,41 @@ test-integration-down: ## Stop integration test environment
 
 test-integration-logs: ## View integration test environment logs
 	@docker-compose -f docker-compose.integration.yml logs -f
+
+test-e2e: ## Run e2e tests only (requires full stack)
+	@echo "$(GREEN)Running e2e tests...$(NC)"
+	@echo "$(YELLOW)Note: Requires full application stack to be running$(NC)"
+	$(PYTEST) -m e2e
+
+test-e2e-full: ## Run e2e tests with full Docker environment
+	@echo "$(GREEN)Starting e2e test environment...$(NC)"
+	@docker-compose -f docker-compose.e2e.yml up -d --build
+	@echo "$(YELLOW)Waiting for services to be healthy...$(NC)"
+	@sleep 30
+	@docker-compose -f docker-compose.e2e.yml ps
+	@echo "$(GREEN)Running e2e tests...$(NC)"
+	@$(PYTEST) -m e2e --log-cli-level=INFO || (echo "$(RED)Tests failed$(NC)" && docker-compose -f docker-compose.e2e.yml logs && docker-compose -f docker-compose.e2e.yml down && exit 1)
+	@echo "$(GREEN)E2E tests completed successfully$(NC)"
+	@docker-compose -f docker-compose.e2e.yml down
+	@echo "$(GREEN)E2E test environment cleaned up$(NC)"
+
+test-e2e-up: ## Start e2e test environment only
+	@echo "$(GREEN)Starting e2e test environment...$(NC)"
+	@docker-compose -f docker-compose.e2e.yml up -d --build
+	@echo "$(YELLOW)Waiting for services to be healthy...$(NC)"
+	@sleep 30
+	@docker-compose -f docker-compose.e2e.yml ps
+	@echo "$(GREEN)E2E test environment is ready$(NC)"
+	@echo "$(YELLOW)Run 'make test-e2e' to execute tests$(NC)"
+	@echo "$(YELLOW)Run 'make test-e2e-down' to stop environment$(NC)"
+
+test-e2e-down: ## Stop e2e test environment
+	@echo "$(GREEN)Stopping e2e test environment...$(NC)"
+	@docker-compose -f docker-compose.e2e.yml down -v
+	@echo "$(GREEN)E2E test environment stopped$(NC)"
+
+test-e2e-logs: ## View e2e test environment logs
+	@docker-compose -f docker-compose.e2e.yml logs -f
 
 test-cov: ## Run tests with coverage report
 	@echo "$(GREEN)Running tests with coverage...$(NC)"

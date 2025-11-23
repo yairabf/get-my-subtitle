@@ -374,21 +374,19 @@ def mock_redis_client():
 @pytest_asyncio.fixture
 async def test_orchestrator(rabbitmq_service, clean_queues, fake_redis_job_client):
     """
-    Create SubtitleOrchestrator instance for testing with realistic Redis behavior.
+    Create SubtitleOrchestrator instance for testing.
 
-    Uses fakeredis for more realistic Redis behavior while keeping RabbitMQ integration focus.
+    Note: Orchestrator no longer uses Redis directly - it only publishes events.
     """
     orchestrator = SubtitleOrchestrator()
 
-    # Patch Redis client with fakeredis for realistic behavior
-    with patch("manager.orchestrator.redis_client", fake_redis_job_client):
-        # Connect to RabbitMQ
-        await orchestrator.connect()
+    # Connect to RabbitMQ
+    await orchestrator.connect()
 
-        yield orchestrator
+    yield orchestrator
 
-        # Disconnect
-        await orchestrator.disconnect()
+    # Disconnect
+    await orchestrator.disconnect()
 
 
 @pytest_asyncio.fixture
@@ -396,21 +394,20 @@ async def test_orchestrator_with_mock_redis(
     rabbitmq_service, clean_queues, mock_redis_client
 ):
     """
-    Create SubtitleOrchestrator instance with simple mock Redis (backward compatibility).
+    Create SubtitleOrchestrator instance (backward compatibility fixture).
 
-    Use test_orchestrator for more realistic testing.
+    Note: Orchestrator no longer uses Redis directly - it only publishes events.
+    This fixture is kept for backward compatibility but Redis patching is no longer needed.
     """
     orchestrator = SubtitleOrchestrator()
 
-    # Patch Redis client with simple mock
-    with patch("manager.orchestrator.redis_client", mock_redis_client):
-        # Connect to RabbitMQ
-        await orchestrator.connect()
+    # Connect to RabbitMQ
+    await orchestrator.connect()
 
-        yield orchestrator
+    yield orchestrator
 
-        # Disconnect
-        await orchestrator.disconnect()
+    # Disconnect
+    await orchestrator.disconnect()
 
 
 @pytest_asyncio.fixture

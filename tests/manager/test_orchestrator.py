@@ -163,16 +163,13 @@ class TestOrchestratorDownloadTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
+                await orchestrator.connect()
+                result = await orchestrator.enqueue_download_task(
+                    sample_subtitle_request_obj, request_id
+                )
 
-                    await orchestrator.connect()
-                    result = await orchestrator.enqueue_download_task(
-                        sample_subtitle_request_obj, request_id
-                    )
-
-                    assert result is True
-                    mock_rabbitmq_channel.default_exchange.publish.assert_called_once()
+                assert result is True
+                mock_rabbitmq_channel.default_exchange.publish.assert_called_once()
 
     async def test_enqueue_download_task_creates_valid_download_task(
         self,
@@ -196,27 +193,24 @@ class TestOrchestratorDownloadTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
+                await orchestrator.connect()
+                await orchestrator.enqueue_download_task(
+                    sample_subtitle_request_obj, request_id
+                )
 
-                    await orchestrator.connect()
-                    await orchestrator.enqueue_download_task(
-                        sample_subtitle_request_obj, request_id
-                    )
+                # Verify message content
+                call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
+                message = call_args[0][0]
+                message_data = json.loads(message.body.decode())
+                download_task = DownloadTask(**message_data)
 
-                    # Verify message content
-                    call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
-                    message = call_args[0][0]
-                    message_data = json.loads(message.body.decode())
-                    download_task = DownloadTask(**message_data)
-
-                    assert str(download_task.request_id) == str(request_id)
-                    assert (
-                        download_task.video_url == sample_subtitle_request_obj.video_url
-                    )
-                    assert (
-                        download_task.language == sample_subtitle_request_obj.language
-                    )
+                assert str(download_task.request_id) == str(request_id)
+                assert (
+                    download_task.video_url == sample_subtitle_request_obj.video_url
+                )
+                assert (
+                    download_task.language == sample_subtitle_request_obj.language
+                )
 
     async def test_enqueue_download_task_uses_correct_routing_key(
         self,
@@ -240,17 +234,14 @@ class TestOrchestratorDownloadTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
+                await orchestrator.connect()
+                await orchestrator.enqueue_download_task(
+                    sample_subtitle_request_obj, request_id
+                )
 
-                    await orchestrator.connect()
-                    await orchestrator.enqueue_download_task(
-                        sample_subtitle_request_obj, request_id
-                    )
-
-                    # Verify routing key
-                    call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
-                    assert call_args[1]["routing_key"] == "subtitle.download"
+                # Verify routing key
+                call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
+                assert call_args[1]["routing_key"] == "subtitle.download"
 
     async def test_enqueue_download_task_creates_persistent_message(
         self,
@@ -274,18 +265,15 @@ class TestOrchestratorDownloadTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
+                await orchestrator.connect()
+                await orchestrator.enqueue_download_task(
+                    sample_subtitle_request_obj, request_id
+                )
 
-                    await orchestrator.connect()
-                    await orchestrator.enqueue_download_task(
-                        sample_subtitle_request_obj, request_id
-                    )
-
-                    # Verify message persistence
-                    call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
-                    message = call_args[0][0]
-                    assert message.delivery_mode == aio_pika.DeliveryMode.PERSISTENT
+                # Verify message persistence
+                call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
+                message = call_args[0][0]
+                assert message.delivery_mode == aio_pika.DeliveryMode.PERSISTENT
 
     async def test_enqueue_download_task_publishes_event(
         self,
@@ -309,27 +297,24 @@ class TestOrchestratorDownloadTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
+                await orchestrator.connect()
+                await orchestrator.enqueue_download_task(
+                    sample_subtitle_request_obj, request_id
+                )
 
-                    await orchestrator.connect()
-                    await orchestrator.enqueue_download_task(
-                        sample_subtitle_request_obj, request_id
-                    )
+                # Verify event was published
+                mock_publisher.publish_event.assert_called_once()
+                event = mock_publisher.publish_event.call_args[0][0]
+                assert event.event_type == EventType.SUBTITLE_DOWNLOAD_REQUESTED
+                assert event.job_id == request_id
 
-                    # Verify event was published
-                    mock_publisher.publish_event.assert_called_once()
-                    event = mock_publisher.publish_event.call_args[0][0]
-                    assert event.event_type == EventType.SUBTITLE_DOWNLOAD_REQUESTED
-                    assert event.job_id == request_id
-
-    async def test_enqueue_download_task_updates_redis_status(
+    async def test_enqueue_download_task_does_not_update_redis_directly(
         self,
         mock_rabbitmq_connection,
         mock_rabbitmq_channel,
         sample_subtitle_request_obj,
     ):
-        """Test that enqueue_download_task updates job status in Redis."""
+        """Test that enqueue_download_task does NOT update Redis directly (event-driven)."""
         orchestrator = SubtitleOrchestrator()
         request_id = uuid4()
 
@@ -345,20 +330,16 @@ class TestOrchestratorDownloadTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
-
+                # Patch redis_client at the common module level to verify it's not called
+                with patch("common.redis_client.redis_client") as mock_redis:
+                    mock_redis.update_phase = AsyncMock()
                     await orchestrator.connect()
                     await orchestrator.enqueue_download_task(
                         sample_subtitle_request_obj, request_id
                     )
 
-                    # Verify Redis update
-                    mock_redis.update_phase.assert_called_once_with(
-                        request_id,
-                        SubtitleStatus.DOWNLOAD_QUEUED,
-                        source="manager",
-                    )
+                    # Verify NO direct Redis update (Consumer will handle it)
+                    mock_redis.update_phase.assert_not_called()
 
 
 @pytest.mark.unit
@@ -385,19 +366,16 @@ class TestOrchestratorTranslationTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
+                await orchestrator.connect()
+                result = await orchestrator.enqueue_translation_task(
+                    request_id,
+                    "/path/to/subtitle.srt",
+                    "en",
+                    "es",
+                )
 
-                    await orchestrator.connect()
-                    result = await orchestrator.enqueue_translation_task(
-                        request_id,
-                        "/path/to/subtitle.srt",
-                        "en",
-                        "es",
-                    )
-
-                    assert result is True
-                    mock_rabbitmq_channel.default_exchange.publish.assert_called_once()
+                assert result is True
+                mock_rabbitmq_channel.default_exchange.publish.assert_called_once()
 
     async def test_enqueue_translation_task_creates_valid_translation_task(
         self, mock_rabbitmq_connection, mock_rabbitmq_channel
@@ -418,29 +396,26 @@ class TestOrchestratorTranslationTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
+                await orchestrator.connect()
+                await orchestrator.enqueue_translation_task(
+                    request_id,
+                    "/path/to/subtitle.srt",
+                    "en",
+                    "fr",
+                )
 
-                    await orchestrator.connect()
-                    await orchestrator.enqueue_translation_task(
-                        request_id,
-                        "/path/to/subtitle.srt",
-                        "en",
-                        "fr",
-                    )
+                # Verify message content
+                call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
+                message = call_args[0][0]
+                message_data = json.loads(message.body.decode())
+                translation_task = TranslationTask(**message_data)
 
-                    # Verify message content
-                    call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
-                    message = call_args[0][0]
-                    message_data = json.loads(message.body.decode())
-                    translation_task = TranslationTask(**message_data)
-
-                    assert str(translation_task.request_id) == str(request_id)
-                    assert (
-                        translation_task.subtitle_file_path == "/path/to/subtitle.srt"
-                    )
-                    assert translation_task.source_language == "en"
-                    assert translation_task.target_language == "fr"
+                assert str(translation_task.request_id) == str(request_id)
+                assert (
+                    translation_task.subtitle_file_path == "/path/to/subtitle.srt"
+                )
+                assert translation_task.source_language == "en"
+                assert translation_task.target_language == "fr"
 
     async def test_enqueue_translation_task_uses_correct_routing_key(
         self, mock_rabbitmq_connection, mock_rabbitmq_channel
@@ -461,20 +436,17 @@ class TestOrchestratorTranslationTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
+                await orchestrator.connect()
+                await orchestrator.enqueue_translation_task(
+                    request_id,
+                    "/path/to/subtitle.srt",
+                    "en",
+                    "es",
+                )
 
-                    await orchestrator.connect()
-                    await orchestrator.enqueue_translation_task(
-                        request_id,
-                        "/path/to/subtitle.srt",
-                        "en",
-                        "es",
-                    )
-
-                    # Verify routing key
-                    call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
-                    assert call_args[1]["routing_key"] == "subtitle.translation"
+                # Verify routing key
+                call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
+                assert call_args[1]["routing_key"] == "subtitle.translation"
 
     async def test_enqueue_translation_task_publishes_event(
         self, mock_rabbitmq_connection, mock_rabbitmq_channel
@@ -495,27 +467,24 @@ class TestOrchestratorTranslationTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
+                await orchestrator.connect()
+                await orchestrator.enqueue_translation_task(
+                    request_id,
+                    "/path/to/subtitle.srt",
+                    "en",
+                    "es",
+                )
 
-                    await orchestrator.connect()
-                    await orchestrator.enqueue_translation_task(
-                        request_id,
-                        "/path/to/subtitle.srt",
-                        "en",
-                        "es",
-                    )
+                # Verify event was published
+                mock_publisher.publish_event.assert_called_once()
+                event = mock_publisher.publish_event.call_args[0][0]
+                assert event.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                assert event.job_id == request_id
 
-                    # Verify event was published
-                    mock_publisher.publish_event.assert_called_once()
-                    event = mock_publisher.publish_event.call_args[0][0]
-                    assert event.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
-                    assert event.job_id == request_id
-
-    async def test_enqueue_translation_task_updates_redis_status(
+    async def test_enqueue_translation_task_does_not_update_redis_directly(
         self, mock_rabbitmq_connection, mock_rabbitmq_channel
     ):
-        """Test that enqueue_translation_task updates job status in Redis."""
+        """Test that enqueue_translation_task does NOT update Redis directly (event-driven)."""
         orchestrator = SubtitleOrchestrator()
         request_id = uuid4()
 
@@ -531,9 +500,9 @@ class TestOrchestratorTranslationTaskQueuing:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
-
+                # Patch redis_client at the common module level to verify it's not called
+                with patch("common.redis_client.redis_client") as mock_redis:
+                    mock_redis.update_phase = AsyncMock()
                     await orchestrator.connect()
                     await orchestrator.enqueue_translation_task(
                         request_id,
@@ -542,12 +511,8 @@ class TestOrchestratorTranslationTaskQueuing:
                         "es",
                     )
 
-                    # Verify Redis update
-                    mock_redis.update_phase.assert_called_once_with(
-                        request_id,
-                        SubtitleStatus.TRANSLATE_QUEUED,
-                        source="manager",
-                    )
+                    # Verify NO direct Redis update (Consumer will handle it)
+                    mock_redis.update_phase.assert_not_called()
 
 
 @pytest.mark.unit
@@ -577,17 +542,14 @@ class TestOrchestratorCombinedWorkflow:
                 mock_publisher.connect = AsyncMock()
                 mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                with patch("manager.orchestrator.redis_client") as mock_redis:
-                    mock_redis.update_phase = AsyncMock(return_value=True)
+                await orchestrator.connect()
+                result = await orchestrator.enqueue_download_with_translation(
+                    sample_subtitle_request_obj, request_id
+                )
 
-                    await orchestrator.connect()
-                    result = await orchestrator.enqueue_download_with_translation(
-                        sample_subtitle_request_obj, request_id
-                    )
-
-                    assert result is True
-                    # Should publish to download queue
-                    mock_rabbitmq_channel.default_exchange.publish.assert_called_once()
+                assert result is True
+                # Should publish to download queue
+                mock_rabbitmq_channel.default_exchange.publish.assert_called_once()
 
 
 @pytest.mark.unit
