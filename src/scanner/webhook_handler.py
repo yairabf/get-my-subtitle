@@ -68,12 +68,12 @@ class JellyfinWebhookHandler:
                     status="error", message="No video URL or path provided"
                 )
 
-            # Create subtitle request with Jellyfin default settings
+            # Create subtitle request with default settings
             subtitle_request = SubtitleRequest(
                 video_url=video_url,
                 video_title=payload.item_name,
-                language=settings.jellyfin_default_source_language,
-                target_language=settings.jellyfin_default_target_language,
+                language=settings.subtitle_desired_language,
+                target_language=None,
                 preferred_sources=["opensubtitles"],
             )
 

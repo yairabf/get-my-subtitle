@@ -130,14 +130,25 @@ SUBTITLE_STORAGE_PATH=./storage/subtitles            # Default: ./storage/subtit
 - For production, use an absolute path or mounted volume path
 - Example: `/mnt/storage/subtitles` or `/var/lib/get-my-subtitle/subtitles`
 
+#### Subtitle Language Configuration
+
+```env
+# Subtitle Language Configuration
+SUBTITLE_DESIRED_LANGUAGE=en              # The goal language (what you want to download)
+SUBTITLE_FALLBACK_LANGUAGE=en             # Fallback when desired isn't found (then translated to desired)
+```
+
+**When to change:**
+- Set `SUBTITLE_DESIRED_LANGUAGE` to the language you want subtitles in (e.g., "he" for Hebrew, "es" for Spanish)
+- Set `SUBTITLE_FALLBACK_LANGUAGE` to a language that's commonly available (usually "en" for English)
+- When desired language isn't found, the system will download in fallback language and automatically translate to desired
+
 #### Jellyfin Integration
 
 ```env
 # General Jellyfin Settings
 JELLYFIN_URL=http://localhost:8096                   # Default: http://localhost:8096
 JELLYFIN_API_KEY=                                     # Required if using Jellyfin integration
-JELLYFIN_DEFAULT_SOURCE_LANGUAGE=en                  # Default: en
-JELLYFIN_DEFAULT_TARGET_LANGUAGE=                     # Optional: e.g., "he" for Hebrew
 JELLYFIN_AUTO_TRANSLATE=true                         # Default: true
 
 # WebSocket Configuration
@@ -150,7 +161,6 @@ JELLYFIN_FALLBACK_SYNC_INTERVAL_HOURS=24             # Default: 24
 
 **When to change:**
 - **Required**: Set `JELLYFIN_URL` and `JELLYFIN_API_KEY` if using Jellyfin integration
-- Set `JELLYFIN_DEFAULT_TARGET_LANGUAGE` if you want automatic translation to a specific language
 - Set `JELLYFIN_AUTO_TRANSLATE=false` if you only want to download, not translate
 - Adjust WebSocket settings if you have connection issues
 
@@ -168,14 +178,14 @@ SCANNER_MEDIA_PATH=/media                            # Default: /media
 SCANNER_WATCH_RECURSIVE=true                         # Default: true
 SCANNER_MEDIA_EXTENSIONS=.mp4,.mkv,.avi,.mov,.m4v,.webm  # Default: .mp4,.mkv,.avi,.mov,.m4v,.webm
 SCANNER_DEBOUNCE_SECONDS=2.0                         # Default: 2.0
-SCANNER_DEFAULT_SOURCE_LANGUAGE=en                   # Default: en
-SCANNER_DEFAULT_TARGET_LANGUAGE=                     # Optional
 SCANNER_AUTO_TRANSLATE=false                        # Default: false
 
 # Webhook Server
 SCANNER_WEBHOOK_HOST=0.0.0.0                         # Default: 0.0.0.0
 SCANNER_WEBHOOK_PORT=8001                            # Default: 8001
 ```
+
+**Note:** Scanner uses `SUBTITLE_DESIRED_LANGUAGE` for the language to download. See [Subtitle Language Configuration](#subtitle-language-configuration) above.
 
 **When to change:**
 - Set `SCANNER_MEDIA_PATH` to your media directory path

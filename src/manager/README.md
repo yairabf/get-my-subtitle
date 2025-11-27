@@ -249,8 +249,8 @@ Webhook endpoint for Jellyfin media server integration. Automatically processes 
 
 **Configuration:**
 Set these environment variables to control webhook behavior:
-- `JELLYFIN_DEFAULT_SOURCE_LANGUAGE`: Default source language (default: "en")
-- `JELLYFIN_DEFAULT_TARGET_LANGUAGE`: Default target language (default: None)
+- `SUBTITLE_DESIRED_LANGUAGE`: The goal language (what you want to download) (default: "en")
+- `SUBTITLE_FALLBACK_LANGUAGE`: Fallback when desired isn't found (then translated to desired) (default: "en")
 - `JELLYFIN_AUTO_TRANSLATE`: Enable automatic translation (default: true)
 
 ## 🔧 Configuration
@@ -285,9 +285,11 @@ OPENAI_MODEL=gpt-5-nano
 # File Storage
 SUBTITLE_STORAGE_PATH=./storage/subtitles
 
+# Subtitle Language Configuration
+SUBTITLE_DESIRED_LANGUAGE=en              # The goal language (what you want)
+SUBTITLE_FALLBACK_LANGUAGE=en             # Fallback when desired isn't found
+
 # Jellyfin Integration
-JELLYFIN_DEFAULT_SOURCE_LANGUAGE=en
-JELLYFIN_DEFAULT_TARGET_LANGUAGE=es
 JELLYFIN_AUTO_TRANSLATE=true
 ```
 

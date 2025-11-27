@@ -355,8 +355,8 @@ SUBTITLE_STORAGE_PATH=./storage/subtitles
 ```env
 JELLYFIN_URL=http://localhost:8096
 JELLYFIN_API_KEY=your_api_key
-JELLYFIN_DEFAULT_SOURCE_LANGUAGE=en
-JELLYFIN_DEFAULT_TARGET_LANGUAGE=he
+SUBTITLE_DESIRED_LANGUAGE=he              # The goal language (what you want)
+SUBTITLE_FALLBACK_LANGUAGE=en             # Fallback when desired isn't found
 JELLYFIN_AUTO_TRANSLATE=true
 ```
 

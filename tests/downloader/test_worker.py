@@ -130,7 +130,7 @@ class TestSubtitleMissingEventPublishing:
 
                         with patch("downloader.worker.settings") as mock_settings:
                             mock_settings.jellyfin_auto_translate = auto_translate
-                            mock_settings.jellyfin_default_source_language = "en"
+                            mock_settings.subtitle_fallback_language = "en"
 
                             await process_message(mock_message)
 
@@ -395,7 +395,7 @@ class TestDownloaderWorker:
 
                         with patch("downloader.worker.settings") as mock_settings:
                             mock_settings.jellyfin_auto_translate = True
-                            mock_settings.jellyfin_default_source_language = "en"
+                            mock_settings.subtitle_fallback_language = "en"
 
                             await process_message(mock_message)
 
@@ -509,7 +509,7 @@ class TestDownloaderWorker:
                     mock_publisher.publish_event = AsyncMock()
 
                     with patch("downloader.worker.settings") as mock_settings:
-                        mock_settings.jellyfin_default_source_language = "en"
+                        mock_settings.subtitle_fallback_language = "en"
 
                         await process_message(mock_message)
 
@@ -1342,7 +1342,7 @@ class TestFallbackSubtitleSearch:
 
                         with patch("downloader.worker.settings") as mock_settings:
                             mock_settings.jellyfin_auto_translate = True
-                            mock_settings.jellyfin_default_source_language = "en"
+                            mock_settings.subtitle_fallback_language = "en"
 
                             await process_message(mock_message)
 
@@ -1423,7 +1423,7 @@ class TestFallbackSubtitleSearch:
 
                         with patch("downloader.worker.settings") as mock_settings:
                             mock_settings.jellyfin_auto_translate = True
-                            mock_settings.jellyfin_default_source_language = "en"
+                            mock_settings.subtitle_fallback_language = "en"
 
                             await process_message(mock_message)
 
@@ -1476,7 +1476,7 @@ class TestFallbackSubtitleSearch:
 
                     with patch("downloader.worker.settings") as mock_settings:
                         mock_settings.jellyfin_auto_translate = True
-                        mock_settings.jellyfin_default_source_language = "en"
+                        mock_settings.subtitle_fallback_language = "en"
 
                         await process_message(mock_message)
 
@@ -1545,7 +1545,7 @@ class TestFallbackSubtitleSearch:
 
                         with patch("downloader.worker.settings") as mock_settings:
                             mock_settings.jellyfin_auto_translate = True
-                            mock_settings.jellyfin_default_source_language = "en"
+                            mock_settings.subtitle_fallback_language = "en"
 
                             await process_message(mock_message)
 
@@ -1615,7 +1615,7 @@ class TestFallbackSubtitleSearch:
 
                         with patch("downloader.worker.settings") as mock_settings:
                             mock_settings.jellyfin_auto_translate = True
-                            mock_settings.jellyfin_default_source_language = "en"
+                            mock_settings.subtitle_fallback_language = "en"
 
                             await process_message(mock_message)
 

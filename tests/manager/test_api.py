@@ -779,8 +779,8 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=True
             )
-            mock_settings.jellyfin_default_source_language = "en"
-            mock_settings.jellyfin_default_target_language = "es"
+            mock_settings.subtitle_desired_language = "en"
+            mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
 
             payload = {
@@ -855,8 +855,8 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=False
             )
-            mock_settings.jellyfin_default_source_language = "en"
-            mock_settings.jellyfin_default_target_language = "es"
+            mock_settings.subtitle_desired_language = "en"
+            mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
 
             payload = {
@@ -880,8 +880,8 @@ class TestJellyfinWebhookEndpoint:
 
             mock_redis.save_job = AsyncMock(return_value=True)
             mock_orchestrator.enqueue_download_task = AsyncMock(return_value=True)
-            mock_settings.jellyfin_default_source_language = "en"
-            mock_settings.jellyfin_default_target_language = None
+            mock_settings.subtitle_desired_language = "en"
+            mock_settings.subtitle_fallback_language = None
             mock_settings.jellyfin_auto_translate = False
 
             payload = {
@@ -909,8 +909,8 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=True
             )
-            mock_settings.jellyfin_default_source_language = "en"
-            mock_settings.jellyfin_default_target_language = "es"
+            mock_settings.subtitle_desired_language = "en"
+            mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
 
             payload = {
@@ -937,8 +937,8 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=True
             )
-            mock_settings.jellyfin_default_source_language = "en"
-            mock_settings.jellyfin_default_target_language = "es"
+            mock_settings.subtitle_desired_language = "en"
+            mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
 
             payload = {
@@ -975,8 +975,8 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=True
             )
-            mock_settings.jellyfin_default_source_language = "en"
-            mock_settings.jellyfin_default_target_language = "es"
+            mock_settings.subtitle_desired_language = "en"
+            mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
 
             payload = {
@@ -1012,8 +1012,8 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=True
             )
-            mock_settings.jellyfin_default_source_language = "en"
-            mock_settings.jellyfin_default_target_language = "es"
+            mock_settings.subtitle_desired_language = "en"
+            mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
 
             payload = {
@@ -1046,8 +1046,8 @@ class TestJellyfinWebhookEndpoint:
             "manager.main.orchestrator"
         ) as mock_orchestrator, patch("manager.main.settings") as mock_settings:
 
-            mock_settings.jellyfin_default_source_language = "en"
-            mock_settings.jellyfin_default_target_language = "es"
+            mock_settings.subtitle_desired_language = "en"
+            mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
 
             if component == "redis":

@@ -210,8 +210,8 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                             f"🔍 Translation enabled, searching for fallback subtitle for job {request_id}"
                         )
 
-                        # Try to find fallback subtitle (prefer default source language, then any language)
-                        fallback_language = settings.jellyfin_default_source_language
+                        # Try to find fallback subtitle (prefer fallback language, then any language)
+                        fallback_language = settings.subtitle_fallback_language
                         fallback_search_results = []
 
                         # Step 1: Search for default source language (usually English)
@@ -424,7 +424,7 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                     source="downloader",
                     payload={
                         "subtitle_file_path": f"/subtitles/fallback_{request_id}.en.srt",
-                        "source_language": settings.jellyfin_default_source_language,
+                        "source_language": settings.subtitle_fallback_language,
                         "target_language": language,
                         "reason": "api_error_fallback",
                         "error_note": "Subtitle file not available due to API error - this is a fallback scenario",

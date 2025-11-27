@@ -74,3 +74,4 @@ MagicMock/
 # Temporary Ma
 *.tmp
 *.temp
+.env.bak

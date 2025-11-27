@@ -447,8 +447,8 @@ async def handle_jellyfin_webhook(payload: JellyfinWebhookPayload):
         subtitle_request = SubtitleRequestCreate(
             video_url=video_url,
             video_title=payload.item_name,
-            language=settings.jellyfin_default_source_language,
-            target_language=settings.jellyfin_default_target_language,
+            language=settings.subtitle_desired_language,
+            target_language=None,
             preferred_sources=["opensubtitles"],
         )
 

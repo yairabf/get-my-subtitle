@@ -25,8 +25,8 @@ class TestMediaFileEventHandler:
         with patch("scanner.event_handler.settings") as mock_settings:
             mock_settings.scanner_media_extensions = [".mp4", ".mkv", ".avi"]
             mock_settings.scanner_debounce_seconds = 0.1
-            mock_settings.scanner_default_source_language = "en"
-            mock_settings.scanner_default_target_language = None
+            mock_settings.subtitle_desired_language = "en"
+            mock_settings.subtitle_fallback_language = "en"
             mock_settings.scanner_auto_translate = False
             handler = MediaFileEventHandler(mock_scanner)
             return handler
@@ -326,8 +326,8 @@ class TestScannerIntegration:
             mock_settings.scanner_watch_recursive = False
             mock_settings.scanner_media_extensions = [".mp4"]
             mock_settings.scanner_debounce_seconds = 0.1
-            mock_settings.scanner_default_source_language = "en"
-            mock_settings.scanner_default_target_language = None
+            mock_settings.subtitle_desired_language = "en"
+            mock_settings.subtitle_fallback_language = "en"
             mock_settings.scanner_auto_translate = False
 
             scanner = MediaScanner()

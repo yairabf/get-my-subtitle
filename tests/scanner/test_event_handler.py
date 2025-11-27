@@ -40,8 +40,8 @@ def mock_event_publisher():
 def mock_settings():
     """Create mock settings."""
     with patch("scanner.event_handler.settings") as mock:
-        mock.scanner_default_source_language = "en"
-        mock.scanner_default_target_language = "es"
+        mock.subtitle_desired_language = "en"
+        mock.subtitle_fallback_language = "en"
         mock.scanner_auto_translate = True
         mock.scanner_debounce_seconds = 2.0
         mock.scanner_media_extensions = {".mp4", ".mkv", ".avi"}
@@ -143,7 +143,7 @@ class TestMediaFileEventHandler:
         assert saved_job.video_url == file_path
         assert saved_job.video_title == "test movie"
         assert saved_job.language == "en"
-        assert saved_job.target_language == "es"
+        assert saved_job.target_language is None  # target_language is no longer set by scanner
         assert saved_job.status == SubtitleStatus.PENDING
 
         # Verify both events were published
@@ -163,7 +163,7 @@ class TestMediaFileEventHandler:
         assert second_event.payload["video_url"] == file_path
         assert second_event.payload["video_title"] == "test movie"
         assert second_event.payload["language"] == "en"
-        assert second_event.payload["target_language"] == "es"
+        assert second_event.payload["target_language"] is None  # target_language is no longer set by scanner
         assert second_event.payload["preferred_sources"] == ["opensubtitles"]
         assert second_event.payload["auto_translate"] is True
 
@@ -191,7 +191,7 @@ class TestMediaFileEventHandler:
     ):
         """Test that auto_translate is False when no target language is set."""
         file_path = "/media/movies/test_movie.mp4"
-        mock_settings.scanner_default_target_language = None
+        mock_settings.subtitle_fallback_language = None
 
         # Mock file stability check
         event_handler._wait_for_file_stability = AsyncMock(return_value=True)

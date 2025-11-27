@@ -56,9 +56,9 @@ Optional WebSocket settings:
 
 ### Jellyfin General Configuration
 
-- `JELLYFIN_DEFAULT_SOURCE_LANGUAGE`: Default source language for Jellyfin media (default: `en`)
-- `JELLYFIN_DEFAULT_TARGET_LANGUAGE`: Default target language (optional)
 - `JELLYFIN_AUTO_TRANSLATE`: Auto-translate Jellyfin media (default: `true`)
+
+**Note:** Language configuration is now centralized. See [Subtitle Language Configuration](#subtitle-language-configuration) below.
 
 ### Scanner Webhook Configuration
 
@@ -71,9 +71,18 @@ Optional WebSocket settings:
 - `SCANNER_WATCH_RECURSIVE`: Watch subdirectories recursively (default: `true`)
 - `SCANNER_MEDIA_EXTENSIONS`: Comma-separated list of extensions (default: `.mp4,.mkv,.avi,.mov,.m4v,.webm`)
 - `SCANNER_DEBOUNCE_SECONDS`: Seconds to wait for file stability (default: `2.0`)
-- `SCANNER_DEFAULT_SOURCE_LANGUAGE`: Default source language for file system media (default: `en`)
-- `SCANNER_DEFAULT_TARGET_LANGUAGE`: Default target language (optional)
 - `SCANNER_AUTO_TRANSLATE`: Auto-translate after download (default: `false`)
+
+**Note:** Language configuration is now centralized. See [Subtitle Language Configuration](#subtitle-language-configuration) below.
+
+### Subtitle Language Configuration
+
+- `SUBTITLE_DESIRED_LANGUAGE`: The goal language (what you want to download) (default: `en`)
+- `SUBTITLE_FALLBACK_LANGUAGE`: Fallback when desired isn't found (then translated to desired) (default: `en`)
+
+When a subtitle in the desired language isn't found, the system will:
+1. Download in the fallback language
+2. Automatically translate from fallback to desired language (if auto-translate is enabled)
 
 ## Architecture
 
