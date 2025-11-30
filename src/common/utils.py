@@ -889,7 +889,11 @@ class PathUtils:
         if not source_subtitle_path:
             raise ValueError("source_subtitle_path cannot be empty")
 
-        if not target_language or len(target_language) != 2 or not target_language.isalpha():
+        if (
+            not target_language
+            or len(target_language) != 2
+            or not target_language.isalpha()
+        ):
             raise ValueError(
                 f"Invalid target language code: '{target_language}'. "
                 "Must be a 2-letter alphabetic ISO 639-1 code."

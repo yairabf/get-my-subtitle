@@ -63,7 +63,9 @@ class EventConsumer:
                     )
                     await asyncio.sleep(retry_delay)
                 else:
-                    logger.error(f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}")
+                    logger.error(
+                        f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}"
+                    )
                     raise
 
     async def setup_consumers(self) -> aio_pika.abc.AbstractQueue:
@@ -173,7 +175,9 @@ class EventConsumer:
                 event.job_id, event.event_type.value, event.payload, source="consumer"
             )
 
-            logger.warning(f"⚠️  Processed JOB_FAILED for job {event.job_id}: {error_message}")
+            logger.warning(
+                f"⚠️  Processed JOB_FAILED for job {event.job_id}: {error_message}"
+            )
 
         except Exception as e:
             logger.error(f"❌ Error handling JOB_FAILED for job {event.job_id}: {e}")
@@ -299,7 +303,9 @@ class EventConsumer:
             # Validate and parse as SubtitleEvent
             event = SubtitleEvent.model_validate(message_data)
 
-            logger.debug(f"📬 Processing event: {event.event_type.value} for job {event.job_id}")
+            logger.debug(
+                f"📬 Processing event: {event.event_type.value} for job {event.job_id}"
+            )
 
             # Route to appropriate handler based on event type
             if event.event_type == EventType.SUBTITLE_READY:
@@ -348,7 +354,9 @@ class EventConsumer:
                 await self.connect()
                 queue = await self.setup_consumers()
                 self.is_consuming = True
-                consecutive_failures = 0  # Reset failure counter on successful connection
+                consecutive_failures = (
+                    0  # Reset failure counter on successful connection
+                )
 
                 logger.info("🎧 Starting to consume events...")
                 logger.info("Press Ctrl+C to stop")
@@ -358,20 +366,22 @@ class EventConsumer:
                 async def consume_with_health_check():
                     """Consume messages with periodic health checks."""
                     last_health_check = asyncio.get_event_loop().time()
-                    
+
                     async with queue.iterator() as queue_iter:
                         async for message in queue_iter:
                             if self._should_stop:
                                 break
-                            
+
                             # Periodic health check
                             current_time = asyncio.get_event_loop().time()
                             if current_time - last_health_check > health_check_interval:
                                 if not await self.is_healthy():
-                                    logger.warning("⚠️ Health check failed during consumption, will reconnect...")
+                                    logger.warning(
+                                        "⚠️ Health check failed during consumption, will reconnect..."
+                                    )
                                     raise ConnectionError("Health check failed")
                                 last_health_check = current_time
-                            
+
                             async with message.process():
                                 await self.process_event(message)
 
@@ -384,10 +394,13 @@ class EventConsumer:
             except Exception as e:
                 self.is_consuming = False
                 consecutive_failures += 1
-                logger.error(f"❌ Error in consumer (failure #{consecutive_failures}): {e}")
+                logger.error(
+                    f"❌ Error in consumer (failure #{consecutive_failures}): {e}"
+                )
                 import traceback
+
                 logger.debug(f"Traceback: {traceback.format_exc()}")
-                
+
                 if not self._should_stop:
                     if consecutive_failures >= max_consecutive_failures:
                         logger.error(
@@ -396,10 +409,8 @@ class EventConsumer:
                         )
                         reconnect_delay = min(reconnect_delay * 2, 30.0)  # Cap at 30s
                         consecutive_failures = 0  # Reset after backing off
-                    
-                    logger.warning(
-                        f"Attempting to reconnect in {reconnect_delay}s..."
-                    )
+
+                    logger.warning(f"Attempting to reconnect in {reconnect_delay}s...")
                     await asyncio.sleep(reconnect_delay)
                 else:
                     break
@@ -417,7 +428,7 @@ class EventConsumer:
     async def is_healthy(self) -> bool:
         """
         Check if the consumer is healthy and consuming messages.
-        
+
         Returns:
             True if consumer is connected and consuming, False otherwise
         """
@@ -425,22 +436,22 @@ class EventConsumer:
             # Check if connection exists and is open
             if not self.connection or self.connection.is_closed:
                 return False
-            
+
             # Check if channel exists and is open
             if not self.channel:
                 return False
-            
+
             # Check if queue is set up
             if not self.queue:
                 return False
-            
+
             # Check if consuming flag is set
             if not self.is_consuming:
                 return False
-            
+
             # Queue object exists, which means channel is valid
             # No need to call get_queue as we already have the queue object
-            
+
             return True
         except Exception as e:
             logger.warning(f"Health check failed with exception: {e}")
@@ -462,15 +473,16 @@ async def main() -> None:
     logger.info("=" * 60)
 
     consumer = EventConsumer()
-    
+
     # Set global instance for health checks
     try:
         from consumer.health import set_consumer_instance
+
         set_consumer_instance(consumer)
     except ImportError:
         # Health check module not available, continue without it
         pass
-    
+
     await consumer.start_consuming()
 
 

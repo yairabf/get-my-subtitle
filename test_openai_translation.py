@@ -10,33 +10,34 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from openai import AsyncOpenAI
+
 from common.config import settings
 
 
 async def test_translation():
     """Test OpenAI translation API with a simple example."""
-    
+
     if not settings.openai_api_key:
         print("❌ OPENAI_API_KEY not set in environment")
         return
-    
+
     client = AsyncOpenAI(api_key=settings.openai_api_key)
-    
+
     # Test with a simple subtitle example
     test_texts = [
         "Hello, how are you?",
         "<i>like a lord or a king</i>",
         "This is a test subtitle.",
     ]
-    
+
     source_language = "English"
     target_language = "Hebrew"
-    
+
     # Build prompt similar to our translation service
     numbered_texts = []
     for i, text in enumerate(test_texts, 1):
         numbered_texts.append(f"[{i}]\n{text}")
-    
+
     prompt = (
         f"Translate the following {len(test_texts)} subtitle segments "
         f"from {source_language} to {target_language}.\n\n"
@@ -53,7 +54,7 @@ async def test_translation():
         f"etc.\n\n"
         f"Subtitles to translate:\n\n" + "\n\n".join(numbered_texts)
     )
-    
+
     print("=" * 60)
     print("Testing OpenAI Translation API")
     print("=" * 60)
@@ -64,7 +65,7 @@ async def test_translation():
     print(f"Max tokens: {settings.openai_max_tokens}")
     print("=" * 60)
     print("\nSending request...\n")
-    
+
     try:
         # Build API parameters
         api_params = {
@@ -88,59 +89,63 @@ async def test_translation():
             "max_completion_tokens": settings.openai_max_tokens,  # Required for gpt-5-nano model
             "timeout": 60.0,
         }
-        
+
         # Only include temperature if model supports it
         if "nano" not in settings.openai_model.lower():
             api_params["temperature"] = settings.openai_temperature
-        
+
         print(f"API Parameters:")
         print(f"  Model: {api_params['model']}")
         print(f"  Max completion tokens: {api_params['max_completion_tokens']}")
-        print(f"  Temperature: {api_params.get('temperature', 'default (1.0 for nano)')}")
+        print(
+            f"  Temperature: {api_params.get('temperature', 'default (1.0 for nano)')}"
+        )
         print(f"  Messages: {len(api_params['messages'])} messages")
         print()
-        
+
         # Make the API call
         response = await client.chat.completions.create(**api_params)
-        
+
         # Check response
         print("=" * 60)
         print("Response received!")
         print("=" * 60)
-        
+
         if not response.choices or len(response.choices) == 0:
             print("❌ ERROR: No choices in response")
             return
-        
+
         choice = response.choices[0]
         message_content = choice.message.content
-        
+
         print(f"Finish reason: {choice.finish_reason}")
-        print(f"Response length: {len(message_content) if message_content else 0} characters")
-        
-        if hasattr(response, 'usage') and response.usage:
+        print(
+            f"Response length: {len(message_content) if message_content else 0} characters"
+        )
+
+        if hasattr(response, "usage") and response.usage:
             print(f"\nUsage:")
             print(f"  Prompt tokens: {response.usage.prompt_tokens}")
             print(f"  Completion tokens: {response.usage.completion_tokens}")
             print(f"  Total tokens: {response.usage.total_tokens}")
-        
+
         if not message_content:
             print("\n❌ ERROR: Empty response content!")
             print(f"Finish reason: {choice.finish_reason}")
             if choice.finish_reason == "length":
                 print("⚠️  Response was truncated - increase max_tokens")
             return
-        
+
         print(f"\n✅ Response content ({len(message_content)} chars):")
         print("-" * 60)
         print(message_content)
         print("-" * 60)
-        
+
         # Try to parse the response
         print("\nParsing response...")
         translations = []
         segments = message_content.split("[")
-        
+
         for segment in segments:
             if not segment.strip():
                 continue
@@ -152,19 +157,22 @@ async def test_translation():
                     translations.append(text)
                 except ValueError:
                     continue
-        
+
         print(f"✅ Parsed {len(translations)} translations:")
         for i, trans in enumerate(translations, 1):
             print(f"  [{i}] {trans}")
-        
+
         if len(translations) != len(test_texts):
-            print(f"\n⚠️  WARNING: Expected {len(test_texts)} translations, got {len(translations)}")
+            print(
+                f"\n⚠️  WARNING: Expected {len(test_texts)} translations, got {len(translations)}"
+            )
         else:
             print(f"\n✅ SUCCESS: All {len(test_texts)} translations received!")
-        
+
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
 
 

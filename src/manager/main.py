@@ -43,28 +43,30 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting subtitle management API...")
     await redis_client.connect()
-    
+
     # Connect event publisher first (with retries for Docker startup)
     logger.info("Connecting event publisher...")
     await event_publisher.connect(max_retries=10, retry_delay=3.0)
-    
+
     await orchestrator.connect()
 
     # Connect and start event consumer (with retries for Docker startup)
     logger.info("Starting event consumer for SUBTITLE_REQUESTED events...")
     await event_consumer.connect(max_retries=10, retry_delay=3.0)
-    
+
     # Verify consumer is connected before starting
     if event_consumer.queue is None or event_consumer.channel is None:
         logger.error("Event consumer not properly connected, cannot start consuming")
     else:
         consumer_task = asyncio.create_task(event_consumer.start_consuming())
+
         # Add error handler to catch task exceptions
         def handle_task_exception(task):
             try:
                 task.result()  # This will raise if task failed
             except Exception as e:
                 logger.error(f"Event consumer task failed: {e}", exc_info=True)
+
         consumer_task.add_done_callback(handle_task_exception)
         logger.info(f"Event consumer task started: {consumer_task}")
 
@@ -512,33 +514,33 @@ async def handle_jellyfin_webhook(payload: JellyfinWebhookPayload):
 async def trigger_manual_scan():
     """
     Trigger a manual scan of the media library.
-    
+
     This sends a request to the Scanner service to initiate a full scan
     of the configured media directory.
     """
     import httpx
-    
+
     try:
         scanner_url = f"http://{settings.scanner_webhook_host}:{settings.scanner_webhook_port}/scan"
         logger.info(f"Triggering manual scan via {scanner_url}")
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.post(scanner_url, timeout=5.0)
-            
+
         if response.status_code != 200:
             logger.error(f"Scanner returned error: {response.text}")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Scanner service returned error: {response.status_code}"
+                detail=f"Scanner service returned error: {response.status_code}",
             )
-            
+
         return {"status": "accepted", "message": "Manual scan initiated"}
-        
+
     except httpx.RequestError as e:
         logger.error(f"Failed to connect to scanner service: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Scanner service is unreachable"
+            detail="Scanner service is unreachable",
         )
     except HTTPException:
         raise
@@ -546,7 +548,7 @@ async def trigger_manual_scan():
         logger.error(f"Error triggering manual scan: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail="Internal server error",
         )
 
 

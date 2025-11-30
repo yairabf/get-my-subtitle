@@ -62,7 +62,12 @@ async def process_translation_message(
         target_language_raw = message_data.get("target_language")
 
         if not all(
-            [request_id_str, subtitle_file_path, source_language_raw, target_language_raw]
+            [
+                request_id_str,
+                subtitle_file_path,
+                source_language_raw,
+                target_language_raw,
+            ]
         ):
             raise ValueError("Missing required fields in translation task")
 

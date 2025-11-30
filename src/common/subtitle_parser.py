@@ -48,7 +48,7 @@ class SRTParser:
         # Remove BOM (Byte Order Mark) if present (common in UTF-8 files)
         if content.startswith("\ufeff"):
             content = content[1:]
-        
+
         segments = []
         lines = content.strip().split("\n")
 
@@ -333,7 +333,7 @@ def split_subtitle_content(
             current_token_count + segment_tokens > effective_limit
             and len(current_chunk) > 0
         )
-        
+
         # Also check segment count limit to prevent API timeouts
         would_exceed_segment_limit = len(current_chunk) >= max_segments_per_chunk
 

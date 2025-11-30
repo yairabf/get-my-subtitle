@@ -33,15 +33,23 @@ class EventPublisher:
             print(f"[EVENT_PUBLISHER] Already connected, skipping")
             logging.info("Event publisher already connected, skipping connection")
             return
-        
-        print(f"[EVENT_PUBLISHER] connect() called with max_retries={max_retries}, retry_delay={retry_delay}")
-        logging.info(f"Event publisher connect() called with max_retries={max_retries}, retry_delay={retry_delay}")
-        
+
+        print(
+            f"[EVENT_PUBLISHER] connect() called with max_retries={max_retries}, retry_delay={retry_delay}"
+        )
+        logging.info(
+            f"Event publisher connect() called with max_retries={max_retries}, retry_delay={retry_delay}"
+        )
+
         for attempt in range(max_retries):
             print(f"[EVENT_PUBLISHER] Connection attempt {attempt + 1}/{max_retries}")
-            logging.info(f"Event publisher connection attempt {attempt + 1}/{max_retries}")
+            logging.info(
+                f"Event publisher connection attempt {attempt + 1}/{max_retries}"
+            )
             try:
-                print(f"[EVENT_PUBLISHER] Attempting to connect to {settings.rabbitmq_url}")
+                print(
+                    f"[EVENT_PUBLISHER] Attempting to connect to {settings.rabbitmq_url}"
+                )
                 self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
                 print(f"[EVENT_PUBLISHER] Connection established, getting channel...")
                 self.channel = await self.connection.channel()
@@ -52,15 +60,20 @@ class EventPublisher:
                     self.exchange_name, ExchangeType.TOPIC, durable=True
                 )
 
-                print(f"[EVENT_PUBLISHER] ✅ Successfully connected and declared exchange!")
+                print(
+                    f"[EVENT_PUBLISHER] ✅ Successfully connected and declared exchange!"
+                )
                 logging.info(
                     f"✅ Event publisher connected to RabbitMQ and declared topic exchange: {self.exchange_name}"
                 )
                 return  # Success, exit retry loop
 
             except Exception as e:
-                print(f"[EVENT_PUBLISHER] Exception on attempt {attempt + 1}: {type(e).__name__}: {e}")
+                print(
+                    f"[EVENT_PUBLISHER] Exception on attempt {attempt + 1}: {type(e).__name__}: {e}"
+                )
                 import traceback
+
                 traceback.print_exc()
                 if attempt < max_retries - 1:
                     logging.warning(
@@ -69,7 +82,9 @@ class EventPublisher:
                     )
                     await asyncio.sleep(retry_delay)
                 else:
-                    logging.warning(f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}")
+                    logging.warning(
+                        f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}"
+                    )
                     logging.warning(
                         "Running in mock mode - events will be logged but not published"
                     )
@@ -92,7 +107,9 @@ class EventPublisher:
             True if successfully published, False otherwise
         """
         if not self.exchange or not self.channel:
-            print(f"[EVENT_PUBLISHER] Mock mode: exchange={self.exchange is not None}, channel={self.channel is not None}, connection={self.connection is not None}")
+            print(
+                f"[EVENT_PUBLISHER] Mock mode: exchange={self.exchange is not None}, channel={self.channel is not None}, connection={self.connection is not None}"
+            )
             logger.warning(
                 f"Mock mode: Would publish event {event.event_type.value} for job {event.job_id} (exchange={self.exchange is not None}, channel={self.channel is not None})"
             )
@@ -111,7 +128,9 @@ class EventPublisher:
 
             await self.exchange.publish(message, routing_key=routing_key)
 
-            print(f"[EVENT_PUBLISHER] ✅ Published event {event.event_type.value} for job {event.job_id} (routing_key: {routing_key})")
+            print(
+                f"[EVENT_PUBLISHER] ✅ Published event {event.event_type.value} for job {event.job_id} (routing_key: {routing_key})"
+            )
             logger.info(
                 f"Published event {event.event_type.value} for job {event.job_id} (routing_key: {routing_key})"
             )

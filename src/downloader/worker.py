@@ -360,12 +360,14 @@ async def process_message(
                                 else:
                                     # Enqueue TranslationTask directly to translation queue
                                     # Convert target language to ISO format if needed
-                                    target_language_iso = LanguageUtils.opensubtitles_to_iso(language)
+                                    target_language_iso = (
+                                        LanguageUtils.opensubtitles_to_iso(language)
+                                    )
                                     translation_task = TranslationTask(
                                         request_id=request_id,
                                         subtitle_file_path=str(subtitle_path),
                                         source_language=iso_language_code,  # Actual fallback language (ISO)
-                                        target_language=target_language_iso,  # Originally requested language (converted to ISO)
+                                        target_language=target_language_iso,  # Originally requested (ISO)
                                     )
 
                                     task_message = Message(
@@ -399,7 +401,9 @@ async def process_message(
                                             payload={
                                                 "error_message": f"Failed to enqueue translation task: {str(e)}",
                                                 "error_type": "queue_publish_failed",
-                                                "subtitle_file_path": str(subtitle_path),
+                                                "subtitle_file_path": str(
+                                                    subtitle_path
+                                                ),
                                             },
                                         )
                                         await event_publisher.publish_event(event)
@@ -422,7 +426,8 @@ async def process_message(
                                     )
                                     await event_publisher.publish_event(event)
                                     logger.info(
-                                        f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id} (observability only)"
+                                        f"📤 Published SUBTITLE_TRANSLATE_REQUESTED "
+                                        f"event for job {request_id} (observability only)"
                                     )
                         else:
                             # No subtitle found in ANY language - publish SUBTITLE_MISSING

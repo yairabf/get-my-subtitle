@@ -18,7 +18,7 @@ from common.config import settings
 from common.duplicate_prevention import DuplicatePreventionService
 from common.event_publisher import event_publisher
 from common.redis_client import redis_client
-from common.schemas import EventType, SubtitleEvent, SubtitleRequest, SubtitleStatus
+from common.schemas import EventType, SubtitleEvent, SubtitleRequest
 from common.utils import DateTimeUtils, ValidationUtils
 from manager.orchestrator import orchestrator
 
@@ -55,11 +55,15 @@ class SubtitleEventConsumer:
                 )
 
                 # Declare durable queue for this consumer
-                self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
+                self.queue = await self.channel.declare_queue(
+                    self.queue_name, durable=True
+                )
 
                 # Bind queue to exchange for SUBTITLE_REQUESTED events only
                 # Note: SUBTITLE_TRANSLATE_REQUESTED events are ignored - downloader handles task creation directly
-                await self.queue.bind(exchange=self.exchange, routing_key=self.routing_key)
+                await self.queue.bind(
+                    exchange=self.exchange, routing_key=self.routing_key
+                )
 
                 logger.info(
                     f"Connected to RabbitMQ - Queue '{self.queue_name}' bound to "
@@ -75,7 +79,9 @@ class SubtitleEventConsumer:
                     )
                     await asyncio.sleep(retry_delay)
                 else:
-                    logger.warning(f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}")
+                    logger.warning(
+                        f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}"
+                    )
                     logger.warning(
                         "Running in mock mode - events will not be consumed from queue"
                     )
@@ -103,21 +109,29 @@ class SubtitleEventConsumer:
                 f"Starting to consume events (SUBTITLE_REQUESTED only) "
                 f"from queue '{self.queue_name}'"
             )
-            
+
             # Verify channel is still valid
-            if self.channel and hasattr(self.channel, 'is_closed') and self.channel.is_closed:
+            if (
+                self.channel
+                and hasattr(self.channel, "is_closed")
+                and self.channel.is_closed
+            ):
                 logger.error("Channel is closed, cannot start consuming")
                 return
 
             logger.info(f"Queue iterator starting for queue '{self.queue_name}'")
             async with self.queue.iterator() as queue_iter:
-                logger.info(f"Queue iterator created, waiting for messages on '{self.queue_name}'...")
+                logger.info(
+                    f"Queue iterator created, waiting for messages on '{self.queue_name}'..."
+                )
                 async for message in queue_iter:
                     if not self.is_consuming:
                         logger.info("Consumer stopped, breaking message loop")
                         break
 
-                    logger.debug(f"Received message from queue '{self.queue_name}', routing_key: {message.routing_key}")
+                    logger.debug(
+                        f"Received message from queue '{self.queue_name}', routing_key: {message.routing_key}"
+                    )
                     await self._on_message(message)
 
         except asyncio.CancelledError:
@@ -127,7 +141,9 @@ class SubtitleEventConsumer:
             logger.error(f"Error in event consumer loop: {e}", exc_info=True)
             # Don't raise - allow the service to continue running
             # The error will be logged and can be investigated
-            logger.error("Event consumer loop failed, but service will continue running")
+            logger.error(
+                "Event consumer loop failed, but service will continue running"
+            )
 
     async def _on_message(self, message: AbstractIncomingMessage) -> None:
         """
@@ -140,7 +156,9 @@ class SubtitleEventConsumer:
             try:
                 # Parse message body as SubtitleEvent
                 event_data = message.body.decode()
-                logger.debug(f"Parsing event data: {event_data[:200]}...")  # Log first 200 chars
+                logger.debug(
+                    f"Parsing event data: {event_data[:200]}..."
+                )  # Log first 200 chars
                 event = SubtitleEvent.model_validate_json(event_data)
 
                 logger.info(

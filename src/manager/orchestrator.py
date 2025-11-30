@@ -15,7 +15,6 @@ from common.schemas import (
     EventType,
     SubtitleEvent,
     SubtitleRequest,
-    SubtitleStatus,
     TranslationTask,
 )
 from common.utils import DateTimeUtils

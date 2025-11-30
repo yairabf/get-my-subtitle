@@ -102,12 +102,15 @@ class SubtitleTranslator:
 
         # Prepare the prompt for GPT-5-nano
         # Formatting preservation is maintained through this prompt structure
-        prompt = self._build_translation_prompt(texts, source_lang_name, target_lang_name)
+        prompt = self._build_translation_prompt(
+            texts, source_lang_name, target_lang_name
+        )
 
         logger.info(
-            f"Translating {len(texts)} segments from {source_lang_name} ({source_language}) to {target_lang_name} ({target_language})"
+            f"Translating {len(texts)} segments from {source_lang_name} "
+            f"({source_language}) to {target_lang_name} ({target_language})"
         )
-        
+
         # Warn if chunk is very large (might cause API issues)
         # For reasoning models (gpt-5-nano), large chunks may consume all completion tokens
         # For non-reasoning models (gpt-4o-mini), 300-400 segments is typically safe
@@ -159,19 +162,28 @@ class SubtitleTranslator:
         # Check if response is valid
         if not response.choices or len(response.choices) == 0:
             raise ValueError("OpenAI API returned no choices in response")
-        
+
         choice = response.choices[0]
         message_content = choice.message.content
-        
+
         # Handle truncated responses
         if choice.finish_reason == "length":
             if not message_content:
                 # Check if all tokens were used for reasoning (common with reasoning models)
                 usage_info = ""
-                if hasattr(response, 'usage') and response.usage:
+                if hasattr(response, "usage") and response.usage:
                     usage = response.usage
-                    reasoning_tokens = getattr(usage.completion_tokens_details, 'reasoning_tokens', None) if hasattr(usage, 'completion_tokens_details') else None
-                    if reasoning_tokens and reasoning_tokens >= usage.completion_tokens * 0.9:
+                    reasoning_tokens = (
+                        getattr(
+                            usage.completion_tokens_details, "reasoning_tokens", None
+                        )
+                        if hasattr(usage, "completion_tokens_details")
+                        else None
+                    )
+                    if (
+                        reasoning_tokens
+                        and reasoning_tokens >= usage.completion_tokens * 0.9
+                    ):
                         usage_info = (
                             f"⚠️  CRITICAL: {reasoning_tokens}/{usage.completion_tokens} completion tokens "
                             f"({reasoning_tokens/usage.completion_tokens*100:.1f}%) were used for reasoning. "
@@ -183,7 +195,7 @@ class SubtitleTranslator:
                         )
                     else:
                         usage_info = f"Usage: {usage}"
-                
+
                 raise ValueError(
                     f"OpenAI API response was truncated (finish_reason=length) but content is empty. "
                     f"{usage_info} "
@@ -203,9 +215,7 @@ class SubtitleTranslator:
             )
 
         # Parse the response
-        translations = self._parse_translation_response(
-            message_content, len(texts)
-        )
+        translations = self._parse_translation_response(message_content, len(texts))
 
         logger.info(f"Successfully translated {len(translations)} segments")
         return translations
