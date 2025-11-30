@@ -661,6 +661,7 @@ Goodbye!
         mock_settings.checkpoint_cleanup_on_success = True
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -716,6 +717,7 @@ Goodbye!
         mock_settings.checkpoint_cleanup_on_success = False  # Don't cleanup for test
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -788,6 +790,7 @@ Goodbye!
         mock_settings.checkpoint_cleanup_on_success = True
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -842,6 +845,7 @@ Goodbye!
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -891,6 +895,7 @@ Goodbye!
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -993,6 +998,7 @@ How are you?
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -1056,6 +1062,7 @@ How are you?
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -1120,6 +1127,7 @@ How are you?
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -1194,6 +1202,7 @@ How are you?
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -1286,6 +1295,7 @@ Hello world
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
