@@ -122,7 +122,7 @@ class MediaScanner:
     async def scan_library(self) -> None:
         """
         Manually scan the library for media files.
-        
+
         This walks the configured media directory and triggers processing
         for all found media files.
         """
@@ -132,7 +132,7 @@ class MediaScanner:
             return
 
         logger.info(f"🔍 Starting manual library scan on: {media_path}")
-        
+
         count = 0
         try:
             # Walk the directory tree
@@ -140,18 +140,20 @@ class MediaScanner:
                 files_iterator = media_path.rglob("*")
             else:
                 files_iterator = media_path.glob("*")
-                
+
             for file_path in files_iterator:
-                if file_path.is_file() and self.event_handler._is_media_file(str(file_path)):
+                if file_path.is_file() and self.event_handler._is_media_file(
+                    str(file_path)
+                ):
                     # Trigger processing for the file
                     # We use the internal processing method directly
                     await self.event_handler._process_media_file(str(file_path))
                     count += 1
                     # Small yield to prevent blocking the event loop too long
                     await asyncio.sleep(0.01)
-            
+
             logger.info(f"✅ Manual scan completed. Processed {count} files.")
-            
+
         except Exception as e:
             logger.error(f"Error during manual scan: {e}", exc_info=True)
 

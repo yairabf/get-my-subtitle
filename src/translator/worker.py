@@ -24,7 +24,7 @@ from common.subtitle_parser import (  # noqa: E402
     merge_translations,
     split_subtitle_content,
 )
-from common.utils import DateTimeUtils  # noqa: E402
+from common.utils import DateTimeUtils, LanguageUtils, PathUtils  # noqa: E402
 from translator.checkpoint_manager import CheckpointManager  # noqa: E402
 from translator.translation_service import SubtitleTranslator  # noqa: E402
 
@@ -58,13 +58,32 @@ async def process_translation_message(
         # Extract task details
         request_id_str = message_data.get("request_id")
         subtitle_file_path = message_data.get("subtitle_file_path")
-        source_language = message_data.get("source_language")
-        target_language = message_data.get("target_language")
+        source_language_raw = message_data.get("source_language")
+        target_language_raw = message_data.get("target_language")
 
         if not all(
-            [request_id_str, subtitle_file_path, source_language, target_language]
+            [
+                request_id_str,
+                subtitle_file_path,
+                source_language_raw,
+                target_language_raw,
+            ]
         ):
             raise ValueError("Missing required fields in translation task")
+
+        # Convert language codes to ISO format (safety check - ensures consistency)
+        source_language = LanguageUtils.opensubtitles_to_iso(source_language_raw)
+        target_language = LanguageUtils.opensubtitles_to_iso(target_language_raw)
+
+        # Log conversion if it changed
+        if source_language != source_language_raw:
+            logger.debug(
+                f"Converted source language '{source_language_raw}' to ISO '{source_language}'"
+            )
+        if target_language != target_language_raw:
+            logger.info(
+                f"Converted target language '{target_language_raw}' to ISO '{target_language}'"
+            )
 
         request_id = UUID(request_id_str)
 
@@ -146,11 +165,13 @@ async def process_translation_message(
         logger.info(f"Parsed {len(segments)} subtitle segments")
 
         # Split into token-aware chunks for API limits
+        # Also limit by segment count to prevent API timeouts with very large chunks
         chunks = split_subtitle_content(
             segments,
             max_tokens=settings.translation_max_tokens_per_chunk,
             model=settings.openai_model,
             safety_margin=settings.translation_token_safety_margin,
+            max_segments_per_chunk=settings.translation_max_segments_per_chunk,
         )
 
         # If checkpoint exists, validate total chunks match
@@ -211,9 +232,9 @@ async def process_translation_message(
         # Format back to SRT
         translated_srt = SRTParser.format(merged_segments)
 
-        # Save translated file
-        output_path = Path(
-            f"{subtitle_file_path.replace('.srt', '')}.{target_language}.srt"
+        # Save translated file - generate path by replacing language code
+        output_path = PathUtils.generate_subtitle_path_from_source(
+            subtitle_file_path, target_language
         )
 
         # Ensure output directory exists

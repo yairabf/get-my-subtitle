@@ -327,8 +327,8 @@ class JellyfinWebSocketClient:
             subtitle_request = SubtitleRequest(
                 video_url=item_path,
                 video_title=item_name,
-                language=settings.jellyfin_default_source_language,
-                target_language=settings.jellyfin_default_target_language,
+                language=settings.subtitle_desired_language,
+                target_language=None,
                 preferred_sources=["opensubtitles"],
             )
 

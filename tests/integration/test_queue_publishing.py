@@ -4,8 +4,8 @@ import json
 from uuid import uuid4
 
 import aio_pika
-from aio_pika.exceptions import QueueEmpty
 import pytest
+from aio_pika.exceptions import QueueEmpty
 
 from common.schemas import DownloadTask, SubtitleRequest, TranslationTask
 from manager.orchestrator import SubtitleOrchestrator
@@ -192,6 +192,7 @@ class TestTranslationQueuePublishing:
 
         # Verify message in queue - get it immediately before Translator worker consumes it
         import asyncio
+
         # Get message immediately (no delay) to beat Translator worker
         try:
             message = await queue.get(timeout=0.5)
@@ -323,7 +324,7 @@ class TestTranslationQueuePublishing:
         queue = await rabbitmq_channel.declare_queue(
             "subtitle.translation", durable=True
         )
-        
+
         # Arrange
         request_ids = [uuid4() for _ in range(3)]
         subtitle_paths = [f"/tmp/subtitle_{i}.srt" for i in range(3)]
@@ -346,22 +347,22 @@ class TestTranslationQueuePublishing:
             except QueueEmpty:
                 # Message was consumed by Translator - continue to next
                 continue
-        
+
         if len(messages_received) == 0:
             # All messages consumed by Translator - that's fine, proves they were published
             # The queue exists (otherwise we wouldn't get QueueEmpty)
             # Test passes - messages were published and consumed (system working correctly)
             return
-        
+
         # Verify FIFO order for messages we received
         for idx, (original_idx, message) in enumerate(messages_received):
             message_data = json.loads(message.body.decode())
             translation_task = TranslationTask(**message_data)
-            
+
             # Verify the message matches one of our request IDs
             assert str(translation_task.request_id) in [str(rid) for rid in request_ids]
             assert translation_task.subtitle_file_path in subtitle_paths
-            
+
             await message.ack()
 
 

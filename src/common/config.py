@@ -1,5 +1,6 @@
 """Configuration management for the subtitle management system."""
 
+from pathlib import Path
 from typing import List, Optional, Union
 
 from pydantic import Field, field_validator
@@ -32,6 +33,11 @@ class Settings(BaseSettings):
     # RabbitMQ Configuration
     rabbitmq_url: str = Field(
         default="amqp://admin:password@localhost:5672/", env="RABBITMQ_URL"
+    )
+    rabbitmq_translation_queue_routing_key: str = Field(
+        default="subtitle.translation",
+        env="RABBITMQ_TRANSLATION_QUEUE_ROUTING_KEY",
+        description="RabbitMQ routing key for translation queue",
     )
 
     # API Configuration
@@ -78,6 +84,9 @@ class Settings(BaseSettings):
     translation_token_safety_margin: float = Field(
         default=0.8, env="TRANSLATION_TOKEN_SAFETY_MARGIN"
     )  # Safety margin (0.8 = 80% of limit)
+    translation_max_segments_per_chunk: int = Field(
+        default=100, env="TRANSLATION_MAX_SEGMENTS_PER_CHUNK"
+    )  # Maximum segments per chunk (100-200 recommended for GPT-4o-mini, up to 300-400 if server allows)
 
     # OpenAI Retry Configuration
     openai_max_retries: int = Field(
@@ -109,13 +118,15 @@ class Settings(BaseSettings):
         default=None, env="CHECKPOINT_STORAGE_PATH"
     )  # Override checkpoint location (defaults to {subtitle_storage_path}/checkpoints)
 
+    # Subtitle Language Configuration
+    subtitle_desired_language: str = Field(
+        default="en", env="SUBTITLE_DESIRED_LANGUAGE"
+    )  # The goal language (what you want to download)
+    subtitle_fallback_language: str = Field(
+        default="en", env="SUBTITLE_FALLBACK_LANGUAGE"
+    )  # Fallback when desired isn't found (then translated to desired)
+
     # Jellyfin Integration
-    jellyfin_default_source_language: str = Field(
-        default="en", env="JELLYFIN_DEFAULT_SOURCE_LANGUAGE"
-    )
-    jellyfin_default_target_language: Optional[str] = Field(
-        default=None, env="JELLYFIN_DEFAULT_TARGET_LANGUAGE"
-    )
     jellyfin_auto_translate: bool = Field(default=True, env="JELLYFIN_AUTO_TRANSLATE")
 
     # Scanner Configuration
@@ -126,12 +137,6 @@ class Settings(BaseSettings):
         env="SCANNER_MEDIA_EXTENSIONS",
     )
     scanner_debounce_seconds: float = Field(default=2.0, env="SCANNER_DEBOUNCE_SECONDS")
-    scanner_default_source_language: str = Field(
-        default="en", env="SCANNER_DEFAULT_SOURCE_LANGUAGE"
-    )
-    scanner_default_target_language: Optional[str] = Field(
-        default=None, env="SCANNER_DEFAULT_TARGET_LANGUAGE"
-    )
     scanner_auto_translate: bool = Field(default=False, env="SCANNER_AUTO_TRANSLATE")
 
     # Scanner Webhook Configuration
@@ -175,7 +180,10 @@ class Settings(BaseSettings):
         return v
 
     class Config:
-        env_file = ".env"
+        # Find .env file relative to project root (where docker-compose.yml is)
+        # This file is in src/common/, so go up 2 levels to project root
+        _project_root = Path(__file__).parent.parent.parent
+        env_file = str(_project_root / ".env")
         case_sensitive = False
 
 

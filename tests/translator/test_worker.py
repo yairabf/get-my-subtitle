@@ -661,6 +661,7 @@ Goodbye!
         mock_settings.checkpoint_cleanup_on_success = True
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -716,6 +717,7 @@ Goodbye!
         mock_settings.checkpoint_cleanup_on_success = False  # Don't cleanup for test
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -788,6 +790,7 @@ Goodbye!
         mock_settings.checkpoint_cleanup_on_success = True
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -842,6 +845,7 @@ Goodbye!
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -891,6 +895,7 @@ Goodbye!
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -993,6 +998,7 @@ How are you?
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -1056,6 +1062,7 @@ How are you?
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -1120,6 +1127,7 @@ How are you?
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -1194,6 +1202,7 @@ How are you?
         mock_settings.checkpoint_cleanup_on_success = False
         mock_settings.subtitle_storage_path = str(tmp_path)
         mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
 
@@ -1244,3 +1253,117 @@ How are you?
                 assert (
                     translation_completed_index < subtitle_translated_index
                 ), "TRANSLATION_COMPLETED should be published before SUBTITLE_TRANSLATED"
+
+
+class TestTranslatorOutputFilename:
+    """Test translator output filename generation."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "source_path,target_language,expected_output_name",
+        [
+            ("/path/video.en.srt", "he", "video.he.srt"),
+            ("/path/movie.es.srt", "fr", "movie.fr.srt"),
+            ("/path/film.fr.srt", "de", "film.de.srt"),
+            ("/path/show.de.srt", "it", "show.it.srt"),
+            ("video.en.srt", "he", "video.he.srt"),
+            ("movie.es.srt", "fr", "movie.fr.srt"),
+        ],
+    )
+    async def test_output_filename_replaces_language_code(
+        self, source_path, target_language, expected_output_name, tmp_path, monkeypatch
+    ):
+        """Test that translator generates output filename by replacing language code, not appending."""
+        from pathlib import Path
+        from uuid import uuid4
+
+        request_id = uuid4()
+
+        # Create source subtitle file
+        source_file = tmp_path / Path(source_path).name
+        source_file.write_text(
+            """1
+00:00:01,000 --> 00:00:04,000
+Hello world
+""",
+            encoding="utf-8",
+        )
+
+        # Mock settings
+        mock_settings = MagicMock()
+        mock_settings.checkpoint_enabled = False
+        mock_settings.checkpoint_cleanup_on_success = False
+        mock_settings.subtitle_storage_path = str(tmp_path)
+        mock_settings.translation_max_tokens_per_chunk = 8000
+        mock_settings.translation_max_segments_per_chunk = 100
+        mock_settings.openai_model = "gpt-5-nano"
+        mock_settings.translation_token_safety_margin = 0.8
+
+        monkeypatch.setattr("translator.worker.settings", mock_settings)
+
+        # Mock translator
+        mock_translator = MagicMock()
+        mock_translator.translate_batch = AsyncMock(return_value=["Translated text"])
+
+        # Mock Redis and event publisher
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
+
+            # Mock message
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": str(source_file),
+                    "source_language": (
+                        Path(source_path).stem.split(".")[-1]
+                        if "." in Path(source_path).stem
+                        else "en"
+                    ),
+                    "target_language": target_language,
+                }
+            ).encode()
+
+            # Process translation
+            await process_translation_message(mock_message, mock_translator)
+
+            # Verify output file was created with correct name
+            expected_output_path = source_file.parent / expected_output_name
+            assert (
+                expected_output_path.exists()
+            ), f"Expected output file {expected_output_path} does not exist"
+
+            # Verify source file still exists (not replaced)
+            assert source_file.exists(), "Source file should remain intact"
+
+            # Verify the output filename matches expected (replace, not append)
+            output_files = list(source_file.parent.glob(f"*.{target_language}.srt"))
+            assert (
+                len(output_files) == 1
+            ), f"Expected exactly one {target_language} file"
+            assert output_files[0].name == expected_output_name
+
+            # Verify no file with appended language code exists (e.g., video.en.he.srt)
+            appended_pattern = f"{source_file.stem}.{target_language}.srt"
+            if "." in source_file.stem:
+                # Check that we don't have video.en.he.srt
+                base_name = source_file.stem.rsplit(".", 1)[0]
+                wrong_pattern = f"{base_name}.*.{target_language}.srt"
+                wrong_files = [
+                    f
+                    for f in source_file.parent.glob("*.srt")
+                    if f.name.count(".") > 2 and target_language in f.name
+                ]
+                # Should not have files like video.en.he.srt
+                for wrong_file in wrong_files:
+                    parts = wrong_file.stem.split(".")
+                    if len(parts) > 2:
+                        # Check if it has both source and target language codes
+                        assert not (
+                            len(parts[-1]) == 2
+                            and len(parts[-2]) == 2
+                            and parts[-1] == target_language
+                        ), f"Found incorrectly named file: {wrong_file.name} (should replace, not append)"

@@ -45,6 +45,10 @@ class SRTParser:
         Returns:
             List of SubtitleSegment objects
         """
+        # Remove BOM (Byte Order Mark) if present (common in UTF-8 files)
+        if content.startswith("\ufeff"):
+            content = content[1:]
+
         segments = []
         lines = content.strip().split("\n")
 
@@ -272,6 +276,7 @@ def split_subtitle_content(
     max_tokens: int,
     model: str = "gpt-4",
     safety_margin: float = 0.8,
+    max_segments_per_chunk: int = 200,
 ) -> List[List[SubtitleSegment]]:
     """
     Split subtitle segments into token-safe chunks.
@@ -286,6 +291,8 @@ def split_subtitle_content(
         model: Model name for token counting (default: 'gpt-4')
         safety_margin: Safety margin as fraction of max_tokens (default: 0.8)
                       Example: 0.8 means use 80% of token limit
+        max_segments_per_chunk: Maximum number of segments per chunk (default: 200)
+                               This prevents API timeouts with very large chunks
 
     Returns:
         List of segment chunks, each respecting token limits
@@ -322,18 +329,26 @@ def split_subtitle_content(
         segment_tokens = count_tokens(segment.text, model)
 
         # Check if adding this segment would exceed limit
-        would_exceed_limit = (
+        would_exceed_token_limit = (
             current_token_count + segment_tokens > effective_limit
             and len(current_chunk) > 0
         )
 
-        if would_exceed_limit:
+        # Also check segment count limit to prevent API timeouts
+        would_exceed_segment_limit = len(current_chunk) >= max_segments_per_chunk
+
+        if would_exceed_token_limit or would_exceed_segment_limit:
             # Start new chunk
             chunks.append(current_chunk)
             logger.debug(
                 f"Created chunk with {len(current_chunk)} segments, "
                 f"~{current_token_count} tokens"
             )
+            if would_exceed_segment_limit:
+                logger.info(
+                    f"Chunk reached max_segments_per_chunk limit ({max_segments_per_chunk}), "
+                    f"starting new chunk"
+                )
             current_chunk = [segment]
             current_token_count = segment_tokens
         else:

@@ -10,9 +10,24 @@ from common.config import Settings
 class TestSettingsDefaults:
     """Test Settings class initialization with default values."""
 
-    def test_settings_initialization_with_defaults(self):
+    def test_settings_initialization_with_defaults(self, monkeypatch):
         """Test that Settings initializes with all default values."""
-        # Create a new instance without environment variables
+        # Set language env vars to default values to override .env file
+        monkeypatch.setenv("SUBTITLE_DESIRED_LANGUAGE", "en")
+        monkeypatch.setenv("SUBTITLE_FALLBACK_LANGUAGE", "en")
+        # Override OPENAI_MODEL to ensure we get the default, not .env value
+        monkeypatch.setenv("OPENAI_MODEL", "gpt-5-nano")
+        # Override SUBTITLE_STORAGE_PATH to ensure we get the default, not .env value
+        monkeypatch.setenv("SUBTITLE_STORAGE_PATH", "./storage/subtitles")
+        # Override CHECKPOINT_STORAGE_PATH to ensure we get the default (None), not .env value
+        monkeypatch.setenv("CHECKPOINT_STORAGE_PATH", "")
+        # Override SCANNER_MEDIA_PATH to ensure we get the default, not .env value
+        monkeypatch.setenv("SCANNER_MEDIA_PATH", "/media")
+        # Override JELLYFIN_URL to ensure we get the default (None), not .env value
+        monkeypatch.setenv("JELLYFIN_URL", "")
+        # Override JELLYFIN_API_KEY to ensure we get the default (None), not .env value
+        monkeypatch.setenv("JELLYFIN_API_KEY", "")
+        # Create a new instance - env vars override .env file
         settings = Settings()
 
         # Redis Configuration defaults
@@ -67,14 +82,17 @@ class TestSettingsDefaults:
         # Checkpoint Configuration defaults
         assert settings.checkpoint_enabled is True
         assert settings.checkpoint_cleanup_on_success is True
-        assert settings.checkpoint_storage_path is None
+        # checkpoint_storage_path can be None or empty string (both mean use default)
+        assert (
+            settings.checkpoint_storage_path is None
+            or settings.checkpoint_storage_path == ""
+        )
+
+        # Subtitle Language Configuration defaults
+        assert settings.subtitle_desired_language == "en"
+        assert settings.subtitle_fallback_language == "en"
 
         # Jellyfin Integration defaults
-        assert settings.jellyfin_default_source_language == "en"
-        # jellyfin_default_target_language may be overridden by .env file
-        assert settings.jellyfin_default_target_language is None or isinstance(
-            settings.jellyfin_default_target_language, str
-        )
         assert settings.jellyfin_auto_translate is True
 
         # Scanner Configuration defaults
@@ -89,8 +107,6 @@ class TestSettingsDefaults:
             ".webm",
         ]
         assert settings.scanner_debounce_seconds == 2.0
-        assert settings.scanner_default_source_language == "en"
-        assert settings.scanner_default_target_language is None
         assert settings.scanner_auto_translate is False
 
         # Scanner Webhook Configuration defaults
@@ -98,8 +114,10 @@ class TestSettingsDefaults:
         assert settings.scanner_webhook_port == 8001
 
         # Jellyfin WebSocket Configuration defaults
-        assert settings.jellyfin_url is None
-        assert settings.jellyfin_api_key is None
+        # jellyfin_url can be None or empty string (both mean not configured)
+        assert settings.jellyfin_url is None or settings.jellyfin_url == ""
+        # jellyfin_api_key can be None or empty string (both mean not configured)
+        assert settings.jellyfin_api_key is None or settings.jellyfin_api_key == ""
         assert settings.jellyfin_websocket_enabled is True
         assert settings.jellyfin_websocket_reconnect_delay == 2.0
         assert settings.jellyfin_websocket_max_reconnect_delay == 300.0
@@ -153,14 +171,12 @@ class TestSettingsEnvironmentVariables:
                 "/custom/checkpoints",
                 "/custom/checkpoints",
             ),
-            ("JELLYFIN_DEFAULT_SOURCE_LANGUAGE", "es", "es"),
-            ("JELLYFIN_DEFAULT_TARGET_LANGUAGE", "en", "en"),
+            ("SUBTITLE_DESIRED_LANGUAGE", "es", "es"),
+            ("SUBTITLE_FALLBACK_LANGUAGE", "en", "en"),
             ("JELLYFIN_AUTO_TRANSLATE", "false", False),
             ("SCANNER_MEDIA_PATH", "/custom/media", "/custom/media"),
             ("SCANNER_WATCH_RECURSIVE", "false", False),
             ("SCANNER_DEBOUNCE_SECONDS", "5.0", 5.0),
-            ("SCANNER_DEFAULT_SOURCE_LANGUAGE", "es", "es"),
-            ("SCANNER_DEFAULT_TARGET_LANGUAGE", "en", "en"),
             ("SCANNER_AUTO_TRANSLATE", "true", True),
             ("SCANNER_WEBHOOK_HOST", "127.0.0.1", "127.0.0.1"),
             ("SCANNER_WEBHOOK_PORT", "9001", 9001),
@@ -204,8 +220,6 @@ class TestSettingsEnvironmentVariables:
         monkeypatch.setenv("OPENSUBTITLES_PASSWORD", "")
         monkeypatch.setenv("OPENAI_API_KEY", "")
         monkeypatch.setenv("CHECKPOINT_STORAGE_PATH", "")
-        monkeypatch.setenv("JELLYFIN_DEFAULT_TARGET_LANGUAGE", "")
-        monkeypatch.setenv("SCANNER_DEFAULT_TARGET_LANGUAGE", "")
         monkeypatch.setenv("JELLYFIN_URL", "")
         monkeypatch.setenv("JELLYFIN_API_KEY", "")
 

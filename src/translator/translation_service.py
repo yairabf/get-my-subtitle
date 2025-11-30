@@ -7,6 +7,7 @@ from openai import AsyncOpenAI
 
 from common.config import settings
 from common.retry_utils import retry_with_exponential_backoff
+from common.utils import LanguageUtils
 
 logger = logging.getLogger(__name__)
 
@@ -95,13 +96,30 @@ class SubtitleTranslator:
         Returns:
             List of translated text strings
         """
+        # Convert language codes to language names for OpenAI
+        source_lang_name = LanguageUtils.iso_to_language_name(source_language)
+        target_lang_name = LanguageUtils.iso_to_language_name(target_language)
+
         # Prepare the prompt for GPT-5-nano
         # Formatting preservation is maintained through this prompt structure
-        prompt = self._build_translation_prompt(texts, source_language, target_language)
+        prompt = self._build_translation_prompt(
+            texts, source_lang_name, target_lang_name
+        )
 
         logger.info(
-            f"Translating {len(texts)} segments from {source_language} to {target_language}"
+            f"Translating {len(texts)} segments from {source_lang_name} "
+            f"({source_language}) to {target_lang_name} ({target_language})"
         )
+
+        # Warn if chunk is very large (might cause API issues)
+        # For reasoning models (gpt-5-nano), large chunks may consume all completion tokens
+        # For non-reasoning models (gpt-4o-mini), 300-400 segments is typically safe
+        if len(texts) > 300:
+            logger.warning(
+                f"⚠️  Very large translation chunk ({len(texts)} segments). "
+                f"This may cause API timeouts or token limit issues. "
+                f"Consider reducing max_segments_per_chunk or increasing max_completion_tokens."
+            )
 
         # Build API request parameters
         # Some models (like gpt-5-nano) only support default temperature (1)
@@ -112,16 +130,24 @@ class SubtitleTranslator:
                 {
                     "role": "system",
                     "content": (
-                        f"You are a professional subtitle translator. "
-                        f"Translate subtitles from {source_language} to {target_language}. "
-                        f"Maintain the same tone, style, and timing suitability. "
-                        f"Keep translations concise for subtitle display. "
-                        f"Preserve formatting like line breaks."
+                        f"You are a professional subtitle translator specializing in natural, "
+                        f"idiomatic translations from {source_lang_name} to {target_lang_name}. "
+                        f"Your translations should:\n"
+                        f"- Translate complete sentences and phrases naturally, not word-by-word\n"
+                        f"- Use appropriate figures of speech and idiomatic expressions in {target_lang_name}\n"
+                        f"- Adapt cultural references to be natural in {target_lang_name}\n"
+                        f"- Maintain the original meaning, tone, and style\n"
+                        f"- Be concise and readable within 2-3 seconds (suitable for subtitles)\n"
+                        f"- Preserve all HTML tags (like <i>, <b>, <u>, etc.) exactly as they appear\n"
+                        f"- Only translate the text content inside tags, keeping tags unchanged"
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
-            "max_completion_tokens": settings.openai_max_tokens,  # Use max_completion_tokens for newer models
+            # For reasoning models like gpt-5-nano, need higher token limit
+            # Reasoning tokens consume completion budget, so we need more headroom
+            # If using gpt-5-nano, consider increasing OPENAI_MAX_TOKENS to 8192 or higher
+            "max_completion_tokens": settings.openai_max_tokens,  # Required for gpt-5-nano model
             "timeout": 60.0,  # Per-request timeout override
         }
 
@@ -133,10 +159,63 @@ class SubtitleTranslator:
         # Call OpenAI Chat Completions API with proper async configuration
         response = await self.client.chat.completions.create(**api_params)
 
+        # Check if response is valid
+        if not response.choices or len(response.choices) == 0:
+            raise ValueError("OpenAI API returned no choices in response")
+
+        choice = response.choices[0]
+        message_content = choice.message.content
+
+        # Handle truncated responses
+        if choice.finish_reason == "length":
+            if not message_content:
+                # Check if all tokens were used for reasoning (common with reasoning models)
+                usage_info = ""
+                if hasattr(response, "usage") and response.usage:
+                    usage = response.usage
+                    reasoning_tokens = (
+                        getattr(
+                            usage.completion_tokens_details, "reasoning_tokens", None
+                        )
+                        if hasattr(usage, "completion_tokens_details")
+                        else None
+                    )
+                    if (
+                        reasoning_tokens
+                        and reasoning_tokens >= usage.completion_tokens * 0.9
+                    ):
+                        usage_info = (
+                            f"⚠️  CRITICAL: {reasoning_tokens}/{usage.completion_tokens} completion tokens "
+                            f"({reasoning_tokens/usage.completion_tokens*100:.1f}%) were used for reasoning. "
+                            f"This is a known limitation of reasoning models like gpt-5-nano.\n"
+                            f"SOLUTIONS:\n"
+                            f"  1) Increase OPENAI_MAX_TOKENS in .env to 8192 or 16384 (if model supports it)\n"
+                            f"  2) Switch to a non-reasoning model: gpt-4o-mini, gpt-4o, or gpt-3.5-turbo\n"
+                            f"  3) Reduce chunk size further (current: {len(texts)} segments, try 10-15)"
+                        )
+                    else:
+                        usage_info = f"Usage: {usage}"
+
+                raise ValueError(
+                    f"OpenAI API response was truncated (finish_reason=length) but content is empty. "
+                    f"{usage_info} "
+                    f"Consider reducing chunk size (current: {len(texts)} segments)."
+                )
+            else:
+                logger.warning(
+                    f"⚠️  Response was truncated (finish_reason=length). "
+                    f"Received {len(message_content)} characters but may be incomplete. "
+                    f"Consider reducing chunk size or increasing max_completion_tokens."
+                )
+        elif not message_content:
+            raise ValueError(
+                f"OpenAI API returned empty content. "
+                f"Response finish_reason: {choice.finish_reason}, "
+                f"Usage: {response.usage if hasattr(response, 'usage') else 'N/A'}"
+            )
+
         # Parse the response
-        translations = self._parse_translation_response(
-            response.choices[0].message.content, len(texts)
-        )
+        translations = self._parse_translation_response(message_content, len(texts))
 
         logger.info(f"Successfully translated {len(translations)} segments")
         return translations
@@ -149,8 +228,8 @@ class SubtitleTranslator:
 
         Args:
             texts: List of texts to translate
-            source_language: Source language code
-            target_language: Target language code
+            source_language: Source language name (e.g., 'English')
+            target_language: Target language name (e.g., 'Hebrew')
 
         Returns:
             Formatted prompt string
@@ -163,11 +242,24 @@ class SubtitleTranslator:
         prompt = (
             f"Translate the following {len(texts)} subtitle segments "
             f"from {source_language} to {target_language}.\n\n"
+            f"TRANSLATION STYLE:\n"
+            f"- Translate each subtitle as a complete sentence or phrase, not word-by-word\n"
+            f"- Use natural, idiomatic expressions and figures of speech in {target_language}\n"
+            f"- Adapt cultural references and idioms to be natural in {target_language}\n"
+            f"- Maintain the original meaning and tone while making it sound natural in {target_language}\n"
+            f"- Keep translations concise and suitable for subtitle display (readable in 2-3 seconds)\n\n"
+            f"FORMATTING REQUIREMENTS:\n"
+            f"- Preserve all HTML tags (like <i>, <b>, <u>, etc.) exactly as they appear\n"
+            f"- Only translate the text content inside the tags, not the tags themselves\n"
+            f"- Preserve line breaks and formatting structure\n\n"
+            f"Example:\n"
+            f"Source: <i>like a lord or a king</i>\n"
+            f"Target: <i>[natural idiomatic translation in {target_language}]</i>\n\n"
             f"Return ONLY the translations, numbered the same way, "
             f"with no additional commentary.\n\n"
             f"Format your response exactly like this:\n"
-            f"[1]\nTranslated text\n\n"
-            f"[2]\nTranslated text\n\n"
+            f"[1]\nNatural translation with preserved HTML tags\n\n"
+            f"[2]\nNatural translation with preserved HTML tags\n\n"
             f"etc.\n\n"
             f"Subtitles to translate:\n\n" + "\n\n".join(numbered_texts)
         )
@@ -182,7 +274,7 @@ class SubtitleTranslator:
 
         Args:
             response: Raw response from GPT-5-nano
-            expected_count: Expected number of translations
+            expecpromptted_count: Expected number of translations
 
         Returns:
             List of translated texts
@@ -210,5 +302,12 @@ class SubtitleTranslator:
             logger.warning(
                 f"Expected {expected_count} translations but got {len(translations)}"
             )
+            # Log the raw response for debugging if parsing failed
+            if len(translations) == 0:
+                logger.error(
+                    f"Failed to parse any translations from response. "
+                    f"Response length: {len(response)} characters. "
+                    f"First 500 chars: {response[:500]}"
+                )
 
         return translations

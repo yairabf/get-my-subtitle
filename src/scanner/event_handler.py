@@ -163,8 +163,8 @@ class MediaFileEventHandler(FileSystemEventHandler):
             subtitle_request = SubtitleRequest(
                 video_url=file_path,
                 video_title=video_title,
-                language=settings.scanner_default_source_language,
-                target_language=settings.scanner_default_target_language,
+                language=settings.subtitle_desired_language,
+                target_language=None,
                 preferred_sources=["opensubtitles"],
             )
 

@@ -236,3 +236,166 @@ class TestGenerateSubtitlePathFromVideo:
             assert result.parent == video_dir
             # Verify full expected path
             assert result == video_dir / "matrix.en.srt"
+
+
+class TestGenerateSubtitlePathFromSource:
+    """Test PathUtils.generate_subtitle_path_from_source() method."""
+
+    @pytest.mark.parametrize(
+        "source_path,target_language,expected_path",
+        [
+            ("/path/video.en.srt", "he", "/path/video.he.srt"),
+            ("/path/movie.es.srt", "fr", "/path/movie.fr.srt"),
+            ("/path/film.fr.srt", "de", "/path/film.de.srt"),
+            ("/path/show.de.srt", "it", "/path/show.it.srt"),
+            ("/path/video.he.srt", "en", "/path/video.en.srt"),
+            ("/path/matrix.en.srt", "es", "/path/matrix.es.srt"),
+        ],
+    )
+    def test_replaces_language_code_in_filename(
+        self, source_path, target_language, expected_path
+    ):
+        """Test that language code is replaced in subtitle filename."""
+        result = PathUtils.generate_subtitle_path_from_source(
+            source_path, target_language
+        )
+        assert isinstance(result, Path)
+        assert str(result) == expected_path
+
+    @pytest.mark.parametrize(
+        "source_path,target_language,expected_name",
+        [
+            ("video.en.srt", "he", "video.he.srt"),
+            ("movie.es.srt", "fr", "movie.fr.srt"),
+            ("film.fr.srt", "de", "film.de.srt"),
+            ("show.de.srt", "it", "show.it.srt"),
+        ],
+    )
+    def test_replaces_language_code_in_relative_path(
+        self, source_path, target_language, expected_name
+    ):
+        """Test that language code is replaced in relative paths."""
+        result = PathUtils.generate_subtitle_path_from_source(
+            source_path, target_language
+        )
+        assert result.name == expected_name
+
+    def test_preserves_directory_structure(self):
+        """Test that directory structure is preserved."""
+        source_path = "/media/movies/matrix/matrix.en.srt"
+        result = PathUtils.generate_subtitle_path_from_source(source_path, "he")
+        assert result.parent == Path("/media/movies/matrix")
+        assert result.name == "matrix.he.srt"
+
+    def test_handles_nested_directories(self):
+        """Test that nested directory structures are preserved."""
+        source_path = "/a/b/c/d/video.en.srt"
+        result = PathUtils.generate_subtitle_path_from_source(source_path, "es")
+        assert result.parent == Path("/a/b/c/d")
+        assert result.name == "video.es.srt"
+
+    @pytest.mark.parametrize(
+        "source_path,target_language",
+        [
+            ("video.en.srt", "he"),
+            ("movie.es.srt", "fr"),
+            ("film.fr.srt", "de"),
+        ],
+    )
+    def test_handles_filenames_without_path(self, source_path, target_language):
+        """Test that function works with just filenames (no directory)."""
+        result = PathUtils.generate_subtitle_path_from_source(
+            source_path, target_language
+        )
+        # Should return Path with just filename
+        assert isinstance(result, Path)
+        # Extract expected name
+        base_name = source_path.rsplit(".", 2)[0]  # Remove .en.srt
+        expected_name = f"{base_name}.{target_language}.srt"
+        assert result.name == expected_name
+
+    def test_handles_filename_without_language_code(self):
+        """Test that function handles filenames without language code."""
+        source_path = "/path/video.srt"
+        result = PathUtils.generate_subtitle_path_from_source(source_path, "he")
+        # Should append language code
+        assert result.name == "video.he.srt"
+
+    def test_handles_filename_with_multiple_dots(self):
+        """Test that function handles filenames with multiple dots."""
+        source_path = "/path/my.movie.title.en.srt"
+        result = PathUtils.generate_subtitle_path_from_source(source_path, "he")
+        # Should replace only the last 2-letter code before .srt
+        assert result.name == "my.movie.title.he.srt"
+
+    def test_handles_filename_with_three_letter_code(self):
+        """Test that function handles filenames with 3-letter codes (not recognized as language)."""
+        source_path = "/path/video.abc.srt"
+        result = PathUtils.generate_subtitle_path_from_source(source_path, "he")
+        # 3-letter code not recognized, should append
+        assert result.name == "video.abc.he.srt"
+
+    @pytest.mark.parametrize(
+        "source_path,target_language,expected",
+        [
+            ("video.en.srt", "he", "video.he.srt"),
+            ("movie.es.srt", "fr", "movie.fr.srt"),
+            ("film.fr.srt", "de", "film.de.srt"),
+        ],
+    )
+    def test_example_usage(self, source_path, target_language, expected):
+        """Test example usage from docstring."""
+        result = PathUtils.generate_subtitle_path_from_source(
+            source_path, target_language
+        )
+        assert result.name == expected
+
+    def test_raises_value_error_for_empty_source_path(self):
+        """Test that empty source path raises ValueError."""
+        with pytest.raises(ValueError, match="source_subtitle_path cannot be empty"):
+            PathUtils.generate_subtitle_path_from_source("", "he")
+
+    def test_raises_value_error_for_invalid_target_language_too_short(self):
+        """Test that invalid target language (too short) raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid target language code"):
+            PathUtils.generate_subtitle_path_from_source("/path/video.en.srt", "h")
+
+    def test_raises_value_error_for_invalid_target_language_too_long(self):
+        """Test that invalid target language (too long) raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid target language code"):
+            PathUtils.generate_subtitle_path_from_source("/path/video.en.srt", "eng")
+
+    def test_raises_value_error_for_invalid_target_language_numeric(self):
+        """Test that invalid target language (numeric) raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid target language code"):
+            PathUtils.generate_subtitle_path_from_source("/path/video.en.srt", "12")
+
+    def test_raises_value_error_for_invalid_target_language_empty(self):
+        """Test that empty target language raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid target language code"):
+            PathUtils.generate_subtitle_path_from_source("/path/video.en.srt", "")
+
+    def test_raises_value_error_for_invalid_target_language_none(self):
+        """Test that None target language raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid target language code"):
+            PathUtils.generate_subtitle_path_from_source("/path/video.en.srt", None)
+
+    def test_handles_uppercase_target_language(self):
+        """Test that uppercase target language is lowercased."""
+        result = PathUtils.generate_subtitle_path_from_source(
+            "/path/video.en.srt", "HE"
+        )
+        assert result.name == "video.he.srt"
+
+    def test_recognizes_known_iso_codes_in_filename(self):
+        """Test that known ISO codes are properly recognized and replaced."""
+        # Test with various known ISO codes
+        test_cases = [
+            ("/path/video.en.srt", "he", "video.he.srt"),
+            ("/path/video.es.srt", "fr", "video.fr.srt"),
+            ("/path/video.fr.srt", "de", "video.de.srt"),
+            ("/path/video.he.srt", "en", "video.en.srt"),
+        ]
+        for source, target, expected_name in test_cases:
+            result = PathUtils.generate_subtitle_path_from_source(source, target)
+            assert result.name == expected_name

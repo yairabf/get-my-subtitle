@@ -15,7 +15,6 @@ from common.schemas import (
     EventType,
     SubtitleEvent,
     SubtitleRequest,
-    SubtitleStatus,
     TranslationTask,
 )
 from common.utils import DateTimeUtils
@@ -183,21 +182,9 @@ class SubtitleOrchestrator:
                 message, routing_key=self.translation_queue_name
             )
 
-            # Publish event for translation request
-            event = SubtitleEvent(
-                event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
-                job_id=request_id,
-                timestamp=DateTimeUtils.get_current_utc_datetime(),
-                source="manager",
-                payload={
-                    "subtitle_file_path": subtitle_file_path,
-                    "source_language": source_language,
-                    "target_language": target_language,
-                },
-            )
-            await event_publisher.publish_event(event)
-
-            # Status will be updated by Consumer when it processes the TRANSLATE_REQUESTED event
+            # Note: This method is only called for direct API translation requests (/subtitles/translate)
+            # Downloader worker enqueues translation tasks directly, not through this method
+            # Status will be updated by Consumer when it processes translation-related events
             logger.info(f"Translation task enqueued for request {request_id}")
             return True
 

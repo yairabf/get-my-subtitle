@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import UUID
 
 import aio_pika
+from aio_pika import Message
 from aio_pika.abc import AbstractIncomingMessage
 
 # Add src directory to path for imports
@@ -15,8 +16,13 @@ from common.config import settings  # noqa: E402
 from common.event_publisher import event_publisher  # noqa: E402
 from common.logging_config import setup_service_logging  # noqa: E402
 from common.redis_client import redis_client  # noqa: E402
-from common.schemas import EventType, SubtitleEvent, SubtitleStatus  # noqa: E402
-from common.utils import DateTimeUtils, PathUtils  # noqa: E402
+from common.schemas import (  # noqa: E402
+    EventType,
+    SubtitleEvent,
+    SubtitleStatus,
+    TranslationTask,
+)
+from common.utils import DateTimeUtils, LanguageUtils, PathUtils  # noqa: E402
 from downloader.opensubtitles_client import (  # noqa: E402
     OpenSubtitlesAPIError,
     OpenSubtitlesAuthenticationError,
@@ -32,7 +38,11 @@ logger = service_logger.logger
 opensubtitles_client = OpenSubtitlesClient()
 
 
-async def process_message(message: AbstractIncomingMessage) -> None:
+async def process_message(
+    message: AbstractIncomingMessage, channel: aio_pika.abc.AbstractChannel
+) -> None:
+    # Note: channel parameter kept for backward compatibility but no longer used
+    # Translation tasks are now enqueued by manager's event consumer
     """Process a single message from the queue."""
     request_id = None
     try:
@@ -210,8 +220,8 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                             f"🔍 Translation enabled, searching for fallback subtitle for job {request_id}"
                         )
 
-                        # Try to find fallback subtitle (prefer default source language, then any language)
-                        fallback_language = settings.jellyfin_default_source_language
+                        # Try to find fallback subtitle (prefer fallback language, then any language)
+                        fallback_language = settings.subtitle_fallback_language
                         fallback_search_results = []
 
                         # Step 1: Search for default source language (usually English)
@@ -275,19 +285,23 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                             )
                             best_fallback = fallback_search_results[0]
 
-                            # Extract actual language from API response
-                            found_language = best_fallback.get(
+                            # Extract actual language from API response and convert to ISO
+                            opensubtitles_language_code = best_fallback.get(
                                 "SubLanguageID", fallback_language
+                            )
+                            iso_language_code = LanguageUtils.opensubtitles_to_iso(
+                                opensubtitles_language_code
                             )
                             subtitle_id = best_fallback.get("IDSubtitleFile")
 
                             logger.info(
-                                f"📥 Found subtitle in language '{found_language}', downloading..."
+                                f"📥 Found subtitle in language '{opensubtitles_language_code}' "
+                                f"(ISO: '{iso_language_code}'), downloading..."
                             )
 
                             # Determine output path - save with the found language code
                             output_path = PathUtils.generate_subtitle_path_from_video(
-                                video_url, found_language
+                                video_url, iso_language_code
                             )
 
                             if not output_path:
@@ -324,29 +338,97 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                                 )
 
                                 logger.info(
-                                    f"✅ Downloaded fallback subtitle in '{found_language}' to: {subtitle_path}"
+                                    f"✅ Downloaded fallback subtitle in '{iso_language_code}' to: {subtitle_path}"
                                 )
 
-                                # Publish translation request with ACTUAL subtitle path
-                                event = SubtitleEvent(
-                                    event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
-                                    job_id=request_id,
-                                    timestamp=DateTimeUtils.get_current_utc_datetime(),
-                                    source="downloader",
-                                    payload={
-                                        "subtitle_file_path": str(
-                                            subtitle_path
-                                        ),  # Actual path to downloaded file
-                                        "source_language": found_language,  # Actual language from API
-                                        "target_language": language,  # Originally requested language
-                                        "reason": "subtitle_not_found_in_target_language",
-                                    },
-                                )
-                                await event_publisher.publish_event(event)
-                                logger.info(
-                                    f"📤 Published SUBTITLE_TRANSLATE_REQUESTED event for job {request_id} "
-                                    f"(source: {found_language} -> target: {language})"
-                                )
+                                # Validate file exists before creating translation task
+                                if not subtitle_path.exists():
+                                    error_msg = f"Downloaded subtitle file not found: {subtitle_path}"
+                                    logger.error(f"❌ {error_msg}")
+                                    event = SubtitleEvent(
+                                        event_type=EventType.JOB_FAILED,
+                                        job_id=request_id,
+                                        timestamp=DateTimeUtils.get_current_utc_datetime(),
+                                        source="downloader",
+                                        payload={
+                                            "error_message": error_msg,
+                                            "error_type": "file_not_found",
+                                            "subtitle_file_path": str(subtitle_path),
+                                        },
+                                    )
+                                    await event_publisher.publish_event(event)
+                                else:
+                                    # Enqueue TranslationTask directly to translation queue
+                                    # Convert target language to ISO format if needed
+                                    target_language_iso = (
+                                        LanguageUtils.opensubtitles_to_iso(language)
+                                    )
+                                    translation_task = TranslationTask(
+                                        request_id=request_id,
+                                        subtitle_file_path=str(subtitle_path),
+                                        source_language=iso_language_code,  # Actual fallback language (ISO)
+                                        target_language=target_language_iso,  # Originally requested (ISO)
+                                    )
+
+                                    task_message = Message(
+                                        body=translation_task.model_dump_json().encode(),
+                                        delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                                    )
+
+                                    try:
+                                        await channel.default_exchange.publish(
+                                            task_message,
+                                            routing_key=settings.rabbitmq_translation_queue_routing_key,
+                                        )
+
+                                        logger.info(
+                                            f"📤 Enqueued translation task to "
+                                            f"{settings.rabbitmq_translation_queue_routing_key} queue "
+                                            f"for job {request_id} "
+                                            f"(source: {iso_language_code} -> target: {target_language_iso})"
+                                        )
+                                    except Exception as e:
+                                        logger.error(
+                                            f"❌ Failed to enqueue translation task for job {request_id}: {e}",
+                                            exc_info=True,
+                                        )
+                                        # Publish JOB_FAILED event since we can't enqueue the task
+                                        event = SubtitleEvent(
+                                            event_type=EventType.JOB_FAILED,
+                                            job_id=request_id,
+                                            timestamp=DateTimeUtils.get_current_utc_datetime(),
+                                            source="downloader",
+                                            payload={
+                                                "error_message": f"Failed to enqueue translation task: {str(e)}",
+                                                "error_type": "queue_publish_failed",
+                                                "subtitle_file_path": str(
+                                                    subtitle_path
+                                                ),
+                                            },
+                                        )
+                                        await event_publisher.publish_event(event)
+                                        # Re-raise to trigger message retry/nack
+                                        raise
+
+                                    # Publish SUBTITLE_TRANSLATE_REQUESTED event (for observability only)
+                                    # This event is informational and does not trigger task creation
+                                    event = SubtitleEvent(
+                                        event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
+                                        job_id=request_id,
+                                        timestamp=DateTimeUtils.get_current_utc_datetime(),
+                                        source="downloader",
+                                        payload={
+                                            "subtitle_file_path": str(subtitle_path),
+                                            "source_language": iso_language_code,
+                                            "target_language": target_language_iso,
+                                            "reason": "subtitle_not_found_in_target_language",
+                                        },
+                                    )
+                                    await event_publisher.publish_event(event)
+                                    logger.info(
+                                        f"📤 Published SUBTITLE_TRANSLATE_REQUESTED "
+                                        f"event for job {request_id} (observability only)"
+                                    )
                         else:
                             # No subtitle found in ANY language - publish SUBTITLE_MISSING
                             logger.warning(
@@ -417,6 +499,8 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                 # Note: In this case, we cannot download a subtitle due to API error,
                 # so we use a placeholder path. The translator will need to handle this case.
                 # This is a fallback scenario when the API is unavailable.
+                # Convert target language to ISO format
+                target_language_iso = LanguageUtils.opensubtitles_to_iso(language)
                 event = SubtitleEvent(
                     event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
                     job_id=request_id,
@@ -424,8 +508,8 @@ async def process_message(message: AbstractIncomingMessage) -> None:
                     source="downloader",
                     payload={
                         "subtitle_file_path": f"/subtitles/fallback_{request_id}.en.srt",
-                        "source_language": settings.jellyfin_default_source_language,
-                        "target_language": language,
+                        "source_language": settings.subtitle_fallback_language,
+                        "target_language": target_language_iso,
                         "reason": "api_error_fallback",
                         "error_note": "Subtitle file not available due to API error - this is a fallback scenario",
                     },
@@ -506,7 +590,7 @@ async def consume_messages() -> None:
         async with queue.iterator() as queue_iter:
             async for message in queue_iter:
                 async with message.process():
-                    await process_message(message)
+                    await process_message(message, channel)
 
     except KeyboardInterrupt:
         logger.info("🛑 Received interrupt signal, shutting down...")

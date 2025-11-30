@@ -28,8 +28,8 @@ def mock_settings():
         mock_settings.jellyfin_websocket_enabled = True
         mock_settings.jellyfin_websocket_reconnect_delay = 2.0
         mock_settings.jellyfin_websocket_max_reconnect_delay = 300.0
-        mock_settings.jellyfin_default_source_language = "en"
-        mock_settings.jellyfin_default_target_language = "es"
+        mock_settings.subtitle_desired_language = "en"
+        mock_settings.subtitle_fallback_language = "en"
         mock_settings.jellyfin_auto_translate = True
         yield mock_settings
 
