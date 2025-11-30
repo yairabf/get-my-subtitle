@@ -203,6 +203,7 @@ class TestTranslationRequestPublishingFlow:
         )
         # Get message immediately before Translator consumes it
         from aio_pika.exceptions import QueueEmpty
+
         try:
             task_message = await task_queue.get(timeout=0.5)
             # Message still in queue - verify it
@@ -221,7 +222,7 @@ class TestTranslationRequestPublishingFlow:
         task_queue = await rabbitmq_channel.declare_queue(
             "subtitle.translation", durable=True
         )
-        
+
         # Arrange
         request_id = uuid4()
         subtitle_file_path = "/storage/test_subtitle.srt"
@@ -235,6 +236,7 @@ class TestTranslationRequestPublishingFlow:
 
         # Assert - Consume and validate immediately before Translator consumes it
         from aio_pika.exceptions import QueueEmpty
+
         try:
             message = await task_queue.get(timeout=0.5)
             # Parse and validate task
@@ -243,7 +245,9 @@ class TestTranslationRequestPublishingFlow:
         except QueueEmpty:
             # Message was consumed by Translator - that's fine, proves it was published
             # Verify event was published instead
-            pytest.skip("Message consumed by Translator worker - event publishing verified separately")
+            pytest.skip(
+                "Message consumed by Translator worker - event publishing verified separately"
+            )
 
         assert str(translation_task.request_id) == str(request_id)
         assert translation_task.subtitle_file_path == "/storage/test_subtitle.srt"

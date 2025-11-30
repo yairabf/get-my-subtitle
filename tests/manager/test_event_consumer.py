@@ -112,7 +112,9 @@ class TestSubtitleEventConsumer:
 
             # Verify queue was bound to exchange with both routing keys
             assert mock_queue.bind.call_count == 2
-            bind_calls = [call[1]["routing_key"] for call in mock_queue.bind.call_args_list]
+            bind_calls = [
+                call[1]["routing_key"] for call in mock_queue.bind.call_args_list
+            ]
             assert "subtitle.requested" in bind_calls
             assert "subtitle.translate.requested" in bind_calls
 
@@ -132,7 +134,11 @@ class TestSubtitleEventConsumer:
 
     @pytest.mark.asyncio
     async def test_process_subtitle_request_success(
-        self, mock_orchestrator, mock_redis_client, mock_event_publisher, sample_subtitle_requested_event
+        self,
+        mock_orchestrator,
+        mock_redis_client,
+        mock_event_publisher,
+        sample_subtitle_requested_event,
     ):
         """Test successful processing of SUBTITLE_REQUESTED event."""
         consumer = SubtitleEventConsumer()
@@ -159,7 +165,11 @@ class TestSubtitleEventConsumer:
 
     @pytest.mark.asyncio
     async def test_process_subtitle_request_enqueue_failure(
-        self, mock_orchestrator, mock_redis_client, mock_event_publisher, sample_subtitle_requested_event
+        self,
+        mock_orchestrator,
+        mock_redis_client,
+        mock_event_publisher,
+        sample_subtitle_requested_event,
     ):
         """Test handling of enqueue failure - should publish JOB_FAILED event."""
         mock_orchestrator.enqueue_download_task = AsyncMock(return_value=False)
@@ -179,7 +189,11 @@ class TestSubtitleEventConsumer:
 
     @pytest.mark.asyncio
     async def test_process_subtitle_request_exception_handling(
-        self, mock_orchestrator, mock_redis_client, mock_event_publisher, sample_subtitle_requested_event
+        self,
+        mock_orchestrator,
+        mock_redis_client,
+        mock_event_publisher,
+        sample_subtitle_requested_event,
     ):
         """Test exception handling during event processing - should publish JOB_FAILED event."""
         mock_orchestrator.enqueue_download_task = AsyncMock(

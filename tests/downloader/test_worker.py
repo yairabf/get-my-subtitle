@@ -18,9 +18,24 @@ class TestSubtitleMissingEventPublishing:
     @pytest.mark.parametrize(
         "auto_translate,fallback_found,expected_event_type,expected_reason",
         [
-            (True, True, EventType.SUBTITLE_TRANSLATE_REQUESTED, "subtitle_not_found_in_target_language"),
-            (True, False, EventType.SUBTITLE_MISSING, "subtitle_not_found_any_language"),
-            (False, False, EventType.SUBTITLE_MISSING, "subtitle_not_found_no_translation"),
+            (
+                True,
+                True,
+                EventType.SUBTITLE_TRANSLATE_REQUESTED,
+                "subtitle_not_found_in_target_language",
+            ),
+            (
+                True,
+                False,
+                EventType.SUBTITLE_MISSING,
+                "subtitle_not_found_any_language",
+            ),
+            (
+                False,
+                False,
+                EventType.SUBTITLE_MISSING,
+                "subtitle_not_found_no_translation",
+            ),
         ],
     )
     async def test_subtitle_not_found_event_based_on_translation_config(
@@ -31,6 +46,7 @@ class TestSubtitleMissingEventPublishing:
 
         # Create a temporary local video file for fallback download scenario
         import tempfile
+
         video_file = None
         if fallback_found:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
@@ -42,7 +58,9 @@ class TestSubtitleMissingEventPublishing:
             mock_message.body = json.dumps(
                 {
                     "request_id": str(request_id),
-                    "video_url": video_file if video_file else "https://example.com/video.mp4",
+                    "video_url": (
+                        video_file if video_file else "https://example.com/video.mp4"
+                    ),
                     "video_title": "Test Video",
                     "language": "he",  # Request Hebrew, but not found
                 }
@@ -86,7 +104,9 @@ class TestSubtitleMissingEventPublishing:
                         else:
                             # Remote URL: no hash, only metadata search
                             # Sequence: metadata(he) -> metadata(en)
-                            mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
+                            mock_client.search_subtitles_by_hash = AsyncMock(
+                                return_value=[]
+                            )
                             mock_client.search_subtitles = AsyncMock(
                                 side_effect=[
                                     [],  # First search (he) - empty
@@ -94,7 +114,11 @@ class TestSubtitleMissingEventPublishing:
                                 ]
                             )
                         mock_client.download_subtitle = AsyncMock(
-                            return_value=(Path(video_file).parent / "test.en.srt") if video_file else Path("/tmp/test.en.srt")
+                            return_value=(
+                                (Path(video_file).parent / "test.en.srt")
+                                if video_file
+                                else Path("/tmp/test.en.srt")
+                            )
                         )
                     elif auto_translate and not fallback_found:
                         # No subtitles found in any language
@@ -104,11 +128,17 @@ class TestSubtitleMissingEventPublishing:
                                 side_effect=[[], [], []]  # he, en, any
                             )
                             mock_client.search_subtitles = AsyncMock(
-                                side_effect=[[], [], []]  # he, en, any (only if hash empty)
+                                side_effect=[
+                                    [],
+                                    [],
+                                    [],
+                                ]  # he, en, any (only if hash empty)
                             )
                         else:
                             # Remote URL: only metadata searches
-                            mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
+                            mock_client.search_subtitles_by_hash = AsyncMock(
+                                return_value=[]
+                            )
                             mock_client.search_subtitles = AsyncMock(
                                 side_effect=[[], [], []]  # he, en, any
                             )
@@ -117,10 +147,14 @@ class TestSubtitleMissingEventPublishing:
                     else:
                         # Translation disabled - only initial search
                         if is_local_file:
-                            mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
+                            mock_client.search_subtitles_by_hash = AsyncMock(
+                                return_value=[]
+                            )
                             mock_client.search_subtitles = AsyncMock(return_value=[])
                         else:
-                            mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
+                            mock_client.search_subtitles_by_hash = AsyncMock(
+                                return_value=[]
+                            )
                             mock_client.search_subtitles = AsyncMock(return_value=[])
                         # No download should occur when translation is disabled and subtitle not found
                         mock_client.download_subtitle = AsyncMock()
@@ -150,8 +184,12 @@ class TestSubtitleMissingEventPublishing:
                                 # Verify fallback subtitle was downloaded
                                 mock_client.download_subtitle.assert_called_once()
                                 # Verify TranslationTask was enqueued to translation queue
-                                assert mock_channel.default_exchange.publish.call_count > 0
-                                publish_call = mock_channel.default_exchange.publish.call_args
+                                assert (
+                                    mock_channel.default_exchange.publish.call_count > 0
+                                )
+                                publish_call = (
+                                    mock_channel.default_exchange.publish.call_args
+                                )
                                 # Routing key should match config (default is "subtitle.translation")
                                 assert publish_call[1]["routing_key"] in [
                                     "subtitle.translation",
@@ -159,7 +197,9 @@ class TestSubtitleMissingEventPublishing:
                                 ]
                                 # Verify translation request event has actual path
                                 assert "subtitle_file_path" in event_call.payload
-                                assert event_call.payload["source_language"] == "en"  # Converted from "eng"
+                                assert (
+                                    event_call.payload["source_language"] == "en"
+                                )  # Converted from "eng"
                                 assert event_call.payload["target_language"] == "he"
                                 # Verify SUBTITLE_READY was NOT published for fallback
                                 all_events = [
@@ -374,6 +414,7 @@ class TestDownloaderWorker:
 
         # Create a temporary local video file
         import tempfile
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
             tmp_file.write(b"A" * (256 * 1024))  # 256KB file
             video_url = tmp_file.name
@@ -449,23 +490,32 @@ class TestDownloaderWorker:
                             assert mock_publisher.publish_event.call_count >= 1
                             # Check that at least one event is SUBTITLE_TRANSLATE_REQUESTED
                             event_calls = [
-                                call[0][0] for call in mock_publisher.publish_event.call_args_list
+                                call[0][0]
+                                for call in mock_publisher.publish_event.call_args_list
                             ]
                             translate_events = [
                                 e
                                 for e in event_calls
-                                if e.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                                if e.event_type
+                                == EventType.SUBTITLE_TRANSLATE_REQUESTED
                             ]
                             assert len(translate_events) > 0
                             event_call = translate_events[0]
                             assert (
-                                event_call.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                                event_call.event_type
+                                == EventType.SUBTITLE_TRANSLATE_REQUESTED
                             )
                             assert event_call.job_id == request_id
-                            assert event_call.payload["reason"] == "subtitle_not_found_in_target_language"
+                            assert (
+                                event_call.payload["reason"]
+                                == "subtitle_not_found_in_target_language"
+                            )
                             # Verify actual file path is used, not placeholder
                             assert "subtitle_file_path" in event_call.payload
-                            assert event_call.payload["subtitle_file_path"] != f"/subtitles/fallback_{request_id}.en.srt"
+                            assert (
+                                event_call.payload["subtitle_file_path"]
+                                != f"/subtitles/fallback_{request_id}.en.srt"
+                            )
                             assert event_call.payload["source_language"] == "en"
                             assert event_call.payload["target_language"] == "he"
         finally:
@@ -585,7 +635,8 @@ class TestDownloaderWorker:
                         mock_publisher.publish_event.assert_called_once()
                         event_call = mock_publisher.publish_event.call_args[0][0]
                         assert (
-                            event_call.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                            event_call.event_type
+                            == EventType.SUBTITLE_TRANSLATE_REQUESTED
                         )
                         assert event_call.payload["reason"] == "api_error_fallback"
                         # API error fallback still uses placeholder (can't download due to API error)
@@ -740,14 +791,19 @@ class TestDownloaderWorker:
                             for call in mock_publisher.publish_event.call_args_list
                         ]
                         failed_events = [
-                            e for e in event_calls if e.event_type == EventType.JOB_FAILED
+                            e
+                            for e in event_calls
+                            if e.event_type == EventType.JOB_FAILED
                         ]
                         assert len(failed_events) > 0
                         failed_event = failed_events[0]
-                        assert failed_event.payload["error_type"] == "queue_publish_failed"
-                        assert "Failed to enqueue translation task" in failed_event.payload[
-                            "error_message"
-                        ]
+                        assert (
+                            failed_event.payload["error_type"] == "queue_publish_failed"
+                        )
+                        assert (
+                            "Failed to enqueue translation task"
+                            in failed_event.payload["error_message"]
+                        )
         finally:
             video_file.unlink(missing_ok=True)
             (Path(video_url).parent / "test_video.en.srt").unlink(missing_ok=True)
@@ -1503,6 +1559,7 @@ class TestFallbackSubtitleSearch:
 
         # Create a temporary local video file
         import tempfile
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
             tmp_file.write(b"A" * (256 * 1024))
             video_url = tmp_file.name
@@ -1572,8 +1629,13 @@ class TestFallbackSubtitleSearch:
                             # Verify translation request with actual path
                             mock_publisher.publish_event.assert_called_once()
                             event_call = mock_publisher.publish_event.call_args[0][0]
-                            assert event_call.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
-                            assert event_call.payload["subtitle_file_path"] == str(Path(video_url).parent / "test_movie.en.srt")
+                            assert (
+                                event_call.event_type
+                                == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                            )
+                            assert event_call.payload["subtitle_file_path"] == str(
+                                Path(video_url).parent / "test_movie.en.srt"
+                            )
                             assert event_call.payload["source_language"] == "en"
                             assert event_call.payload["target_language"] == "he"
         finally:
@@ -1586,6 +1648,7 @@ class TestFallbackSubtitleSearch:
 
         # Create a temporary local video file
         import tempfile
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
             tmp_file.write(b"A" * (256 * 1024))
             video_url = tmp_file.name
@@ -1658,9 +1721,16 @@ class TestFallbackSubtitleSearch:
                             # Verify translation request with actual path and extracted language
                             mock_publisher.publish_event.assert_called_once()
                             event_call = mock_publisher.publish_event.call_args[0][0]
-                            assert event_call.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
-                            assert event_call.payload["subtitle_file_path"] == str(Path(video_url).parent / "test_movie.es.srt")
-                            assert event_call.payload["source_language"] == "es"  # Extracted from API
+                            assert (
+                                event_call.event_type
+                                == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                            )
+                            assert event_call.payload["subtitle_file_path"] == str(
+                                Path(video_url).parent / "test_movie.es.srt"
+                            )
+                            assert (
+                                event_call.payload["source_language"] == "es"
+                            )  # Extracted from API
                             assert event_call.payload["target_language"] == "he"
         finally:
             Path(video_url).unlink(missing_ok=True)
@@ -1714,7 +1784,10 @@ class TestFallbackSubtitleSearch:
                         mock_publisher.publish_event.assert_called_once()
                         event_call = mock_publisher.publish_event.call_args[0][0]
                         assert event_call.event_type == EventType.SUBTITLE_MISSING
-                        assert event_call.payload["reason"] == "subtitle_not_found_any_language"
+                        assert (
+                            event_call.payload["reason"]
+                            == "subtitle_not_found_any_language"
+                        )
                         assert event_call.payload["language"] == "he"
 
     @pytest.mark.asyncio
@@ -1724,6 +1797,7 @@ class TestFallbackSubtitleSearch:
 
         # Create a temporary local video file
         import tempfile
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
             tmp_file.write(b"A" * (256 * 1024))
             video_url = tmp_file.name
@@ -1786,14 +1860,22 @@ class TestFallbackSubtitleSearch:
 
                             # Verify TranslationTask was enqueued
                             assert mock_channel.default_exchange.publish.call_count > 0
-                            publish_call = mock_channel.default_exchange.publish.call_args
-                            assert publish_call[1]["routing_key"] == "subtitle.translation"
+                            publish_call = (
+                                mock_channel.default_exchange.publish.call_args
+                            )
+                            assert (
+                                publish_call[1]["routing_key"] == "subtitle.translation"
+                            )
 
                             # Verify language was extracted from API response and converted to ISO
                             mock_publisher.publish_event.assert_called_once()
                             event_call = mock_publisher.publish_event.call_args[0][0]
-                            assert event_call.payload["source_language"] == "fr"  # From SubLanguageID (already ISO)
-                            assert event_call.payload["target_language"] == "he"  # Originally requested
+                            assert (
+                                event_call.payload["source_language"] == "fr"
+                            )  # From SubLanguageID (already ISO)
+                            assert (
+                                event_call.payload["target_language"] == "he"
+                            )  # Originally requested
         finally:
             Path(video_url).unlink(missing_ok=True)
 
@@ -1804,6 +1886,7 @@ class TestFallbackSubtitleSearch:
 
         # Create a temporary local video file
         import tempfile
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
             tmp_file.write(b"A" * (256 * 1024))
             video_url = tmp_file.name
@@ -1867,7 +1950,9 @@ class TestFallbackSubtitleSearch:
                             # Verify language falls back to default
                             mock_publisher.publish_event.assert_called_once()
                             event_call = mock_publisher.publish_event.call_args[0][0]
-                            assert event_call.payload["source_language"] == "en"  # Falls back to default
+                            assert (
+                                event_call.payload["source_language"] == "en"
+                            )  # Falls back to default
                             assert event_call.payload["target_language"] == "he"
         finally:
             Path(video_url).unlink(missing_ok=True)

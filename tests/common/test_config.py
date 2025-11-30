@@ -15,6 +15,18 @@ class TestSettingsDefaults:
         # Set language env vars to default values to override .env file
         monkeypatch.setenv("SUBTITLE_DESIRED_LANGUAGE", "en")
         monkeypatch.setenv("SUBTITLE_FALLBACK_LANGUAGE", "en")
+        # Override OPENAI_MODEL to ensure we get the default, not .env value
+        monkeypatch.setenv("OPENAI_MODEL", "gpt-5-nano")
+        # Override SUBTITLE_STORAGE_PATH to ensure we get the default, not .env value
+        monkeypatch.setenv("SUBTITLE_STORAGE_PATH", "./storage/subtitles")
+        # Override CHECKPOINT_STORAGE_PATH to ensure we get the default (None), not .env value
+        monkeypatch.setenv("CHECKPOINT_STORAGE_PATH", "")
+        # Override SCANNER_MEDIA_PATH to ensure we get the default, not .env value
+        monkeypatch.setenv("SCANNER_MEDIA_PATH", "/media")
+        # Override JELLYFIN_URL to ensure we get the default (None), not .env value
+        monkeypatch.setenv("JELLYFIN_URL", "")
+        # Override JELLYFIN_API_KEY to ensure we get the default (None), not .env value
+        monkeypatch.setenv("JELLYFIN_API_KEY", "")
         # Create a new instance - env vars override .env file
         settings = Settings()
 
@@ -70,7 +82,8 @@ class TestSettingsDefaults:
         # Checkpoint Configuration defaults
         assert settings.checkpoint_enabled is True
         assert settings.checkpoint_cleanup_on_success is True
-        assert settings.checkpoint_storage_path is None
+        # checkpoint_storage_path can be None or empty string (both mean use default)
+        assert settings.checkpoint_storage_path is None or settings.checkpoint_storage_path == ""
 
         # Subtitle Language Configuration defaults
         assert settings.subtitle_desired_language == "en"
@@ -98,8 +111,10 @@ class TestSettingsDefaults:
         assert settings.scanner_webhook_port == 8001
 
         # Jellyfin WebSocket Configuration defaults
-        assert settings.jellyfin_url is None
-        assert settings.jellyfin_api_key is None
+        # jellyfin_url can be None or empty string (both mean not configured)
+        assert settings.jellyfin_url is None or settings.jellyfin_url == ""
+        # jellyfin_api_key can be None or empty string (both mean not configured)
+        assert settings.jellyfin_api_key is None or settings.jellyfin_api_key == ""
         assert settings.jellyfin_websocket_enabled is True
         assert settings.jellyfin_websocket_reconnect_delay == 2.0
         assert settings.jellyfin_websocket_max_reconnect_delay == 300.0

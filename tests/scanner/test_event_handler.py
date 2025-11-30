@@ -143,7 +143,9 @@ class TestMediaFileEventHandler:
         assert saved_job.video_url == file_path
         assert saved_job.video_title == "test movie"
         assert saved_job.language == "en"
-        assert saved_job.target_language is None  # target_language is no longer set by scanner
+        assert (
+            saved_job.target_language is None
+        )  # target_language is no longer set by scanner
         assert saved_job.status == SubtitleStatus.PENDING
 
         # Verify both events were published
@@ -163,7 +165,9 @@ class TestMediaFileEventHandler:
         assert second_event.payload["video_url"] == file_path
         assert second_event.payload["video_title"] == "test movie"
         assert second_event.payload["language"] == "en"
-        assert second_event.payload["target_language"] is None  # target_language is no longer set by scanner
+        assert (
+            second_event.payload["target_language"] is None
+        )  # target_language is no longer set by scanner
         assert second_event.payload["preferred_sources"] == ["opensubtitles"]
         assert second_event.payload["auto_translate"] is True
 

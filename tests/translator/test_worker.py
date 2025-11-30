@@ -1308,9 +1308,11 @@ Hello world
                 {
                     "request_id": str(request_id),
                     "subtitle_file_path": str(source_file),
-                    "source_language": Path(source_path).stem.split(".")[-1]
-                    if "." in Path(source_path).stem
-                    else "en",
+                    "source_language": (
+                        Path(source_path).stem.split(".")[-1]
+                        if "." in Path(source_path).stem
+                        else "en"
+                    ),
                     "target_language": target_language,
                 }
             ).encode()
@@ -1320,14 +1322,18 @@ Hello world
 
             # Verify output file was created with correct name
             expected_output_path = source_file.parent / expected_output_name
-            assert expected_output_path.exists(), f"Expected output file {expected_output_path} does not exist"
+            assert (
+                expected_output_path.exists()
+            ), f"Expected output file {expected_output_path} does not exist"
 
             # Verify source file still exists (not replaced)
             assert source_file.exists(), "Source file should remain intact"
 
             # Verify the output filename matches expected (replace, not append)
             output_files = list(source_file.parent.glob(f"*.{target_language}.srt"))
-            assert len(output_files) == 1, f"Expected exactly one {target_language} file"
+            assert (
+                len(output_files) == 1
+            ), f"Expected exactly one {target_language} file"
             assert output_files[0].name == expected_output_name
 
             # Verify no file with appended language code exists (e.g., video.en.he.srt)

@@ -28,7 +28,7 @@ from manager.orchestrator import orchestrator
 async def setup_services():
     """
     Set up Redis, RabbitMQ, and orchestrator for testing.
-    
+
     This fixture:
     1. Ensures Manager and Consumer services are ready
     2. Purges the Manager's queue to ensure test isolation
@@ -45,32 +45,39 @@ async def setup_services():
             "Please ensure Docker services are running: "
             "docker-compose -f docker-compose.integration.yml up -d"
         )
-    
+
     # Purge Manager's queue to clear backlog from previous tests
     # This is critical for test isolation when running the full suite
     logger.info("Purging Manager queue for test isolation...")
     await purge_manager_queue()
-    
+
     # Check queue status before test
     initial_count = await get_queue_message_count("manager.subtitle.requests")
     if initial_count > 0:
         logger.warning(f"Manager queue still has {initial_count} messages after purge")
-    
+
     # Verify Manager consumer is still healthy after purge
     consumer_health = await check_manager_consumer_health()
     logger.info(f"Manager consumer health: {consumer_health}")
-    
-    if not (consumer_health.get("status") == "consuming" and consumer_health.get("connected")):
-        logger.warning("Manager consumer not healthy after setup, attempting one more restart...")
+
+    if not (
+        consumer_health.get("status") == "consuming"
+        and consumer_health.get("connected")
+    ):
+        logger.warning(
+            "Manager consumer not healthy after setup, attempting one more restart..."
+        )
         await ensure_services_ready(max_retries=1)
-    
+
     # Connect services with timeout
     try:
         await asyncio.wait_for(redis_client.connect(), timeout=5.0)
         await asyncio.wait_for(orchestrator.connect(), timeout=5.0)
         # Ensure event_publisher is connected and stays connected
         if event_publisher.connection is None or event_publisher.connection.is_closed:
-            await asyncio.wait_for(event_publisher.connect(max_retries=10, retry_delay=1.0), timeout=10.0)
+            await asyncio.wait_for(
+                event_publisher.connect(max_retries=10, retry_delay=1.0), timeout=10.0
+            )
     except asyncio.TimeoutError:
         pytest.fail(
             "Timeout connecting to services. Ensure RabbitMQ and Redis are running."
@@ -82,7 +89,7 @@ async def setup_services():
             "Integration tests require RabbitMQ and Redis services. "
             "Services are in mock mode - connections failed."
         )
-    
+
     # Verify event_publisher exchange is declared
     if event_publisher.exchange is None:
         # Reconnect to ensure exchange is declared
@@ -96,7 +103,7 @@ async def setup_services():
     # Cleanup: Purge queues after test to prevent backlog
     logger.info("Cleaning up queues after test...")
     await purge_manager_queue()
-    
+
     # Don't disconnect event_publisher - it's a global instance and other tests might need it
     # Only disconnect orchestrator and redis_client which are test-specific
     try:
@@ -126,7 +133,9 @@ async def purge_manager_queue() -> None:
         channel = await connection.channel()
         queue = await channel.declare_queue("manager.subtitle.requests", durable=True)
         purged_count = await queue.purge()
-        logger.info(f"Purged {purged_count} messages from manager.subtitle.requests queue")
+        logger.info(
+            f"Purged {purged_count} messages from manager.subtitle.requests queue"
+        )
         await channel.close()
         await connection.close()
     except Exception as e:
@@ -136,10 +145,10 @@ async def purge_manager_queue() -> None:
 async def get_queue_message_count(queue_name: str) -> int:
     """
     Get the current message count for a RabbitMQ queue.
-    
+
     Args:
         queue_name: Name of the queue to check
-        
+
     Returns:
         Number of messages in the queue, or -1 if error
     """
@@ -159,7 +168,7 @@ async def get_queue_message_count(queue_name: str) -> int:
 async def check_manager_consumer_health() -> dict:
     """
     Check the health status of the Manager's event consumer.
-    
+
     Returns:
         Dictionary with consumer health information
     """
@@ -177,10 +186,10 @@ async def ensure_services_ready(max_retries: int = 3) -> bool:
     """
     Ensure Manager and Consumer services are ready and consuming events.
     Restarts them if they're not healthy.
-    
+
     Args:
         max_retries: Maximum number of restart attempts
-        
+
     Returns:
         True if services are ready, False otherwise
     """
@@ -191,15 +200,15 @@ async def ensure_services_ready(max_retries: int = 3) -> bool:
             manager_health.get("status") == "consuming"
             and manager_health.get("connected") is True
         )
-        
+
         if manager_ready:
             logger.info(f"✅ Manager consumer is ready (attempt {attempt + 1})")
             return True
-        
+
         logger.warning(
             f"⚠️ Manager consumer not ready (attempt {attempt + 1}/{max_retries}): {manager_health}"
         )
-        
+
         if attempt < max_retries - 1:
             # Restart services
             logger.info("Restarting Manager and Consumer services...")
@@ -222,7 +231,7 @@ async def ensure_services_ready(max_retries: int = 3) -> bool:
             except Exception as e:
                 logger.warning(f"Failed to restart services: {e}")
                 await asyncio.sleep(2)
-    
+
     logger.error("❌ Services failed to become ready after all retries")
     return False
 
@@ -232,13 +241,13 @@ async def wait_for_event_in_redis(
 ) -> bool:
     """
     Wait for a specific event type to appear in Redis event history.
-    
+
     Args:
         job_id: UUID of the job
         event_type: Event type to wait for (e.g., "subtitle.download.requested")
         max_wait: Maximum time to wait in seconds
         poll_interval: Time between polls in seconds
-        
+
     Returns:
         True if event was found, False if timeout
     """
@@ -261,7 +270,7 @@ async def test_scanner_publishes_manager_consumes_end_to_end(setup_services):
     2. Manager service (Docker) consumes event from RabbitMQ
     3. Manager enqueues download task and publishes DOWNLOAD_REQUESTED event
     4. Consumer service (Docker) processes DOWNLOAD_REQUESTED and updates status to DOWNLOAD_QUEUED
-    
+
     This test verifies the full event-driven workflow between services.
     """
     job_id = uuid4()
@@ -307,13 +316,15 @@ async def test_scanner_publishes_manager_consumes_end_to_end(setup_services):
 
     # Publish the event (Manager service in Docker will consume it)
     success = await event_publisher.publish_event(subtitle_requested_event)
-    assert success is True, "Failed to publish event - event_publisher may not be connected"
+    assert (
+        success is True
+    ), "Failed to publish event - event_publisher may not be connected"
     logger.info(f"✅ Published SUBTITLE_REQUESTED event for job {job_id}")
 
     # Check queue status after publishing
     queue_count = await get_queue_message_count("manager.subtitle.requests")
     logger.info(f"Manager queue message count after publishing: {queue_count}")
-    
+
     # Check Manager consumer health
     consumer_health = await check_manager_consumer_health()
     logger.info(f"Manager consumer status: {consumer_health}")
@@ -334,51 +345,64 @@ async def test_scanner_publishes_manager_consumes_end_to_end(setup_services):
     for attempt in range(int(max_wait / poll_interval)):
         await asyncio.sleep(poll_interval)
         job = await redis_client.get_job(job_id)
-        
+
         if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
-            logger.info(f"✅ Job processed successfully after {attempt * poll_interval}s")
+            logger.info(
+                f"✅ Job processed successfully after {attempt * poll_interval}s"
+            )
             status_updated = True
             break
-        
+
         # Log progress every 20 attempts (every 10 seconds) with diagnostics
         if attempt % 20 == 0:
             queue_count = await get_queue_message_count("manager.subtitle.requests")
             events = await redis_client.get_job_events(job_id) if job else []
-            event_types = [e.get("event_type", "unknown") for e in events] if events else []
+            event_types = (
+                [e.get("event_type", "unknown") for e in events] if events else []
+            )
             logger.info(
                 f"⏳ Waiting... Status: {job.status if job else 'None'} "
                 f"(attempt {attempt}, {attempt * poll_interval:.1f}s). "
                 f"Queue messages: {queue_count}. Events: {event_types}"
             )
-    
+
     if not status_updated:
         # Test failed - get final state and check event history
         final_job = await redis_client.get_job(job_id)
         events = await redis_client.get_job_events(job_id) if final_job else []
         event_types = [e.get("event_type", "unknown") for e in events] if events else []
-        
+
         # Check if Manager at least received the event (even if not fully processed)
         # This helps diagnose if the issue is event publishing or processing
-        manager_received = any(
-            "subtitle.download.requested" in str(e) or "DOWNLOAD_REQUESTED" in str(e)
-            for e in event_types
-        ) if events else False
-        
+        manager_received = (
+            any(
+                "subtitle.download.requested" in str(e)
+                or "DOWNLOAD_REQUESTED" in str(e)
+                for e in event_types
+            )
+            if events
+            else False
+        )
+
         error_msg = (
             f"Timeout: Job not processed after {max_wait}s. "
             f"Final status: {final_job.status if final_job else 'None'}, job_id: {job_id}. "
             f"Events received: {event_types}. "
             f"Manager received DOWNLOAD_REQUESTED: {manager_received}"
         )
-        
+
         # If Manager received the event but status wasn't updated, it might just be slow
         # In full test suite, this can happen due to queue backlog
-        if manager_received and final_job and final_job.status == SubtitleStatus.PENDING:
+        if (
+            manager_received
+            and final_job
+            and final_job.status == SubtitleStatus.PENDING
+        ):
             logger.warning(
                 f"Manager received event but status not updated - likely queue backlog. "
                 f"Consider running these tests individually or with longer timeouts."
             )
-        
+
         pytest.fail(error_msg)
 
     # Verify the job was updated correctly
@@ -456,7 +480,9 @@ async def test_multiple_events_processed_sequentially(setup_services):
 
     # Check queue status after publishing
     queue_count = await get_queue_message_count("manager.subtitle.requests")
-    logger.info(f"Manager queue message count after publishing all events: {queue_count}")
+    logger.info(
+        f"Manager queue message count after publishing all events: {queue_count}"
+    )
 
     # Give services a moment to start processing
     await asyncio.sleep(3.0)  # Reduced delay since queues are purged between tests
@@ -464,11 +490,11 @@ async def test_multiple_events_processed_sequentially(setup_services):
     # Wait for Docker services to process all events
     max_wait = 120  # seconds (increased for full test suite with multiple events and queue backlog)
     poll_interval = 0.5  # seconds
-    
+
     all_processed = False
     last_processed_count = 0
     no_progress_count = 0
-    
+
     for attempt in range(int(max_wait / poll_interval)):
         await asyncio.sleep(poll_interval)
 
@@ -489,9 +515,11 @@ async def test_multiple_events_processed_sequentially(setup_services):
 
         if processed_count == len(job_ids):
             all_processed = True
-            logger.info(f"✅ All jobs processed successfully after {attempt * poll_interval}s")
+            logger.info(
+                f"✅ All jobs processed successfully after {attempt * poll_interval}s"
+            )
             break
-        
+
         # If no progress for 10 attempts (5 seconds), log status for debugging
         if no_progress_count == 10:
             job_statuses = {}
@@ -522,7 +550,6 @@ async def test_multiple_events_processed_sequentially(setup_services):
         assert job is not None
         assert job.status == SubtitleStatus.DOWNLOAD_QUEUED
         assert job.video_title == f"Test Movie {job_id}"
-
 
 
 @pytest.mark.asyncio
@@ -595,7 +622,7 @@ async def test_consumer_handles_malformed_events_gracefully(setup_services):
         source="test",
     )
     await redis_client.save_job(valid_job)
-    
+
     valid_event = SubtitleEvent(
         event_type=EventType.SUBTITLE_REQUESTED,
         job_id=valid_job_id,
@@ -619,27 +646,31 @@ async def test_consumer_handles_malformed_events_gracefully(setup_services):
 
     success = await event_publisher.publish_event(valid_event)
     assert success is True, "Failed to publish valid event"
-    
+
     # Check queue status
     queue_count = await get_queue_message_count("manager.subtitle.requests")
-    logger.info(f"Manager queue message count after publishing valid event: {queue_count}")
-    
+    logger.info(
+        f"Manager queue message count after publishing valid event: {queue_count}"
+    )
+
     # Give services a moment to start processing
     await asyncio.sleep(3.0)  # Reduced delay since queues are purged between tests
-    
+
     # Wait for valid event to be processed (increased timeout for full test suite)
     max_wait = 90  # seconds (increased for full test suite with queue backlog)
     poll_interval = 0.5  # seconds
     processed = False
-    
+
     for attempt in range(int(max_wait / poll_interval)):
         await asyncio.sleep(poll_interval)
         job = await redis_client.get_job(valid_job_id)
         if job and job.status == SubtitleStatus.DOWNLOAD_QUEUED:
-            logger.info(f"✅ Valid event processed successfully after {attempt * poll_interval}s")
+            logger.info(
+                f"✅ Valid event processed successfully after {attempt * poll_interval}s"
+            )
             processed = True
             break
-    
+
     # Verify Manager processed the valid event (proving it didn't crash from malformed event)
     job = await redis_client.get_job(valid_job_id)
     assert job is not None, "Manager should still be running and processing events"
@@ -652,4 +683,6 @@ async def test_consumer_handles_malformed_events_gracefully(setup_services):
             f"Final status: {job.status if job else 'None'}. "
             f"Events received: {event_types}"
         )
-    assert job.status == SubtitleStatus.DOWNLOAD_QUEUED, "Valid event should be processed"
+    assert (
+        job.status == SubtitleStatus.DOWNLOAD_QUEUED
+    ), "Valid event should be processed"

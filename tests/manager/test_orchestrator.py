@@ -205,12 +205,8 @@ class TestOrchestratorDownloadTaskQueuing:
                 download_task = DownloadTask(**message_data)
 
                 assert str(download_task.request_id) == str(request_id)
-                assert (
-                    download_task.video_url == sample_subtitle_request_obj.video_url
-                )
-                assert (
-                    download_task.language == sample_subtitle_request_obj.language
-                )
+                assert download_task.video_url == sample_subtitle_request_obj.video_url
+                assert download_task.language == sample_subtitle_request_obj.language
 
     async def test_enqueue_download_task_uses_correct_routing_key(
         self,
@@ -411,9 +407,7 @@ class TestOrchestratorTranslationTaskQueuing:
                 translation_task = TranslationTask(**message_data)
 
                 assert str(translation_task.request_id) == str(request_id)
-                assert (
-                    translation_task.subtitle_file_path == "/path/to/subtitle.srt"
-                )
+                assert translation_task.subtitle_file_path == "/path/to/subtitle.srt"
                 assert translation_task.source_language == "en"
                 assert translation_task.target_language == "fr"
 
@@ -451,7 +445,7 @@ class TestOrchestratorTranslationTaskQueuing:
     async def test_enqueue_translation_task_publishes_event(
         self, mock_rabbitmq_connection, mock_rabbitmq_channel
     ):
-        """Test that enqueue_translation_task publishes event."""
+        """Test that enqueue_translation_task enqueues task to RabbitMQ."""
         orchestrator = SubtitleOrchestrator()
         request_id = uuid4()
 
@@ -463,23 +457,26 @@ class TestOrchestratorTranslationTaskQueuing:
                 return_value=mock_rabbitmq_channel
             )
 
-            with patch("manager.orchestrator.event_publisher") as mock_publisher:
-                mock_publisher.connect = AsyncMock()
-                mock_publisher.publish_event = AsyncMock(return_value=True)
+            await orchestrator.connect()
+            await orchestrator.enqueue_translation_task(
+                request_id,
+                "/path/to/subtitle.srt",
+                "en",
+                "es",
+            )
 
-                await orchestrator.connect()
-                await orchestrator.enqueue_translation_task(
-                    request_id,
-                    "/path/to/subtitle.srt",
-                    "en",
-                    "es",
-                )
-
-                # Verify event was published
-                mock_publisher.publish_event.assert_called_once()
-                event = mock_publisher.publish_event.call_args[0][0]
-                assert event.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
-                assert event.job_id == request_id
+            # Verify message was published to RabbitMQ translation queue
+            mock_rabbitmq_channel.default_exchange.publish.assert_called_once()
+            call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
+            assert call_args[1]["routing_key"] == "subtitle.translation"
+            
+            # Verify message body contains translation task
+            message_body = call_args[0][0].body
+            task_data = json.loads(message_body.decode())
+            assert task_data["request_id"] == str(request_id)
+            assert task_data["subtitle_file_path"] == "/path/to/subtitle.srt"
+            assert task_data["source_language"] == "en"
+            assert task_data["target_language"] == "es"
 
     async def test_enqueue_translation_task_does_not_update_redis_directly(
         self, mock_rabbitmq_connection, mock_rabbitmq_channel
