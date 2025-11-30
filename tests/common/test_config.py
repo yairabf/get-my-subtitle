@@ -83,7 +83,10 @@ class TestSettingsDefaults:
         assert settings.checkpoint_enabled is True
         assert settings.checkpoint_cleanup_on_success is True
         # checkpoint_storage_path can be None or empty string (both mean use default)
-        assert settings.checkpoint_storage_path is None or settings.checkpoint_storage_path == ""
+        assert (
+            settings.checkpoint_storage_path is None
+            or settings.checkpoint_storage_path == ""
+        )
 
         # Subtitle Language Configuration defaults
         assert settings.subtitle_desired_language == "en"

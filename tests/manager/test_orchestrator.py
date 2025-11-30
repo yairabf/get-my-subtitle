@@ -469,7 +469,7 @@ class TestOrchestratorTranslationTaskQueuing:
             mock_rabbitmq_channel.default_exchange.publish.assert_called_once()
             call_args = mock_rabbitmq_channel.default_exchange.publish.call_args
             assert call_args[1]["routing_key"] == "subtitle.translation"
-            
+
             # Verify message body contains translation task
             message_body = call_args[0][0].body
             task_data = json.loads(message_body.decode())

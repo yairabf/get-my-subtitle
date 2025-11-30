@@ -1,6 +1,5 @@
 """Health check endpoint for Consumer service."""
 
-import asyncio
 from typing import Any, Dict
 
 from common.logging_config import setup_service_logging

@@ -1,6 +1,5 @@
 """Configuration management for the subtitle management system."""
 
-import os
 from pathlib import Path
 from typing import List, Optional, Union
 

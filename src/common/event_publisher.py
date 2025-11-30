@@ -30,7 +30,7 @@ class EventPublisher:
         """Establish connection to RabbitMQ and declare topic exchange with retry logic."""
         # If already connected, return early
         if self.connection and not self.connection.is_closed and self.exchange:
-            print(f"[EVENT_PUBLISHER] Already connected, skipping")
+            print("[EVENT_PUBLISHER] Already connected, skipping")
             logging.info("Event publisher already connected, skipping connection")
             return
 
@@ -51,7 +51,7 @@ class EventPublisher:
                     f"[EVENT_PUBLISHER] Attempting to connect to {settings.rabbitmq_url}"
                 )
                 self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
-                print(f"[EVENT_PUBLISHER] Connection established, getting channel...")
+                print("[EVENT_PUBLISHER] Connection established, getting channel...")
                 self.channel = await self.connection.channel()
 
                 # Declare topic exchange for event publishing
@@ -61,7 +61,7 @@ class EventPublisher:
                 )
 
                 print(
-                    f"[EVENT_PUBLISHER] ✅ Successfully connected and declared exchange!"
+                    "[EVENT_PUBLISHER] ✅ Successfully connected and declared exchange!"
                 )
                 logging.info(
                     f"✅ Event publisher connected to RabbitMQ and declared topic exchange: {self.exchange_name}"
@@ -77,7 +77,8 @@ class EventPublisher:
                 traceback.print_exc()
                 if attempt < max_retries - 1:
                     logging.warning(
-                        f"Failed to connect to RabbitMQ for event publishing (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Failed to connect to RabbitMQ for event publishing "
+                        f"(attempt {attempt + 1}/{max_retries}): {e}. "
                         f"Retrying in {retry_delay}s..."
                     )
                     await asyncio.sleep(retry_delay)
@@ -108,10 +109,15 @@ class EventPublisher:
         """
         if not self.exchange or not self.channel:
             print(
-                f"[EVENT_PUBLISHER] Mock mode: exchange={self.exchange is not None}, channel={self.channel is not None}, connection={self.connection is not None}"
+                f"[EVENT_PUBLISHER] Mock mode: exchange={self.exchange is not None}, "
+                f"channel={self.channel is not None}, "
+                f"connection={self.connection is not None}"
             )
             logger.warning(
-                f"Mock mode: Would publish event {event.event_type.value} for job {event.job_id} (exchange={self.exchange is not None}, channel={self.channel is not None})"
+                f"Mock mode: Would publish event {event.event_type.value} "
+                f"for job {event.job_id} "
+                f"(exchange={self.exchange is not None}, "
+                f"channel={self.channel is not None})"
             )
             logger.debug(f"Event data: {event.model_dump_json()}")
             return True
@@ -129,7 +135,8 @@ class EventPublisher:
             await self.exchange.publish(message, routing_key=routing_key)
 
             print(
-                f"[EVENT_PUBLISHER] ✅ Published event {event.event_type.value} for job {event.job_id} (routing_key: {routing_key})"
+                f"[EVENT_PUBLISHER] ✅ Published event {event.event_type.value} "
+                f"for job {event.job_id} (routing_key: {routing_key})"
             )
             logger.info(
                 f"Published event {event.event_type.value} for job {event.job_id} (routing_key: {routing_key})"
