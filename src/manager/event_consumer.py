@@ -57,17 +57,13 @@ class SubtitleEventConsumer:
                 # Declare durable queue for this consumer
                 self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
 
-                # Bind queue to exchange with routing keys for both SUBTITLE_REQUESTED and SUBTITLE_TRANSLATE_REQUESTED
+                # Bind queue to exchange for SUBTITLE_REQUESTED events only
+                # Note: SUBTITLE_TRANSLATE_REQUESTED events are ignored - downloader handles task creation directly
                 await self.queue.bind(exchange=self.exchange, routing_key=self.routing_key)
-                # Also bind to translation request events from downloader
-                await self.queue.bind(
-                    exchange=self.exchange, routing_key="subtitle.translate.requested"
-                )
 
                 logger.info(
                     f"Connected to RabbitMQ - Queue '{self.queue_name}' bound to "
-                    f"exchange '{self.exchange_name}' with routing keys: "
-                    f"'{self.routing_key}' and 'subtitle.translate.requested'"
+                    f"exchange '{self.exchange_name}' with routing key: '{self.routing_key}'"
                 )
                 return  # Success, exit retry loop
 
@@ -104,7 +100,7 @@ class SubtitleEventConsumer:
         try:
             self.is_consuming = True
             logger.info(
-                f"Starting to consume events (SUBTITLE_REQUESTED, SUBTITLE_TRANSLATE_REQUESTED) "
+                f"Starting to consume events (SUBTITLE_REQUESTED only) "
                 f"from queue '{self.queue_name}'"
             )
             
@@ -157,13 +153,16 @@ class SubtitleEventConsumer:
                     # Process the subtitle request
                     await self._process_subtitle_request(event)
                 elif event.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED:
-                    # Process translation request from downloader
-                    await self._process_translation_request(event)
+                    # Ignore translation request events - downloader handles task creation directly
+                    # Manager only creates translation tasks via direct API calls (/subtitles/translate)
+                    logger.debug(
+                        f"Ignoring SUBTITLE_TRANSLATE_REQUESTED event for job {event.job_id} - "
+                        f"downloader handles task creation directly"
+                    )
                 else:
                     logger.debug(
                         f"Ignoring event type {event.event_type.value}, "
-                        f"only processing {EventType.SUBTITLE_REQUESTED.value} and "
-                        f"{EventType.SUBTITLE_TRANSLATE_REQUESTED.value}"
+                        f"only processing {EventType.SUBTITLE_REQUESTED.value}"
                     )
                     return
 

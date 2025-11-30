@@ -100,8 +100,6 @@ class EventConsumer:
         Args:
             event: SubtitleEvent containing subtitle ready information
         """
-        logger.info(f"📥 Handling SUBTITLE_READY for job {event.job_id}")
-
         try:
             # Update job status to DONE
             await redis_client.update_phase(
@@ -116,9 +114,7 @@ class EventConsumer:
                 event.job_id, event.event_type.value, event.payload, source="consumer"
             )
 
-            logger.info(
-                f"✅ Successfully processed SUBTITLE_READY for job {event.job_id}"
-            )
+            logger.debug(f"✅ Processed SUBTITLE_READY for job {event.job_id}")
 
         except Exception as e:
             logger.error(
@@ -132,8 +128,6 @@ class EventConsumer:
         Args:
             event: SubtitleEvent containing translation completion information
         """
-        logger.info(f"📥 Handling SUBTITLE_TRANSLATED for job {event.job_id}")
-
         try:
             # Update job status to DONE
             await redis_client.update_phase(
@@ -148,9 +142,7 @@ class EventConsumer:
                 event.job_id, event.event_type.value, event.payload, source="consumer"
             )
 
-            logger.info(
-                f"✅ Successfully processed SUBTITLE_TRANSLATED for job {event.job_id}"
-            )
+            logger.debug(f"✅ Processed SUBTITLE_TRANSLATED for job {event.job_id}")
 
         except Exception as e:
             logger.error(
@@ -164,8 +156,6 @@ class EventConsumer:
         Args:
             event: SubtitleEvent containing failure information
         """
-        logger.info(f"📥 Handling JOB_FAILED for job {event.job_id}")
-
         try:
             # Extract error message from payload
             error_message = event.payload.get("error_message", "Unknown error")
@@ -183,7 +173,7 @@ class EventConsumer:
                 event.job_id, event.event_type.value, event.payload, source="consumer"
             )
 
-            logger.info(f"✅ Successfully processed JOB_FAILED for job {event.job_id}")
+            logger.warning(f"⚠️  Processed JOB_FAILED for job {event.job_id}: {error_message}")
 
         except Exception as e:
             logger.error(f"❌ Error handling JOB_FAILED for job {event.job_id}: {e}")
@@ -195,8 +185,6 @@ class EventConsumer:
         Args:
             event: SubtitleEvent containing download request information
         """
-        logger.info(f"📥 Handling DOWNLOAD_REQUESTED for job {event.job_id}")
-
         try:
             # Update job status to DOWNLOAD_QUEUED
             await redis_client.update_phase(
@@ -211,9 +199,7 @@ class EventConsumer:
                 event.job_id, event.event_type.value, event.payload, source="consumer"
             )
 
-            logger.info(
-                f"✅ Successfully processed DOWNLOAD_REQUESTED for job {event.job_id}"
-            )
+            logger.debug(f"✅ Processed DOWNLOAD_REQUESTED for job {event.job_id}")
 
         except Exception as e:
             logger.error(
@@ -227,8 +213,6 @@ class EventConsumer:
         Args:
             event: SubtitleEvent containing translation request information
         """
-        logger.info(f"📥 Handling TRANSLATE_REQUESTED for job {event.job_id}")
-
         try:
             # Update job status to TRANSLATE_QUEUED
             await redis_client.update_phase(
@@ -243,9 +227,7 @@ class EventConsumer:
                 event.job_id, event.event_type.value, event.payload, source="consumer"
             )
 
-            logger.info(
-                f"✅ Successfully processed TRANSLATE_REQUESTED for job {event.job_id}"
-            )
+            logger.debug(f"✅ Processed TRANSLATE_REQUESTED for job {event.job_id}")
 
         except Exception as e:
             logger.error(
@@ -259,17 +241,13 @@ class EventConsumer:
         Args:
             event: SubtitleEvent containing media file detection information
         """
-        logger.info(f"📥 Handling MEDIA_FILE_DETECTED for job {event.job_id}")
-
         try:
             # Record the event for audit trail
             await redis_client.record_event(
                 event.job_id, event.event_type.value, event.payload, source="consumer"
             )
 
-            logger.info(
-                f"✅ Successfully recorded MEDIA_FILE_DETECTED for job {event.job_id}"
-            )
+            logger.debug(f"✅ Recorded MEDIA_FILE_DETECTED for job {event.job_id}")
 
         except Exception as e:
             logger.error(
@@ -286,8 +264,6 @@ class EventConsumer:
         Args:
             event: SubtitleEvent containing subtitle missing information
         """
-        logger.info(f"📥 Handling SUBTITLE_MISSING for job {event.job_id}")
-
         try:
             # Update job status to SUBTITLE_MISSING
             await redis_client.update_phase(
@@ -302,9 +278,7 @@ class EventConsumer:
                 event.job_id, event.event_type.value, event.payload, source="consumer"
             )
 
-            logger.info(
-                f"✅ Successfully processed SUBTITLE_MISSING for job {event.job_id}"
-            )
+            logger.warning(f"⚠️  Processed SUBTITLE_MISSING for job {event.job_id}")
 
         except Exception as e:
             logger.error(
@@ -322,13 +296,10 @@ class EventConsumer:
             # Parse the message body as SubtitleEvent
             message_data = json.loads(message.body.decode())
 
-            logger.info("=" * 50)
-            logger.info(f"📬 RECEIVED EVENT: {message.routing_key}")
-            logger.info("=" * 50)
-            logger.debug(f"Event data: {json.dumps(message_data, indent=2)}")
-
             # Validate and parse as SubtitleEvent
             event = SubtitleEvent.model_validate(message_data)
+
+            logger.debug(f"📬 Processing event: {event.event_type.value} for job {event.job_id}")
 
             # Route to appropriate handler based on event type
             if event.event_type == EventType.SUBTITLE_READY:
@@ -347,8 +318,6 @@ class EventConsumer:
                 await self.handle_media_file_detected(event)
             else:
                 logger.warning(f"⚠️  Unknown event type: {event.event_type}")
-
-            logger.info("=" * 50)
 
         except json.JSONDecodeError as e:
             logger.error(f"❌ Failed to parse JSON: {e}")
@@ -454,39 +423,23 @@ class EventConsumer:
         """
         try:
             # Check if connection exists and is open
-            if not self.connection:
-                logger.debug("Health check: No connection")
-                return False
-            
-            if self.connection.is_closed:
-                logger.debug("Health check: Connection is closed")
+            if not self.connection or self.connection.is_closed:
                 return False
             
             # Check if channel exists and is open
             if not self.channel:
-                logger.debug("Health check: No channel")
                 return False
             
             # Check if queue is set up
             if not self.queue:
-                logger.debug("Health check: No queue")
                 return False
             
             # Check if consuming flag is set
             if not self.is_consuming:
-                logger.debug("Health check: Not consuming")
                 return False
             
-            # Try to verify channel is still valid by checking if we can access queue
-            try:
-                # Verify queue exists and is accessible
-                if self.queue:
-                    # Queue object exists, which means channel is valid
-                    # No need to call get_queue as we already have the queue object
-                    pass
-            except Exception as e:
-                logger.debug(f"Health check: Channel validation failed: {e}")
-                return False
+            # Queue object exists, which means channel is valid
+            # No need to call get_queue as we already have the queue object
             
             return True
         except Exception as e:

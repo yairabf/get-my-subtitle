@@ -10,13 +10,44 @@ A microservices-based subtitle management system that automatically fetches, tra
 
 ## Purpose
 
-**Get My Subtitle** solves the problem of missing or untranslated subtitles in your video library by:
+**Get My Subtitle** solves the problem of missing or untranslated subtitles in your video library by automatically detecting, fetching, translating, and managing subtitles for your media collection.
 
-- **Automatically detecting** new media files via Jellyfin webhooks, WebSocket events, or file system monitoring
-- **Fetching subtitles** from multiple sources (OpenSubtitles, etc.) when available
-- **Translating subtitles** using AI (OpenAI) when subtitles aren't available in your preferred language
-- **Managing subtitle files** with automatic organization and metadata tracking
-- **Providing a REST API** for programmatic subtitle requests and status tracking
+## Features
+
+### Core Functionality
+- **Automatic Media Detection**: Detects new media files via multiple methods:
+  - Jellyfin WebSocket real-time notifications
+  - Jellyfin webhook integration
+  - File system monitoring with recursive directory watching
+  - Manual scan API endpoint
+- **Subtitle Download**: Fetches subtitles from OpenSubtitles with intelligent search:
+  - Hash-based matching for exact file identification
+  - Query-based fallback search by title
+  - Automatic language preference handling
+- **AI-Powered Translation**: Translates subtitles using OpenAI models:
+  - Supports GPT-4o-mini (recommended) and other OpenAI models
+  - Optimized batch processing (100-200 segments per request)
+  - Token-aware chunking for large subtitle files
+  - Timing and formatting preservation
+  - Checkpoint/resume support for long translations
+- **REST API**: Complete programmatic access:
+  - Request subtitle downloads
+  - Upload and translate subtitle files directly
+  - Track job status and progress
+  - View complete event history
+  - Download translated subtitle files
+  - Queue status monitoring
+
+### Advanced Features
+- **Event-Driven Architecture**: Decoupled microservices with RabbitMQ message broker
+- **Checkpoint System**: Resume interrupted translations from saved checkpoints
+- **Duplicate Prevention**: Prevents processing the same media file multiple times
+- **Retry Logic**: Exponential backoff retry for API failures (OpenAI and OpenSubtitles)
+- **Real-Time Status Updates**: Redis-based job tracking with event history
+- **Jellyfin Integration**: Automatic subtitle processing for Jellyfin media library
+- **Configurable Batch Sizes**: Optimize translation performance based on model capabilities
+- **Health Monitoring**: Health check endpoints for all services
+- **Comprehensive Logging**: Structured logging with file and console output
 
 The system uses an event-driven microservices architecture, making it scalable, maintainable, and easy to extend with new subtitle sources or translation services.
 
@@ -73,9 +104,9 @@ The system uses an event-driven architecture where:
    cd get-my-subtitle
    ```
 
-2. **Create minimal `.env` file:**
+2. **Create `.env` file:**
    ```bash
-   cp env.template .env
+   cp .example.env .env
    ```
 
 3. **Configure `.env` with minimal required variables:**
@@ -118,8 +149,32 @@ The system uses an event-driven architecture where:
 
 6. **Access the API:**
    - API: http://localhost:8000
-   - Interactive Docs: http://localhost:8000/docs
-   - RabbitMQ UI: http://localhost:15672 (guest/guest)
+   - Interactive Docs (Swagger): http://localhost:8000/docs
+   - Alternative Docs (ReDoc): http://localhost:8000/redoc
+   - RabbitMQ Management UI: http://localhost:15672 (guest/guest)
+   - Scanner Webhook Endpoint: http://localhost:8001
+
+### API Endpoints Overview
+
+The Manager service provides a comprehensive REST API:
+
+**Subtitle Management:**
+- `POST /subtitles/download` - Request subtitle download for a video
+- `POST /subtitles/translate` - Upload and translate a subtitle file directly
+- `GET /subtitles/{job_id}` - Get detailed job information
+- `GET /subtitles/status/{job_id}` - Get job status with progress percentage
+- `GET /subtitles/{job_id}/events` - Get complete event history for a job
+- `GET /subtitles` - List all subtitle jobs
+- `GET /subtitles/download/{job_id}` - Download subtitle file
+
+**Monitoring & Control:**
+- `GET /health` - Health check endpoint
+- `GET /health/consumer` - Event consumer health status
+- `GET /queue/status` - Get processing queue status
+- `POST /scan` - Trigger manual media library scan
+- `POST /webhooks/jellyfin` - Jellyfin webhook endpoint
+
+See the [Manager Service documentation](src/manager/README.md) for detailed API documentation.
 
 ### Running on Homelab/Production
 
@@ -129,7 +184,7 @@ For production deployment on a homelab server:
 # On your server
 git clone <repository-url>
 cd get-my-subtitle
-cp env.template .env
+cp .example.env .env
 # Edit .env with your configuration
 
 # Start services
@@ -166,6 +221,7 @@ Each service has detailed documentation:
 ### Additional Documentation
 
 - **[Logging Documentation](docs/LOGGING.md)** - Logging configuration and usage guide
+- **[Local Development Guide](LOCAL_DEVELOPMENT.md)** - Running workers locally for debugging
 - **[CI/CD Scripts](scripts/README.md)** - Continuous integration and deployment scripts
 - **[Integration Tests](tests/integration/README.md)** - Integration testing documentation
 

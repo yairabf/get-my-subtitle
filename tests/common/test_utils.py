@@ -9,6 +9,7 @@ from common.schemas import SubtitleStatus
 from common.utils import (
     DateTimeUtils,
     JobIdUtils,
+    LanguageUtils,
     MathUtils,
     StatusProgressCalculator,
     StringUtils,
@@ -489,3 +490,140 @@ class TestValidationUtils:
         assert ValidationUtils.is_valid_url_format(None) is False
         assert ValidationUtils.is_valid_url_format(123) is False
         assert ValidationUtils.is_valid_url_format([]) is False
+
+
+class TestLanguageUtils:
+    """Test language code conversion utility functions."""
+
+    @pytest.mark.parametrize(
+        "opensubtitles_code,expected",
+        [
+            ("eng", "en"),
+            ("heb", "he"),
+            ("spa", "es"),
+            ("fre", "fr"),
+            ("ger", "de"),
+            ("ita", "it"),
+            ("por", "pt"),
+            ("rus", "ru"),
+            ("jpn", "ja"),
+            ("kor", "ko"),
+            ("chi", "zh"),
+            ("ara", "ar"),
+            ("dut", "nl"),
+            ("pol", "pl"),
+            ("tur", "tr"),
+            ("swe", "sv"),
+            ("nor", "no"),
+            ("dan", "da"),
+            ("fin", "fi"),
+            ("cze", "cs"),
+            ("hun", "hu"),
+            ("rum", "ro"),
+            ("gre", "el"),
+            ("bul", "bg"),
+            ("hrv", "hr"),
+            ("srp", "sr"),
+            ("slv", "sl"),
+            ("est", "et"),
+            ("lav", "lv"),
+            ("lit", "lt"),
+            ("ukr", "uk"),
+            ("bel", "be"),
+            ("tha", "th"),
+            ("vie", "vi"),
+            ("ind", "id"),
+            ("msa", "ms"),
+            ("hin", "hi"),
+            ("ben", "bn"),
+            ("tam", "ta"),
+            ("tel", "te"),
+            ("kan", "kn"),
+            ("mal", "ml"),
+            ("guj", "gu"),
+            ("pan", "pa"),
+            ("urd", "ur"),
+        ],
+    )
+    def test_opensubtitles_to_iso_known_codes(self, opensubtitles_code, expected):
+        """Test conversion of known OpenSubtitles 3-letter codes to ISO 2-letter codes."""
+        result = LanguageUtils.opensubtitles_to_iso(opensubtitles_code)
+        assert result == expected
+
+    @pytest.mark.parametrize(
+        "iso_code",
+        [
+            "en",
+            "he",
+            "es",
+            "fr",
+            "de",
+            "it",
+            "pt",
+            "ru",
+            "ja",
+            "ko",
+            "zh",
+            "ar",
+        ],
+    )
+    def test_opensubtitles_to_iso_already_iso(self, iso_code):
+        """Test that already 2-letter ISO codes are returned as-is (lowercased)."""
+        result = LanguageUtils.opensubtitles_to_iso(iso_code)
+        assert result == iso_code.lower()
+
+    @pytest.mark.parametrize(
+        "iso_code_uppercase",
+        [
+            "EN",
+            "HE",
+            "ES",
+            "FR",
+        ],
+    )
+    def test_opensubtitles_to_iso_uppercase_iso(self, iso_code_uppercase):
+        """Test that uppercase 2-letter codes are lowercased."""
+        result = LanguageUtils.opensubtitles_to_iso(iso_code_uppercase)
+        assert result == iso_code_uppercase.lower()
+        assert len(result) == 2
+
+    def test_opensubtitles_to_iso_empty_string(self):
+        """Test that empty string returns empty string."""
+        result = LanguageUtils.opensubtitles_to_iso("")
+        assert result == ""
+
+    def test_opensubtitles_to_iso_none(self):
+        """Test that None returns None."""
+        result = LanguageUtils.opensubtitles_to_iso(None)
+        assert result is None
+
+    @pytest.mark.parametrize(
+        "unknown_code,expected",
+        [
+            ("xyz", "xy"),  # Unknown 3-letter code returns first 2 letters
+            ("abc", "ab"),  # Unknown 3-letter code returns first 2 letters
+            ("qwe", "qw"),  # Unknown 3-letter code returns first 2 letters
+        ],
+    )
+    def test_opensubtitles_to_iso_unknown_code(self, unknown_code, expected):
+        """Test that unknown 3-letter codes return first 2 letters."""
+        result = LanguageUtils.opensubtitles_to_iso(unknown_code)
+        assert result == expected
+
+    def test_opensubtitles_to_iso_case_insensitive(self):
+        """Test that conversion is case-insensitive."""
+        assert LanguageUtils.opensubtitles_to_iso("ENG") == "en"
+        assert LanguageUtils.opensubtitles_to_iso("Eng") == "en"
+        assert LanguageUtils.opensubtitles_to_iso("eNg") == "en"
+        assert LanguageUtils.opensubtitles_to_iso("HEB") == "he"
+        assert LanguageUtils.opensubtitles_to_iso("Heb") == "he"
+
+    def test_opensubtitles_to_iso_very_long_code(self):
+        """Test that very long codes (>3 chars) return first 2 letters."""
+        result = LanguageUtils.opensubtitles_to_iso("english")
+        assert result == "en"
+
+    def test_opensubtitles_to_iso_single_character(self):
+        """Test that single character codes are returned as-is (lowercased)."""
+        result = LanguageUtils.opensubtitles_to_iso("E")
+        assert result == "e"

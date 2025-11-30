@@ -64,7 +64,7 @@ class TestSubtitleMissingEventPublishing:
                         mock_fallback_result = [
                             {
                                 "IDSubtitleFile": "456",
-                                "SubLanguageID": "en",
+                                "SubLanguageID": "eng",  # 3-letter code to test conversion
                             }
                         ]
                         # Mock the search sequence based on whether hash is calculated
@@ -132,7 +132,12 @@ class TestSubtitleMissingEventPublishing:
                             mock_settings.jellyfin_auto_translate = auto_translate
                             mock_settings.subtitle_fallback_language = "en"
 
-                            await process_message(mock_message)
+                            # Create mock channel for RabbitMQ
+                            mock_channel = MagicMock()
+                            mock_channel.default_exchange = MagicMock()
+                            mock_channel.default_exchange.publish = AsyncMock()
+
+                            await process_message(mock_message, mock_channel)
 
                             # Verify correct event was published
                             assert mock_publisher.publish_event.call_count > 0
@@ -144,10 +149,24 @@ class TestSubtitleMissingEventPublishing:
                             if auto_translate and fallback_found:
                                 # Verify fallback subtitle was downloaded
                                 mock_client.download_subtitle.assert_called_once()
-                                # Verify translation request has actual path
+                                # Verify TranslationTask was enqueued to translation queue
+                                assert mock_channel.default_exchange.publish.call_count > 0
+                                publish_call = mock_channel.default_exchange.publish.call_args
+                                # Routing key should match config (default is "subtitle.translation")
+                                assert publish_call[1]["routing_key"] in [
+                                    "subtitle.translation",
+                                    mock_settings.rabbitmq_translation_queue_routing_key,
+                                ]
+                                # Verify translation request event has actual path
                                 assert "subtitle_file_path" in event_call.payload
-                                assert event_call.payload["source_language"] == "en"
+                                assert event_call.payload["source_language"] == "en"  # Converted from "eng"
                                 assert event_call.payload["target_language"] == "he"
+                                # Verify SUBTITLE_READY was NOT published for fallback
+                                all_events = [
+                                    call[0][0].event_type
+                                    for call in mock_publisher.publish_event.call_args_list
+                                ]
+                                assert EventType.SUBTITLE_READY not in all_events
         finally:
             if video_file:
                 Path(video_file).unlink(missing_ok=True)
@@ -186,7 +205,12 @@ class TestSubtitleMissingEventPublishing:
                     with patch("downloader.worker.settings") as mock_settings:
                         mock_settings.jellyfin_auto_translate = False
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Verify event payload
                         event_call = mock_publisher.publish_event.call_args[0][0]
@@ -250,7 +274,12 @@ class TestSubtitleMissingEventPublishing:
                             # Test with translation disabled
                             mock_settings.jellyfin_auto_translate = False
 
-                            await process_message(mock_message)
+                            # Create mock channel for RabbitMQ
+                            mock_channel = MagicMock()
+                            mock_channel.default_exchange = MagicMock()
+                            mock_channel.default_exchange.publish = AsyncMock()
+
+                            await process_message(mock_message, mock_channel)
 
                             # Should still publish SUBTITLE_READY
                             event_call = mock_publisher.publish_event.call_args[0][0]
@@ -319,7 +348,12 @@ class TestDownloaderWorker:
                     with patch("downloader.worker.event_publisher") as mock_publisher:
                         mock_publisher.publish_event = AsyncMock()
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Verify subtitle was downloaded
                         mock_client.download_subtitle.assert_called_once()
@@ -397,14 +431,33 @@ class TestDownloaderWorker:
                             mock_settings.jellyfin_auto_translate = True
                             mock_settings.subtitle_fallback_language = "en"
 
-                            await process_message(mock_message)
+                            # Create mock channel for RabbitMQ
+                            mock_channel = MagicMock()
+                            mock_channel.default_exchange = MagicMock()
+                            mock_channel.default_exchange.publish = AsyncMock()
+
+                            await process_message(mock_message, mock_channel)
 
                             # Verify fallback subtitle was downloaded
                             mock_client.download_subtitle.assert_called_once()
 
+                            # Verify TranslationTask was enqueued
+                            assert mock_channel.default_exchange.publish.call_count > 0
+
                             # Verify SUBTITLE_TRANSLATE_REQUESTED event was published with actual path
-                            mock_publisher.publish_event.assert_called_once()
-                            event_call = mock_publisher.publish_event.call_args[0][0]
+                            # Note: publish_event may be called multiple times (once for translation request, once for observability)
+                            assert mock_publisher.publish_event.call_count >= 1
+                            # Check that at least one event is SUBTITLE_TRANSLATE_REQUESTED
+                            event_calls = [
+                                call[0][0] for call in mock_publisher.publish_event.call_args_list
+                            ]
+                            translate_events = [
+                                e
+                                for e in event_calls
+                                if e.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                            ]
+                            assert len(translate_events) > 0
+                            event_call = translate_events[0]
                             assert (
                                 event_call.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
                             )
@@ -432,8 +485,13 @@ class TestDownloaderWorker:
         with patch("downloader.worker.redis_client") as mock_redis:
             mock_redis.update_phase = AsyncMock(return_value=True)
 
+            # Create mock channel for RabbitMQ
+            mock_channel = MagicMock()
+            mock_channel.default_exchange = MagicMock()
+            mock_channel.default_exchange.publish = AsyncMock()
+
             # Should not raise exception
-            await process_message(mock_message)
+            await process_message(mock_message, mock_channel)
 
             # Redis update should not be called (no request_id)
             mock_redis.update_phase.assert_not_called()
@@ -470,8 +528,13 @@ class TestDownloaderWorker:
                 with patch("downloader.worker.event_publisher") as mock_publisher:
                     mock_publisher.publish_event = AsyncMock()
 
+                    # Create mock channel for RabbitMQ
+                    mock_channel = MagicMock()
+                    mock_channel.default_exchange = MagicMock()
+                    mock_channel.default_exchange.publish = AsyncMock()
+
                     # Should not raise exception even if Redis update fails
-                    await process_message(mock_message)
+                    await process_message(mock_message, mock_channel)
 
                     # Verify update_phase was attempted
                     assert mock_redis.update_phase.call_count > 0
@@ -511,7 +574,12 @@ class TestDownloaderWorker:
                     with patch("downloader.worker.settings") as mock_settings:
                         mock_settings.subtitle_fallback_language = "en"
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Verify fallback to translation
                         mock_publisher.publish_event.assert_called_once()
@@ -555,7 +623,12 @@ class TestDownloaderWorker:
                 with patch("downloader.worker.event_publisher") as mock_publisher:
                     mock_publisher.publish_event = AsyncMock()
 
-                    await process_message(mock_message)
+                    # Create mock channel for RabbitMQ
+                    mock_channel = MagicMock()
+                    mock_channel.default_exchange = MagicMock()
+                    mock_channel.default_exchange.publish = AsyncMock()
+
+                    await process_message(mock_message, mock_channel)
 
                     # Verify JOB_FAILED event with rate_limit error
                     mock_publisher.publish_event.assert_called_once()
@@ -584,13 +657,100 @@ class TestDownloaderWorker:
             with patch("downloader.worker.event_publisher") as mock_publisher:
                 mock_publisher.publish_event = AsyncMock()
 
+                # Create mock channel for RabbitMQ
+                mock_channel = MagicMock()
+                mock_channel.default_exchange = MagicMock()
+                mock_channel.default_exchange.publish = AsyncMock()
+
                 # Should handle exception gracefully
-                await process_message(mock_message)
+                await process_message(mock_message, mock_channel)
 
                 # Verify JOB_FAILED event was published
                 mock_publisher.publish_event.assert_called_once()
                 event_call = mock_publisher.publish_event.call_args[0][0]
                 assert event_call.event_type == EventType.JOB_FAILED
+
+    @pytest.mark.asyncio
+    async def test_process_message_rabbitmq_publish_failure(self):
+        """Test handling when RabbitMQ publish fails for translation task."""
+        request_id = uuid4()
+        video_file = Path(f"/tmp/test_video_{request_id}.mkv")
+        video_file.parent.mkdir(parents=True, exist_ok=True)
+        video_file.write_text("fake video content")
+        video_url = str(video_file)
+
+        try:
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "video_url": video_url,
+                    "video_title": "Test Video",
+                    "language": "he",
+                }
+            ).encode()
+            mock_message.routing_key = "subtitle.download"
+            mock_message.exchange = ""
+            mock_message.message_id = "test-message-id"
+            mock_message.timestamp = None
+
+            with patch("downloader.worker.opensubtitles_client") as mock_client:
+                # Simulate fallback subtitle found
+                mock_client.search_subtitles_by_hash = AsyncMock(
+                    side_effect=[
+                        [],  # First search (he) - empty
+                        [
+                            {
+                                "IDSubtitleFile": "789",
+                                "SubLanguageID": "eng",
+                            }
+                        ],  # Fallback search (en) - found
+                    ]
+                )
+                mock_client.search_subtitles = AsyncMock(return_value=[])
+                mock_client.download_subtitle = AsyncMock(
+                    return_value=Path(video_url).parent / "test_video.en.srt"
+                )
+
+                with patch("downloader.worker.event_publisher") as mock_publisher:
+                    mock_publisher.publish_event = AsyncMock()
+
+                    with patch("downloader.worker.settings") as mock_settings:
+                        mock_settings.jellyfin_auto_translate = True
+                        mock_settings.subtitle_fallback_language = "en"
+                        mock_settings.rabbitmq_translation_queue_routing_key = (
+                            "subtitle.translation"
+                        )
+
+                        # Create mock channel that fails on publish
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock(
+                            side_effect=Exception("Connection lost")
+                        )
+
+                        # Should raise exception (which triggers message retry/nack)
+                        with pytest.raises(Exception, match="Connection lost"):
+                            await process_message(mock_message, mock_channel)
+
+                        # Verify JOB_FAILED event was published
+                        assert mock_publisher.publish_event.call_count > 0
+                        event_calls = [
+                            call[0][0]
+                            for call in mock_publisher.publish_event.call_args_list
+                        ]
+                        failed_events = [
+                            e for e in event_calls if e.event_type == EventType.JOB_FAILED
+                        ]
+                        assert len(failed_events) > 0
+                        failed_event = failed_events[0]
+                        assert failed_event.payload["error_type"] == "queue_publish_failed"
+                        assert "Failed to enqueue translation task" in failed_event.payload[
+                            "error_message"
+                        ]
+        finally:
+            video_file.unlink(missing_ok=True)
+            (Path(video_url).parent / "test_video.en.srt").unlink(missing_ok=True)
 
 
 class TestWorkerHashSearchFallback:
@@ -640,7 +800,12 @@ class TestWorkerHashSearchFallback:
                     with patch("downloader.worker.event_publisher") as mock_publisher:
                         mock_publisher.publish_event = AsyncMock()
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Verify hash search was called
                         mock_client.search_subtitles_by_hash.assert_called_once()
@@ -698,7 +863,12 @@ class TestWorkerHashSearchFallback:
                     with patch("downloader.worker.event_publisher") as mock_publisher:
                         mock_publisher.publish_event = AsyncMock()
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Verify hash search was tried first
                         mock_client.search_subtitles_by_hash.assert_called_once()
@@ -750,7 +920,12 @@ class TestWorkerHashSearchFallback:
                 with patch("downloader.worker.event_publisher") as mock_publisher:
                     mock_publisher.publish_event = AsyncMock()
 
-                    await process_message(mock_message)
+                    # Create mock channel for RabbitMQ
+                    mock_channel = MagicMock()
+                    mock_channel.default_exchange = MagicMock()
+                    mock_channel.default_exchange.publish = AsyncMock()
+
+                    await process_message(mock_message, mock_channel)
 
                     # Verify hash search was NOT called (remote URL)
                     if hasattr(mock_client, "search_subtitles_by_hash"):
@@ -810,7 +985,12 @@ class TestWorkerHashSearchFallback:
                 with patch("downloader.worker.event_publisher") as mock_publisher:
                     mock_publisher.publish_event = AsyncMock()
 
-                    await process_message(mock_message)
+                    # Create mock channel for RabbitMQ
+                    mock_channel = MagicMock()
+                    mock_channel.default_exchange = MagicMock()
+                    mock_channel.default_exchange.publish = AsyncMock()
+
+                    await process_message(mock_message, mock_channel)
 
                     # Hash calculation fails (file doesn't exist), should skip to query search
                     if hasattr(mock_client, "search_subtitles_by_hash"):
@@ -867,7 +1047,12 @@ class TestWorkerHashSearchFallback:
                     with patch("downloader.worker.event_publisher") as mock_publisher:
                         mock_publisher.publish_event = AsyncMock()
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Should skip hash and use query search
                         mock_client.search_subtitles_by_hash.assert_not_called()
@@ -926,7 +1111,12 @@ class TestWorkerIntegration:
                     with patch("downloader.worker.event_publisher") as mock_publisher:
                         mock_publisher.publish_event = AsyncMock()
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Verify complete flow
                         mock_redis.update_phase.assert_called_with(
@@ -973,7 +1163,12 @@ class TestWorkerIntegration:
                         # Disable translation to avoid fallback searches
                         mock_settings.jellyfin_auto_translate = False
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Should still attempt search with None values
                         # Only one call expected since translation is disabled
@@ -1049,7 +1244,12 @@ class TestSubtitleSaveLocation:
                     with patch("downloader.worker.event_publisher") as mock_publisher:
                         mock_publisher.publish_event = AsyncMock()
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         if expected_behavior == "save_to_video_dir":
                             # Should attempt to download with custom output_path
@@ -1143,7 +1343,12 @@ class TestSubtitleSaveLocation:
                     with patch("downloader.worker.event_publisher") as mock_publisher:
                         mock_publisher.publish_event = AsyncMock()
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Verify download_subtitle was called with correct output_path
                         mock_client.download_subtitle.assert_called_once()
@@ -1208,7 +1413,12 @@ class TestSubtitleSaveLocation:
                     with patch("downloader.worker.event_publisher") as mock_publisher:
                         mock_publisher.publish_event = AsyncMock()
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Verify download_subtitle was called with correct directory
                         mock_client.download_subtitle.assert_called_once()
@@ -1259,7 +1469,12 @@ class TestSubtitleSaveLocation:
                 with patch("downloader.worker.event_publisher") as mock_publisher:
                     mock_publisher.publish_event = AsyncMock()
 
-                    await process_message(mock_message)
+                    # Create mock channel for RabbitMQ
+                    mock_channel = MagicMock()
+                    mock_channel.default_exchange = MagicMock()
+                    mock_channel.default_exchange.publish = AsyncMock()
+
+                    await process_message(mock_message, mock_channel)
 
                     # Verify JOB_FAILED event with clear error
                     events = [
@@ -1344,7 +1559,12 @@ class TestFallbackSubtitleSearch:
                             mock_settings.jellyfin_auto_translate = True
                             mock_settings.subtitle_fallback_language = "en"
 
-                            await process_message(mock_message)
+                            # Create mock channel for RabbitMQ
+                            mock_channel = MagicMock()
+                            mock_channel.default_exchange = MagicMock()
+                            mock_channel.default_exchange.publish = AsyncMock()
+
+                            await process_message(mock_message, mock_channel)
 
                             # Verify fallback subtitle was downloaded
                             mock_client.download_subtitle.assert_called_once()
@@ -1425,7 +1645,12 @@ class TestFallbackSubtitleSearch:
                             mock_settings.jellyfin_auto_translate = True
                             mock_settings.subtitle_fallback_language = "en"
 
-                            await process_message(mock_message)
+                            # Create mock channel for RabbitMQ
+                            mock_channel = MagicMock()
+                            mock_channel.default_exchange = MagicMock()
+                            mock_channel.default_exchange.publish = AsyncMock()
+
+                            await process_message(mock_message, mock_channel)
 
                             # Verify fallback subtitle was downloaded
                             mock_client.download_subtitle.assert_called_once()
@@ -1478,7 +1703,12 @@ class TestFallbackSubtitleSearch:
                         mock_settings.jellyfin_auto_translate = True
                         mock_settings.subtitle_fallback_language = "en"
 
-                        await process_message(mock_message)
+                        # Create mock channel for RabbitMQ
+                        mock_channel = MagicMock()
+                        mock_channel.default_exchange = MagicMock()
+                        mock_channel.default_exchange.publish = AsyncMock()
+
+                        await process_message(mock_message, mock_channel)
 
                         # Verify SUBTITLE_MISSING event was published
                         mock_publisher.publish_event.assert_called_once()
@@ -1547,12 +1777,22 @@ class TestFallbackSubtitleSearch:
                             mock_settings.jellyfin_auto_translate = True
                             mock_settings.subtitle_fallback_language = "en"
 
-                            await process_message(mock_message)
+                            # Create mock channel for RabbitMQ
+                            mock_channel = MagicMock()
+                            mock_channel.default_exchange = MagicMock()
+                            mock_channel.default_exchange.publish = AsyncMock()
 
-                            # Verify language was extracted from API response
+                            await process_message(mock_message, mock_channel)
+
+                            # Verify TranslationTask was enqueued
+                            assert mock_channel.default_exchange.publish.call_count > 0
+                            publish_call = mock_channel.default_exchange.publish.call_args
+                            assert publish_call[1]["routing_key"] == "subtitle.translation"
+
+                            # Verify language was extracted from API response and converted to ISO
                             mock_publisher.publish_event.assert_called_once()
                             event_call = mock_publisher.publish_event.call_args[0][0]
-                            assert event_call.payload["source_language"] == "fr"  # From SubLanguageID
+                            assert event_call.payload["source_language"] == "fr"  # From SubLanguageID (already ISO)
                             assert event_call.payload["target_language"] == "he"  # Originally requested
         finally:
             Path(video_url).unlink(missing_ok=True)
@@ -1617,7 +1857,12 @@ class TestFallbackSubtitleSearch:
                             mock_settings.jellyfin_auto_translate = True
                             mock_settings.subtitle_fallback_language = "en"
 
-                            await process_message(mock_message)
+                            # Create mock channel for RabbitMQ
+                            mock_channel = MagicMock()
+                            mock_channel.default_exchange = MagicMock()
+                            mock_channel.default_exchange.publish = AsyncMock()
+
+                            await process_message(mock_message, mock_channel)
 
                             # Verify language falls back to default
                             mock_publisher.publish_event.assert_called_once()

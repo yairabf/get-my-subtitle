@@ -1,5 +1,7 @@
 """Configuration management for the subtitle management system."""
 
+import os
+from pathlib import Path
 from typing import List, Optional, Union
 
 from pydantic import Field, field_validator
@@ -32,6 +34,11 @@ class Settings(BaseSettings):
     # RabbitMQ Configuration
     rabbitmq_url: str = Field(
         default="amqp://admin:password@localhost:5672/", env="RABBITMQ_URL"
+    )
+    rabbitmq_translation_queue_routing_key: str = Field(
+        default="subtitle.translation",
+        env="RABBITMQ_TRANSLATION_QUEUE_ROUTING_KEY",
+        description="RabbitMQ routing key for translation queue",
     )
 
     # API Configuration
@@ -78,6 +85,9 @@ class Settings(BaseSettings):
     translation_token_safety_margin: float = Field(
         default=0.8, env="TRANSLATION_TOKEN_SAFETY_MARGIN"
     )  # Safety margin (0.8 = 80% of limit)
+    translation_max_segments_per_chunk: int = Field(
+        default=100, env="TRANSLATION_MAX_SEGMENTS_PER_CHUNK"
+    )  # Maximum segments per chunk (100-200 recommended for GPT-4o-mini, up to 300-400 if server allows)
 
     # OpenAI Retry Configuration
     openai_max_retries: int = Field(
@@ -171,7 +181,10 @@ class Settings(BaseSettings):
         return v
 
     class Config:
-        env_file = ".env"
+        # Find .env file relative to project root (where docker-compose.yml is)
+        # This file is in src/common/, so go up 2 levels to project root
+        _project_root = Path(__file__).parent.parent.parent
+        env_file = str(_project_root / ".env")
         case_sensitive = False
 
 

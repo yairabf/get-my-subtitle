@@ -651,6 +651,174 @@ class FileHashUtils:
             return None
 
 
+class LanguageUtils:
+    """Language code conversion utility functions."""
+
+    # Mapping from OpenSubtitles 3-letter language codes to ISO 639-1 2-letter codes
+    OPENTITLES_TO_ISO: Dict[str, str] = {
+        "eng": "en",
+        "heb": "he",
+        "spa": "es",
+        "fre": "fr",
+        "ger": "de",
+        "ita": "it",
+        "por": "pt",
+        "rus": "ru",
+        "jpn": "ja",
+        "kor": "ko",
+        "chi": "zh",
+        "ara": "ar",
+        "dut": "nl",
+        "pol": "pl",
+        "tur": "tr",
+        "swe": "sv",
+        "nor": "no",
+        "dan": "da",
+        "fin": "fi",
+        "cze": "cs",
+        "hun": "hu",
+        "rum": "ro",
+        "gre": "el",
+        "bul": "bg",
+        "hrv": "hr",
+        "srp": "sr",
+        "slv": "sl",
+        "est": "et",
+        "lav": "lv",
+        "lit": "lt",
+        "ukr": "uk",
+        "bel": "be",
+        "tha": "th",
+        "vie": "vi",
+        "ind": "id",
+        "msa": "ms",
+        "hin": "hi",
+        "ben": "bn",
+        "tam": "ta",
+        "tel": "te",
+        "kan": "kn",
+        "mal": "ml",
+        "guj": "gu",
+        "pan": "pa",
+        "urd": "ur",
+    }
+
+    @staticmethod
+    def opensubtitles_to_iso(opensubtitles_code: str) -> str:
+        """
+        Convert OpenSubtitles 3-letter language code to ISO 639-1 2-letter code.
+
+        Args:
+            opensubtitles_code: OpenSubtitles language code (e.g., 'eng', 'heb')
+
+        Returns:
+            ISO 639-1 2-letter code (e.g., 'en', 'he'), or first 2 letters for unknown codes
+
+        Note:
+            For unknown 3-letter codes, returns first 2 letters which may not be a valid ISO code.
+            A warning is logged for unknown codes.
+
+        Example:
+            >>> LanguageUtils.opensubtitles_to_iso('eng')
+            'en'
+            >>> LanguageUtils.opensubtitles_to_iso('heb')
+            'he'
+            >>> LanguageUtils.opensubtitles_to_iso('en')  # Already ISO
+            'en'
+        """
+        if not opensubtitles_code:
+            return opensubtitles_code
+
+        # If already 2-letter, return as-is
+        if len(opensubtitles_code) == 2:
+            return opensubtitles_code.lower()
+
+        # Convert 3-letter to 2-letter
+        normalized = opensubtitles_code.lower()
+        iso_code = LanguageUtils.OPENTITLES_TO_ISO.get(normalized, normalized[:2])
+
+        # Log warning for unknown codes
+        if normalized not in LanguageUtils.OPENTITLES_TO_ISO:
+            logger.warning(
+                f"Unknown OpenSubtitles language code '{opensubtitles_code}' - "
+                f"using '{iso_code}' (may not be a valid ISO 639-1 code)"
+            )
+
+        return iso_code
+
+    # Mapping from ISO 639-1 2-letter codes to language names for OpenAI
+    ISO_TO_LANGUAGE_NAME: Dict[str, str] = {
+        "en": "English",
+        "he": "Hebrew",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "it": "Italian",
+        "pt": "Portuguese",
+        "ru": "Russian",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "zh": "Chinese",
+        "ar": "Arabic",
+        "nl": "Dutch",
+        "pl": "Polish",
+        "tr": "Turkish",
+        "sv": "Swedish",
+        "no": "Norwegian",
+        "da": "Danish",
+        "fi": "Finnish",
+        "cs": "Czech",
+        "hu": "Hungarian",
+        "ro": "Romanian",
+        "el": "Greek",
+        "bg": "Bulgarian",
+        "hr": "Croatian",
+        "sr": "Serbian",
+        "sl": "Slovenian",
+        "et": "Estonian",
+        "lv": "Latvian",
+        "lt": "Lithuanian",
+        "uk": "Ukrainian",
+        "be": "Belarusian",
+        "th": "Thai",
+        "vi": "Vietnamese",
+        "id": "Indonesian",
+        "ms": "Malay",
+        "hi": "Hindi",
+        "bn": "Bengali",
+        "ta": "Tamil",
+        "te": "Telugu",
+        "kn": "Kannada",
+        "ml": "Malayalam",
+        "gu": "Gujarati",
+        "pa": "Punjabi",
+        "ur": "Urdu",
+    }
+
+    @staticmethod
+    def iso_to_language_name(iso_code: str) -> str:
+        """
+        Convert ISO 639-1 2-letter code to language name for OpenAI API.
+
+        Args:
+            iso_code: ISO 639-1 2-letter code (e.g., 'en', 'he')
+
+        Returns:
+            Language name (e.g., 'English', 'Hebrew'), or the code itself if not found
+
+        Example:
+            >>> LanguageUtils.iso_to_language_name('en')
+            'English'
+            >>> LanguageUtils.iso_to_language_name('he')
+            'Hebrew'
+        """
+        if not iso_code:
+            return iso_code
+
+        normalized = iso_code.lower()
+        return LanguageUtils.ISO_TO_LANGUAGE_NAME.get(normalized, iso_code)
+
+
 class PathUtils:
     """Path manipulation utility functions."""
 
@@ -694,3 +862,67 @@ class PathUtils:
         except Exception as e:
             logger.debug(f"Error generating subtitle path from video path: {e}")
             return None
+
+    @staticmethod
+    def generate_subtitle_path_from_source(
+        source_subtitle_path: str, target_language: str
+    ) -> Path:
+        """
+        Generate subtitle file path by replacing language code in source path.
+
+        Args:
+            source_subtitle_path: Path to source subtitle file (e.g., '/path/video.en.srt')
+            target_language: Target language code (e.g., 'he') - must be a valid 2-letter ISO code
+
+        Returns:
+            Path with target language code (e.g., '/path/video.he.srt')
+
+        Raises:
+            ValueError: If target_language is invalid (not 2-letter alphabetic)
+            ValueError: If source_subtitle_path is empty or invalid
+
+        Example:
+            >>> PathUtils.generate_subtitle_path_from_source('/path/video.en.srt', 'he')
+            Path('/path/video.he.srt')
+        """
+        # Validate inputs
+        if not source_subtitle_path:
+            raise ValueError("source_subtitle_path cannot be empty")
+
+        if not target_language or len(target_language) != 2 or not target_language.isalpha():
+            raise ValueError(
+                f"Invalid target language code: '{target_language}'. "
+                "Must be a 2-letter alphabetic ISO 639-1 code."
+            )
+
+        source_path = Path(source_subtitle_path)
+
+        # Resolve path to handle relative paths and normalize
+        if not source_path.is_absolute():
+            source_path = source_path.resolve()
+
+        stem = source_path.stem  # e.g., 'video.en'
+
+        # Try to detect and replace language code
+        # Check if the last segment before .srt is a known ISO language code
+        if "." in stem:
+            parts = stem.rsplit(".", 1)
+            if len(parts) == 2:
+                potential_lang = parts[1].lower()
+                # Check if it's a known ISO code (more reliable than just checking length)
+                if (
+                    len(potential_lang) == 2
+                    and potential_lang in LanguageUtils.OPENTITLES_TO_ISO.values()
+                ):
+                    base_name = parts[0]
+                else:
+                    # Not a recognized language code, keep the full stem
+                    base_name = stem
+            else:
+                base_name = stem
+        else:
+            base_name = stem
+
+        # Create new filename with target language
+        new_filename = f"{base_name}.{target_language.lower()}.srt"
+        return source_path.parent / new_filename
