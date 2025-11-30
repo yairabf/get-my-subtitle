@@ -779,6 +779,7 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=True
             )
+            mock_orchestrator.enqueue_download_task = AsyncMock(return_value=True)
             mock_settings.subtitle_desired_language = "en"
             mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
@@ -855,6 +856,7 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=False
             )
+            mock_orchestrator.enqueue_download_task = AsyncMock(return_value=False)
             mock_settings.subtitle_desired_language = "en"
             mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
@@ -909,6 +911,7 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=True
             )
+            mock_orchestrator.enqueue_download_task = AsyncMock(return_value=True)
             mock_settings.subtitle_desired_language = "en"
             mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
@@ -937,6 +940,7 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=True
             )
+            mock_orchestrator.enqueue_download_task = AsyncMock(return_value=True)
             mock_settings.subtitle_desired_language = "en"
             mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
@@ -975,6 +979,7 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=True
             )
+            mock_orchestrator.enqueue_download_task = AsyncMock(return_value=True)
             mock_settings.subtitle_desired_language = "en"
             mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True
@@ -1012,6 +1017,7 @@ class TestJellyfinWebhookEndpoint:
             mock_orchestrator.enqueue_download_with_translation = AsyncMock(
                 return_value=True
             )
+            mock_orchestrator.enqueue_download_task = AsyncMock(return_value=True)
             mock_settings.subtitle_desired_language = "en"
             mock_settings.subtitle_fallback_language = "es"
             mock_settings.jellyfin_auto_translate = True

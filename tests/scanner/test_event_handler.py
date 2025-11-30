@@ -135,7 +135,16 @@ class TestMediaFileEventHandler:
         # Mock file stability check
         event_handler._wait_for_file_stability = AsyncMock(return_value=True)
 
-        await event_handler._process_media_file(file_path)
+        # Mock duplicate prevention to return not duplicate
+        with patch("scanner.event_handler.duplicate_prevention") as mock_dup:
+            from common.duplicate_prevention import DuplicateCheckResult
+            mock_dup.check_and_register = AsyncMock(
+                return_value=DuplicateCheckResult(
+                    is_duplicate=False, existing_job_id=None, message="Not a duplicate"
+                )
+            )
+
+            await event_handler._process_media_file(file_path)
 
         # Verify job was saved to Redis
         mock_redis_client.save_job.assert_called_once()
@@ -149,7 +158,8 @@ class TestMediaFileEventHandler:
         assert saved_job.status == SubtitleStatus.PENDING
 
         # Verify both events were published
-        assert mock_event_publisher.publish_event.call_count == 2
+        actual_count = mock_event_publisher.publish_event.call_count
+        assert actual_count == 2, f"Expected 2 events, got {actual_count}"
 
         # Check first event (MEDIA_FILE_DETECTED)
         first_event = mock_event_publisher.publish_event.call_args_list[0][0][0]
@@ -169,7 +179,8 @@ class TestMediaFileEventHandler:
             second_event.payload["target_language"] is None
         )  # target_language is no longer set by scanner
         assert second_event.payload["preferred_sources"] == ["opensubtitles"]
-        assert second_event.payload["auto_translate"] is True
+        # auto_translate is False when target_language is None (scanner doesn't set target_language)
+        assert second_event.payload["auto_translate"] is False
 
     @pytest.mark.asyncio
     async def test_process_media_file_auto_translate_disabled(
