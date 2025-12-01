@@ -51,15 +51,16 @@ class TestSubtitleTranslator:
 
     @pytest.mark.asyncio
     async def test_translate_batch_with_api(self, translator_with_api_key):
-        """Test translation with OpenAI API."""
+        """Test translation with OpenAI API using JSON response."""
         translator, mock_client_class = translator_with_api_key
 
-        # Mock the API response
+        # Mock the API response with JSON format
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = (
-            "[1]\nHola mundo\n\n[2]\n¿Cómo estás?"
+        mock_response.choices[0].message.content = json.dumps(
+            [{"id": 1, "text": "Hola mundo"}, {"id": 2, "text": "¿Cómo estás?"}]
         )
+        mock_response.choices[0].finish_reason = "stop"
 
         translator.client = AsyncMock()
         translator.client.chat.completions.create = AsyncMock(
@@ -74,43 +75,148 @@ class TestSubtitleTranslator:
         assert "¿Cómo estás?" in translations[1]
 
     def test_build_translation_prompt(self, translator_without_api_key):
-        """Test translation prompt building."""
+        """Test translation prompt building with JSON format."""
         texts = ["Hello", "Goodbye"]
-        prompt = translator_without_api_key._build_translation_prompt(texts, "en", "es")
+        prompt = translator_without_api_key._build_translation_prompt(
+            texts, "English", "Spanish"
+        )
 
+        # Verify JSON structure is present
         assert "Hello" in prompt
         assert "Goodbye" in prompt
-        assert "[1]" in prompt
-        assert "[2]" in prompt
-        assert "en" in prompt
-        assert "es" in prompt
+        assert '"id": 1' in prompt
+        assert '"id": 2' in prompt
+        assert '"text"' in prompt
+        assert "English" in prompt
+        assert "Spanish" in prompt
+        assert "segments" in prompt
 
-    def test_parse_translation_response(self, translator_without_api_key):
-        """Test parsing GPT response."""
-        response = "[1]\nHola\n\n[2]\nAdiós\n\n"
-        translations, parsed_segment_numbers = translator_without_api_key._parse_translation_response(
-            response, 2
+        # Verify it contains valid JSON in the prompt
+        assert '{"segments":' in prompt.replace(" ", "") or '"segments"' in prompt
+
+    @pytest.mark.parametrize(
+        "description,response_formatter,expected_count,expected_translations,expected_segment_numbers",
+        [
+            (
+                "plain JSON",
+                lambda data: json.dumps(data),
+                2,
+                ["Hola", "Adiós"],
+                None,
+            ),
+            (
+                "markdown fences",
+                lambda data: f"```\n{json.dumps(data)}\n```",
+                2,
+                ["Hola", "Adiós"],
+                None,
+            ),
+            (
+                "markdown with json tag",
+                lambda data: f"```json\n{json.dumps(data)}\n```",
+                2,
+                ["Hola", "Adiós"],
+                None,
+            ),
+            (
+                "missing one translation",
+                lambda data: json.dumps([data[0]]),  # Only first item
+                2,
+                ["Hola"],
+                [1],
+            ),
+        ],
+    )
+    def test_parse_translation_response_formats(
+        self,
+        translator_without_api_key,
+        description,
+        response_formatter,
+        expected_count,
+        expected_translations,
+        expected_segment_numbers,
+    ):
+        """Test parsing JSON responses in various formats."""
+        json_data = [{"id": 1, "text": "Hola"}, {"id": 2, "text": "Adiós"}]
+        response = response_formatter(json_data)
+
+        translations, parsed_segment_numbers = (
+            translator_without_api_key._parse_translation_response(
+                response, expected_count
+            )
+        )
+
+        assert len(translations) == len(expected_translations)
+        for i, expected_text in enumerate(expected_translations):
+            assert expected_text in translations[i]
+        assert parsed_segment_numbers == expected_segment_numbers
+
+    def test_parse_translation_response_invalid_json(self, translator_without_api_key):
+        """Test handling of invalid JSON response."""
+        from common.gpt_utils import GPTJSONParsingError
+        
+        response = "This is not valid JSON [{invalid]"
+
+        with pytest.raises(GPTJSONParsingError, match="Invalid JSON response"):
+            translator_without_api_key._parse_translation_response(response, 2)
+
+    def test_parse_translation_response_missing_ids(self, translator_without_api_key):
+        """Test handling when some segment IDs are missing in JSON response."""
+        # Response has id 1 and id 3, but missing id 2
+        json_data = [{"id": 1, "text": "Hola"}, {"id": 3, "text": "Adiós"}]
+        response = json.dumps(json_data)
+
+        translations, parsed_segment_numbers = (
+            translator_without_api_key._parse_translation_response(response, 3)
+        )
+
+        # Should return only the translations that were found (2 out of 3)
+        assert len(translations) == 2
+        assert parsed_segment_numbers == [1, 3]
+
+    def test_parse_translation_response_non_dict_items(
+        self, translator_without_api_key
+    ):
+        """Test handling of non-dict items in JSON array."""
+        # Include a string item that should be skipped
+        response = json.dumps(
+            [{"id": 1, "text": "Hola"}, "invalid_item", {"id": 2, "text": "Adiós"}]
+        )
+
+        translations, parsed_segment_numbers = (
+            translator_without_api_key._parse_translation_response(response, 2)
         )
 
         assert len(translations) == 2
         assert "Hola" in translations[0]
         assert "Adiós" in translations[1]
-        # When all translations are parsed successfully, parsed_segment_numbers should be None
         assert parsed_segment_numbers is None
 
-    def test_parse_translation_response_mismatched_count(
+    def test_parse_translation_response_missing_fields(
         self, translator_without_api_key
     ):
-        """Test parsing response with wrong number of translations (1 missing is tolerated)."""
-        response = "[1]\nHola\n\n"  # Only 1 translation
-        translations, parsed_segment_numbers = translator_without_api_key._parse_translation_response(
-            response, 2
+        """Test handling of items missing required id or text fields."""
+        # Second item is missing 'text' field
+        response = json.dumps(
+            [{"id": 1, "text": "Hola"}, {"id": 2}, {"id": 3, "text": "Adiós"}]
         )
 
-        # Should still return what it found (1 missing is tolerated)
-        assert len(translations) == 1
-        # parsed_segment_numbers should be [1] since segment 1 was parsed
-        assert parsed_segment_numbers == [1]
+        translations, parsed_segment_numbers = (
+            translator_without_api_key._parse_translation_response(response, 3)
+        )
+
+        # Should only get translations for valid items
+        assert len(translations) == 2
+        assert parsed_segment_numbers == [1, 3]
+
+    def test_parse_translation_response_not_array(self, translator_without_api_key):
+        """Test handling when response is not a JSON array."""
+        from common.gpt_utils import GPTJSONParsingError
+        
+        response = json.dumps({"error": "not an array"})
+
+        with pytest.raises(GPTJSONParsingError, match="Expected JSON array|Invalid JSON response"):
+            translator_without_api_key._parse_translation_response(response, 2)
 
 
 class TestSRTParser:
@@ -362,12 +468,13 @@ class TestSubtitleTranslatorRetryBehavior:
         mock_http_response.headers = MagicMock()
         mock_http_response.headers.get = MagicMock(return_value=None)
 
-        # Mock the API response
+        # Mock the API response with JSON format
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = (
-            "[1]\nHola mundo\n\n[2]\n¿Cómo estás?"
+        mock_response.choices[0].message.content = json.dumps(
+            [{"id": 1, "text": "Hola mundo"}, {"id": 2, "text": "¿Cómo estás?"}]
         )
+        mock_response.choices[0].finish_reason = "stop"
 
         translator.client = AsyncMock()
         translator.client.chat.completions.create = AsyncMock(
@@ -406,10 +513,13 @@ class TestSubtitleTranslatorRetryBehavior:
         mock_http_response = MagicMock(spec=httpx.Response)
         mock_http_response.status_code = 503
 
-        # Mock the API response
+        # Mock the API response with JSON format
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "[1]\nBonjour\n\n[2]\nAu revoir"
+        mock_response.choices[0].message.content = json.dumps(
+            [{"id": 1, "text": "Bonjour"}, {"id": 2, "text": "Au revoir"}]
+        )
+        mock_response.choices[0].finish_reason = "stop"
 
         # Create error instance with status_code attribute
         error_instance = APIError(
@@ -511,12 +621,13 @@ class TestSubtitleTranslatorRetryBehavior:
         mock_http_response.headers = MagicMock()
         mock_http_response.headers.get = MagicMock(return_value=None)
 
-        # Mock the API response with formatted content
+        # Mock the API response with JSON formatted content
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = (
-            "[1]\nHola\nmundo\n\n[2]\n¿Cómo\nestás?"
+        mock_response.choices[0].message.content = json.dumps(
+            [{"id": 1, "text": "Hola\nmundo"}, {"id": 2, "text": "¿Cómo\nestás?"}]
         )
+        mock_response.choices[0].finish_reason = "stop"
 
         translator.client = AsyncMock()
         translator.client.chat.completions.create = AsyncMock(
@@ -546,12 +657,17 @@ class TestSubtitleTranslatorRetryBehavior:
         except ImportError:
             pytest.skip("OpenAI SDK not available")
 
-        # Mock the API response
+        # Mock the API response with JSON format
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = (
-            "[1]\nCiao\n\n[2]\nArrivederci\n\n[3]\nGrazie"
+        mock_response.choices[0].message.content = json.dumps(
+            [
+                {"id": 1, "text": "Ciao"},
+                {"id": 2, "text": "Arrivederci"},
+                {"id": 3, "text": "Grazie"},
+            ]
         )
+        mock_response.choices[0].finish_reason = "stop"
 
         translator.client = AsyncMock()
         translator.client.chat.completions.create = AsyncMock(
@@ -591,10 +707,13 @@ class TestSubtitleTranslatorRetryBehavior:
         mock_http_response.headers = MagicMock()
         mock_http_response.headers.get = MagicMock(return_value=None)
 
-        # Mock the API response
+        # Mock the API response with JSON format
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "[1]\nSuccess"
+        mock_response.choices[0].message.content = json.dumps(
+            [{"id": 1, "text": "Success"}]
+        )
+        mock_response.choices[0].finish_reason = "stop"
 
         translator.client = AsyncMock()
         translator.client.chat.completions.create = AsyncMock(
@@ -1398,7 +1517,9 @@ class TestParallelTranslationProcessing:
     # Test constants for parallel processing configuration
     # These constants make the test values explicit and maintainable
     TEST_SEGMENTS_PER_CHUNK = 2  # Small chunks to force multiple chunks for testing
-    TEST_PARALLEL_LIMIT_LOW = 2  # Low limit for testing semaphore constraint (forces queuing)
+    TEST_PARALLEL_LIMIT_LOW = (
+        2  # Low limit for testing semaphore constraint (forces queuing)
+    )
     TEST_PARALLEL_LIMIT_NORMAL = 3  # Default parallel requests for GPT-4o-mini in tests
     TEST_PARALLEL_LIMIT_HIGH = 6  # Parallel requests for higher tier models in tests
     TEST_MAX_TOKENS_PER_CHUNK = 100  # Small token limit to force chunking
@@ -1433,7 +1554,9 @@ class TestParallelTranslationProcessing:
         mock_settings.openai_model = "gpt-4o-mini"
         mock_settings.translation_token_safety_margin = self.TEST_TOKEN_SAFETY_MARGIN
         mock_settings.translation_parallel_requests = self.TEST_PARALLEL_LIMIT_NORMAL
-        mock_settings.translation_parallel_requests_high_tier = self.TEST_PARALLEL_LIMIT_HIGH
+        mock_settings.translation_parallel_requests_high_tier = (
+            self.TEST_PARALLEL_LIMIT_HIGH
+        )
 
         def get_parallel_requests():
             return self.TEST_PARALLEL_LIMIT_NORMAL
@@ -1509,8 +1632,12 @@ class TestParallelTranslationProcessing:
 
         request_id = uuid4()
         # Use low parallel limit to test semaphore constraint (forces queuing with 5 chunks)
-        mock_settings_parallel.translation_parallel_requests = self.TEST_PARALLEL_LIMIT_LOW
-        mock_settings_parallel.get_translation_parallel_requests = lambda: self.TEST_PARALLEL_LIMIT_LOW
+        mock_settings_parallel.translation_parallel_requests = (
+            self.TEST_PARALLEL_LIMIT_LOW
+        )
+        mock_settings_parallel.get_translation_parallel_requests = (
+            lambda: self.TEST_PARALLEL_LIMIT_LOW
+        )
         monkeypatch.setattr("translator.worker.settings", mock_settings_parallel)
 
         active_requests = []
@@ -1627,7 +1754,9 @@ class TestParallelTranslationProcessing:
 
         mock_translator = MagicMock()
         mock_translator.translate_batch = AsyncMock(
-            side_effect=lambda texts, sl, tl: [f"Translated {text}" for text in texts]
+            side_effect=lambda texts, source_lang, target_lang: [
+                f"Translated {text}" for text in texts
+            ]
         )
 
         with patch("translator.worker.redis_client") as mock_redis, patch(

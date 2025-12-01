@@ -65,6 +65,16 @@ def is_transient_error(error: Exception) -> bool:
     except ImportError:
         pass
 
+    # Check for GPT JSON parsing errors - these are transient
+    # (GPT may return valid JSON on retry)
+    try:
+        from common.gpt_utils import GPTJSONParsingError
+
+        if isinstance(error, GPTJSONParsingError):
+            return True
+    except ImportError:
+        pass
+
     # Check OpenAI errors first (most common for translation service)
     try:
         from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError

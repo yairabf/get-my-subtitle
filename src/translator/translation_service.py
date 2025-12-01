@@ -1,12 +1,19 @@
 """Translation service for subtitle translation using OpenAI GPT-5-nano."""
 
+import json
 import logging
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from openai import AsyncOpenAI
 
 from common.config import settings
+from common.gpt_utils import (
+    GPTJSONParsingError,
+    clean_markdown_code_fences,
+    parse_json_robustly,
+)
 from common.retry_utils import retry_with_exponential_backoff
+from common.string_utils import truncate_for_logging
 from common.subtitle_parser import TranslationCountMismatchError
 from common.utils import LanguageUtils
 
@@ -147,16 +154,26 @@ class SubtitleTranslator:
                 {
                     "role": "system",
                     "content": (
-                        f"You are a professional subtitle translator specializing in natural, "
-                        f"idiomatic translations from {source_lang_name} to {target_lang_name}. "
-                        f"Your translations should:\n"
-                        f"- Translate complete sentences and phrases naturally, not word-by-word\n"
-                        f"- Use appropriate figures of speech and idiomatic expressions in {target_lang_name}\n"
-                        f"- Adapt cultural references to be natural in {target_lang_name}\n"
-                        f"- Maintain the original meaning, tone, and style\n"
-                        f"- Be concise and readable within 2-3 seconds (suitable for subtitles)\n"
-                        f"- Preserve all HTML tags (like <i>, <b>, <u>, etc.) exactly as they appear\n"
-                        f"- Only translate the text content inside tags, keeping tags unchanged"
+                        f"You are a professional subtitle translator. "
+                        f"You will receive a JSON object with subtitle segments to translate "
+                        f"from {source_lang_name} to {target_lang_name}.\n\n"
+                        f"INPUT FORMAT:\n"
+                        f'{{"segments": [{{"id": 1, "text": "..."}}, ...], '
+                        f'"source": "{source_lang_name}", '
+                        f'"target": "{target_lang_name}"}}\n\n'
+                        f"OUTPUT FORMAT:\n"
+                        f"Return ONLY a JSON array: "
+                        f'[{{"id": 1, "text": "translation"}}, '
+                        f'{{"id": 2, "text": "translation"}}]\n\n'
+                        f"TRANSLATION RULES:\n"
+                        f"- Translate naturally and idiomatically, "
+                        f"not word-by-word\n"
+                        f"- Use appropriate figures of speech and cultural "
+                        f"references in {target_lang_name}\n"
+                        f"- Preserve all HTML tags exactly as they appear\n"
+                        f"- Maintain concise subtitle-appropriate length (2-3 seconds)\n"
+                        f"- Keep the original meaning, tone, and style\n"
+                        f"- Return ONLY the JSON array, no explanations or markdown fences\n"
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -247,7 +264,10 @@ class SubtitleTranslator:
         self, texts: List[str], source_language: str, target_language: str
     ) -> str:
         """
-        Build the translation prompt for GPT-5-nano.
+        Build the translation prompt for GPT-5-nano using JSON format.
+
+        This method constructs a JSON-formatted prompt that reduces token consumption
+        compared to the previous numbered text format while maintaining parsing reliability.
 
         Args:
             texts: List of texts to translate
@@ -255,16 +275,21 @@ class SubtitleTranslator:
             target_language: Target language name (e.g., 'Hebrew')
 
         Returns:
-            Formatted prompt string
+            Formatted prompt string with JSON structure
         """
-        # Number each text for easy parsing
-        numbered_texts = []
-        for i, text in enumerate(texts, 1):
-            numbered_texts.append(f"[{i}]\n{text}")
+        # Build JSON structure with segment IDs and text
+        segments = [{"id": i, "text": text} for i, text in enumerate(texts, 1)]
+        json_input = {
+            "segments": segments,
+            "source": source_language,
+            "target": target_language,
+        }
 
         prompt = (
-            f"Translate the following {len(texts)} subtitle segments "
-            f"from {source_language} to {target_language}.\n\n"
+            f"Translate the subtitle segments in the JSON below from {source_language} to {target_language}.\n\n"
+            f"INPUT:\n{json.dumps(json_input, ensure_ascii=False, indent=2)}\n\n"
+            f"OUTPUT FORMAT: Return ONLY a JSON array with translated segments.\n"
+            f'Example: [{{"id": 1, "text": "translation"}}, {{"id": 2, "text": "translation"}}]\n\n'
             f"TRANSLATION STYLE:\n"
             f"- Translate each subtitle as a complete sentence or phrase, not word-by-word\n"
             f"- Use natural, idiomatic expressions and figures of speech in {target_language}\n"
@@ -274,17 +299,8 @@ class SubtitleTranslator:
             f"FORMATTING REQUIREMENTS:\n"
             f"- Preserve all HTML tags (like <i>, <b>, <u>, etc.) exactly as they appear\n"
             f"- Only translate the text content inside the tags, not the tags themselves\n"
-            f"- Preserve line breaks and formatting structure\n\n"
-            f"Example:\n"
-            f"Source: <i>like a lord or a king</i>\n"
-            f"Target: <i>[natural idiomatic translation in {target_language}]</i>\n\n"
-            f"Return ONLY the translations, numbered the same way, "
-            f"with no additional commentary.\n\n"
-            f"Format your response exactly like this:\n"
-            f"[1]\nNatural translation with preserved HTML tags\n\n"
-            f"[2]\nNatural translation with preserved HTML tags\n\n"
-            f"etc.\n\n"
-            f"Subtitles to translate:\n\n" + "\n\n".join(numbered_texts)
+            f"- Maintain segment IDs in your response\n"
+            f"- Return ONLY the JSON array, no markdown code fences or additional commentary\n"
         )
 
         return prompt
@@ -293,10 +309,13 @@ class SubtitleTranslator:
         self, response: str, expected_count: int
     ) -> Tuple[List[str], Optional[List[int]]]:
         """
-        Parse GPT-5-nano's translation response.
+        Parse GPT-5-nano's JSON translation response.
+
+        This method parses JSON-formatted responses from the translation model,
+        with robust handling of markdown code fences and malformed responses.
 
         Args:
-            response: Raw response from GPT-5-nano
+            response: Raw JSON response from GPT-5-nano
             expected_count: Expected number of translations
 
         Returns:
@@ -309,67 +328,194 @@ class SubtitleTranslator:
             TranslationCountMismatchError: If the number of parsed translations
                 doesn't match the expected count. This is a transient error that
                 should be retried.
+            ValueError: If JSON parsing fails or response format is invalid
         """
-        translations = []
+        cleaned_response = clean_markdown_code_fences(response)
+        translations_data = self._parse_json_safely(cleaned_response)
+        self._validate_json_structure(translations_data)
+
+        translation_map, parsed_segment_numbers = self._build_translation_map(
+            translations_data
+        )
+        translations = self._extract_ordered_translations(
+            translation_map, expected_count
+        )
+
+        return self._handle_translation_count_mismatch(
+            translations, parsed_segment_numbers, expected_count, response
+        )
+
+    def _parse_json_safely(self, response: str) -> List[dict]:
+        """
+        Parse JSON response with error handling and recovery strategies.
+
+        Uses robust JSON parsing that can handle common GPT formatting issues
+        like missing commas and invalid escape sequences.
+
+        Args:
+            response: Cleaned response text to parse
+
+        Returns:
+            Parsed JSON data as list
+
+        Raises:
+            ValueError: If JSON parsing fails with all recovery strategies
+        """
+        try:
+            return parse_json_robustly(response)
+        except GPTJSONParsingError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            # Log MORE of the response for debugging (first 1000 chars)
+            logger.error(f"Response preview (first 1000 chars): {response[:1000]}")
+            # Also log the end of the response
+            if len(response) > 1000:
+                logger.error(f"Response end (last 500 chars): ...{response[-500:]}")
+            # Re-raise as transient error so it will be retried
+            raise GPTJSONParsingError(f"Invalid JSON response from model: {e}") from e
+
+    def _validate_json_structure(self, data: Any) -> None:
+        """
+        Validate that JSON data has the expected structure.
+
+        Args:
+            data: Parsed JSON data to validate
+
+        Raises:
+            GPTJSONParsingError: If data is not a list (transient error, will retry)
+        """
+        if not isinstance(data, list):
+            raise GPTJSONParsingError(f"Expected JSON array, got {type(data).__name__}")
+
+    def _build_translation_map(
+        self, translations_data: List[dict]
+    ) -> Tuple[Dict[int, str], List[int]]:
+        """
+        Build mapping of segment IDs to translations.
+
+        Iterates through the translation data and extracts valid items,
+        skipping any malformed entries with warnings.
+
+        Args:
+            translations_data: List of translation objects from JSON
+
+        Returns:
+            Tuple of (translation_map, parsed_segment_numbers):
+            - translation_map: Dictionary mapping segment ID to translation text
+            - parsed_segment_numbers: List of successfully parsed segment IDs
+        """
+        translation_map = {}
         parsed_segment_numbers = []
 
-        # Split by numbered segments
-        segments = response.split("[")
-
-        for segment in segments:
-            if not segment.strip():
+        for item in translations_data:
+            if not isinstance(item, dict):
+                logger.warning(f"Skipping non-dict item in response: {item}")
                 continue
 
-            # Extract number and text
-            parts = segment.split("]", 1)
-            if len(parts) == 2:
-                try:
-                    segment_number = int(parts[0].strip())  # Validate number format
-                    text = parts[1].strip()
-                    translations.append(text)
-                    parsed_segment_numbers.append(segment_number)
-                except ValueError:
-                    # Invalid segment number format - skip this segment
-                    continue
+            if "id" not in item or "text" not in item:
+                logger.warning(f"Skipping item missing id or text fields: {item}")
+                continue
 
-        if len(translations) != expected_count:
-            missing_count = expected_count - len(translations)
+            try:
+                segment_id = int(item["id"])
+                translation_map[segment_id] = item["text"]
+                parsed_segment_numbers.append(segment_id)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Skipping item with invalid id: {item}, error: {e}")
+                continue
 
-            # Allow 1 missing translation as tolerance for minor parsing issues
-            if missing_count == 1:
-                logger.warning(
-                    f"⚠️  Translation parsing: expected {expected_count} translations, "
-                    f"but parsed {len(translations)} (missing 1). "
-                    f"This is acceptable - will use original text for the missing segment. "
-                    f"Parsed segment numbers: {sorted(parsed_segment_numbers) if parsed_segment_numbers else 'none'}"
-                )
-                # Return tuple with translations and parsed segment numbers for accurate missing segment identification
-                return (translations, parsed_segment_numbers)
+        return translation_map, parsed_segment_numbers
 
-            # For more than 1 missing, log detailed information and raise error
+    def _extract_ordered_translations(
+        self, translation_map: Dict[int, str], expected_count: int
+    ) -> List[str]:
+        """
+        Extract translations in sequential order.
+
+        Args:
+            translation_map: Dictionary mapping segment ID to translation
+            expected_count: Expected number of translations
+
+        Returns:
+            List of translations in order (may be incomplete if some IDs missing)
+        """
+        translations = []
+        for i in range(1, expected_count + 1):
+            if i in translation_map:
+                translations.append(translation_map[i])
+        return translations
+
+    def _handle_translation_count_mismatch(
+        self,
+        translations: List[str],
+        parsed_segment_numbers: List[int],
+        expected_count: int,
+        original_response: str,
+    ) -> Tuple[List[str], Optional[List[int]]]:
+        """
+        Handle cases where translation count doesn't match expected count.
+
+        Args:
+            translations: List of extracted translations
+            parsed_segment_numbers: List of successfully parsed segment IDs
+            expected_count: Expected number of translations
+            original_response: Original response for debugging
+
+        Returns:
+            Tuple of (translations, parsed_segment_numbers or None)
+
+        Raises:
+            TranslationCountMismatchError: If more than 1 translation is missing
+        """
+        if len(translations) == expected_count:
+            # All translations parsed successfully
+            return (translations, None)
+
+        missing_count = expected_count - len(translations)
+
+        # Allow 1 missing translation as tolerance for minor parsing issues
+        if missing_count == 1:
             logger.warning(
-                f"⚠️  Translation parsing mismatch: expected {expected_count} translations, "
-                f"but parsed {len(translations)} (missing {missing_count}). "
+                f"⚠️  Translation parsing: expected {expected_count} translations, "
+                f"but parsed {len(translations)} (missing 1). "
+                f"This is acceptable - will use original text for the missing segment. "
                 f"Parsed segment numbers: {sorted(parsed_segment_numbers) if parsed_segment_numbers else 'none'}"
             )
+            return (translations, parsed_segment_numbers)
 
-            # Log response sample for debugging (first and last 500 chars)
-            response_sample = None
-            if len(response) > 1000:
-                response_sample = f"{response[:500]}...\n...{response[-500:]}"
-            else:
-                response_sample = response
+        # For more than 1 missing, log details and raise error
+        self._log_translation_mismatch_details(
+            expected_count, translations, parsed_segment_numbers, original_response
+        )
 
-            logger.debug(f"Response sample (for debugging):\n{response_sample}")
+        raise TranslationCountMismatchError(
+            expected_count=expected_count,
+            actual_count=len(translations),
+            parsed_segment_numbers=parsed_segment_numbers,
+            response_sample=truncate_for_logging(original_response),
+        )
 
-            # Raise custom exception that will trigger retry
-            raise TranslationCountMismatchError(
-                expected_count=expected_count,
-                actual_count=len(translations),
-                parsed_segment_numbers=parsed_segment_numbers,
-                response_sample=response_sample,
-            )
+    def _log_translation_mismatch_details(
+        self,
+        expected_count: int,
+        translations: List[str],
+        parsed_segment_numbers: List[int],
+        response: str,
+    ) -> None:
+        """
+        Log detailed information about translation count mismatch.
 
-        # Normal case: all translations parsed successfully
-        # Return tuple with None for parsed_segment_numbers (no mismatch to track)
-        return (translations, None)
+        Args:
+            expected_count: Expected number of translations
+            translations: List of extracted translations
+            parsed_segment_numbers: List of successfully parsed segment IDs
+            response: Original response for debugging
+        """
+        missing_count = expected_count - len(translations)
+        logger.warning(
+            f"⚠️  Translation parsing mismatch: expected {expected_count} translations, "
+            f"but parsed {len(translations)} (missing {missing_count}). "
+            f"Parsed segment numbers: {sorted(parsed_segment_numbers) if parsed_segment_numbers else 'none'}"
+        )
+        logger.debug(
+            f"Response sample (for debugging):\n{truncate_for_logging(response)}"
+        )
