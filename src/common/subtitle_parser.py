@@ -65,7 +65,9 @@ class TranslationCountMismatchError(ValueError):
                 missing_list = sorted(list(missing))[:MAX_MISSING_SEGMENTS_TO_DISPLAY]
                 message += f". Missing segment numbers: {missing_list}"
                 if len(missing) > MAX_MISSING_SEGMENTS_TO_DISPLAY:
-                    message += f" (and {len(missing) - MAX_MISSING_SEGMENTS_TO_DISPLAY} more)"
+                    message += (
+                        f" (and {len(missing) - MAX_MISSING_SEGMENTS_TO_DISPLAY} more)"
+                    )
 
         super().__init__(message)
 
@@ -219,7 +221,9 @@ def extract_text_for_translation(segments: List[SubtitleSegment]) -> List[str]:
     return [segment.text for segment in segments]
 
 
-def _format_chunk_info(chunk_index: Optional[int] = None, total_chunks: Optional[int] = None) -> str:
+def _format_chunk_info(
+    chunk_index: Optional[int] = None, total_chunks: Optional[int] = None
+) -> str:
     """
     Format chunk information for logging messages.
 
@@ -271,7 +275,9 @@ def _identify_missing_segment_index(
         # Fallback: assume last segment is missing
         return segment_count - 1
 
-    missing_numbers = _calculate_missing_segment_numbers(segment_count, parsed_segment_numbers)
+    missing_numbers = _calculate_missing_segment_numbers(
+        segment_count, parsed_segment_numbers
+    )
 
     if missing_numbers:
         missing_number = missing_numbers.pop()
@@ -413,11 +419,15 @@ def _merge_translations_with_one_missing(
     chunk_info = _format_chunk_info(chunk_index, total_chunks)
 
     # Identify which segment is actually missing
-    missing_index = _identify_missing_segment_index(segment_count, parsed_segment_numbers)
+    missing_index = _identify_missing_segment_index(
+        segment_count, parsed_segment_numbers
+    )
 
     # Log appropriate warning message
     if parsed_segment_numbers:
-        missing_numbers = _calculate_missing_segment_numbers(segment_count, parsed_segment_numbers)
+        missing_numbers = _calculate_missing_segment_numbers(
+            segment_count, parsed_segment_numbers
+        )
         if missing_numbers:
             missing_number = list(missing_numbers)[0]
             logger.warning(
@@ -441,7 +451,9 @@ def _merge_translations_with_one_missing(
 
     # Create translation map and build segments
     translation_map = _create_translation_map(translations, parsed_segment_numbers)
-    return _build_translated_segments_with_missing(segments, translation_map, missing_index)
+    return _build_translated_segments_with_missing(
+        segments, translation_map, missing_index
+    )
 
 
 def merge_translations(

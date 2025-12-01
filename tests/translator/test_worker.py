@@ -88,8 +88,8 @@ class TestSubtitleTranslator:
     def test_parse_translation_response(self, translator_without_api_key):
         """Test parsing GPT response."""
         response = "[1]\nHola\n\n[2]\nAdiós\n\n"
-        translations, parsed_segment_numbers = translator_without_api_key._parse_translation_response(
-            response, 2
+        translations, parsed_segment_numbers = (
+            translator_without_api_key._parse_translation_response(response, 2)
         )
 
         assert len(translations) == 2
@@ -1433,7 +1433,9 @@ class TestParallelTranslationProcessing:
         mock_settings.openai_model = "gpt-4o-mini"
         mock_settings.translation_token_safety_margin = self.TEST_TOKEN_SAFETY_MARGIN
         mock_settings.translation_parallel_requests = self.TEST_PARALLEL_LIMIT_NORMAL
-        mock_settings.translation_parallel_requests_high_tier = self.TEST_PARALLEL_LIMIT_HIGH
+        mock_settings.translation_parallel_requests_high_tier = (
+            self.TEST_PARALLEL_LIMIT_HIGH
+        )
 
         def get_parallel_requests():
             return self.TEST_PARALLEL_LIMIT_NORMAL
