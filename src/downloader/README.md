@@ -262,9 +262,16 @@ Published when processing fails:
 
 ### Translation Fallback
 
-When subtitle is not found:
-- If `JELLYFIN_AUTO_TRANSLATE=true`: Publishes `SUBTITLE_TRANSLATE_REQUESTED`
-- If `JELLYFIN_AUTO_TRANSLATE=false`: Publishes `SUBTITLE_MISSING`
+When subtitle is not found in the desired language:
+1. Downloads subtitle in fallback language (usually English)
+2. If `JELLYFIN_AUTO_TRANSLATE=true`: Publishes `SUBTITLE_TRANSLATE_REQUESTED` event
+3. If `JELLYFIN_AUTO_TRANSLATE=false`: Publishes `SUBTITLE_READY` with fallback language
+4. Translation task is enqueued directly by the downloader worker
+
+**Language Configuration:**
+- Uses centralized `SUBTITLE_DESIRED_LANGUAGE` and `SUBTITLE_FALLBACK_LANGUAGE` settings
+- Automatically attempts fallback language if desired language not found
+- No need to manually configure language per-request
 
 ## 🔍 Monitoring
 

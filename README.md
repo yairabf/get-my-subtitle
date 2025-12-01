@@ -54,13 +54,16 @@ A microservices-based subtitle management system that automatically fetches, tra
 - **AI-Powered Translation**: Translates subtitles using OpenAI models:
   - Supports GPT-4o-mini (recommended), GPT-4o, GPT-4, and other OpenAI models
   - **Parallel Processing**: Processes 3-6 translation chunks simultaneously (5-10x speedup)
-    - Automatic model-based parallel request selection (3 for GPT-4o-mini, 6 for higher tier)
+    - Automatic model-based parallel request selection (3 for GPT-4o-mini, 6 for higher tier models)
     - Semaphore-based rate limiting to respect API limits
     - Out-of-order completion handling with automatic result sorting
-  - Optimized batch processing (100-200 segments per request, configurable)
+  - Optimized batch processing (100 segments per chunk by default, configurable up to 200)
   - Token-aware chunking for large subtitle files
   - Timing and formatting preservation (HTML tags, line breaks, etc.)
-  - Checkpoint/resume support for long translations
+  - **Checkpoint/Resume System**: Resume interrupted translations from saved checkpoints
+    - Checkpoints saved after each parallel batch completion
+    - Automatic cleanup after successful completion  
+    - Configurable via `CHECKPOINT_ENABLED` and `CHECKPOINT_CLEANUP_ON_SUCCESS`
   - Intelligent error handling with retry mechanism for parsing failures
   - Tolerance for minor parsing issues (1 missing translation uses original text)
   - Accurate missing segment identification using parsed segment numbers
@@ -168,6 +171,10 @@ The system uses an event-driven architecture where:
    # Optional: Configure parallel translation processing (speeds up translation 5-10x)
    TRANSLATION_PARALLEL_REQUESTS=3              # For GPT-4o-mini (low rate limit)
    TRANSLATION_PARALLEL_REQUESTS_HIGH_TIER=6    # For GPT-4o, GPT-4 (higher tier)
+   
+   # Optional: Configure checkpoint system for long translations
+   CHECKPOINT_ENABLED=true                      # Enable resume on crash
+   CHECKPOINT_CLEANUP_ON_SUCCESS=true           # Auto-cleanup checkpoints
    ```
 
 4. **Start services:**
@@ -249,15 +256,16 @@ The Manager service provides a comprehensive REST API:
 - `POST /subtitles/translate` - Upload and translate a subtitle file directly
 - `GET /subtitles/{job_id}` - Get detailed job information
 - `GET /subtitles/status/{job_id}` - Get job status with progress percentage (0-100%)
-- `GET /subtitles/{job_id}/events` - Get complete event history for a job
+- `GET /subtitles/{job_id}/events` - Get complete event history for a job (audit trail)
 - `GET /subtitles` - List all subtitle jobs
 
 **Monitoring & Control:**
-- `GET /health` - Health check endpoint (includes Redis status)
-- `GET /health/consumer` - Event consumer health status
+- `GET /health` - Health check endpoint (includes Redis connectivity)
+- `GET /health/consumer` - Event consumer health status (SUBTITLE_REQUESTED events)
 - `GET /queue/status` - Get processing queue status (download and translation queues)
-- `POST /scan` - Trigger manual media library scan
+- `POST /scan` - Trigger manual media library scan (proxies to Scanner service)
 - `POST /webhooks/jellyfin` - Jellyfin webhook endpoint for automatic processing
+- `GET /` - API information and version
 
 See the [Manager Service documentation](src/manager/README.md) for detailed API documentation.
 

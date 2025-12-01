@@ -25,15 +25,21 @@ The consumer listens to the following event types:
 
 1. **subtitle.download.requested** - Download initiated by manager
 2. **subtitle.ready** - Subtitle successfully downloaded
-3. **subtitle.translate.requested** - Translation initiated
+3. **subtitle.translate.requested** - Translation initiated by downloader
 4. **subtitle.translated** - Translation completed successfully
-5. **job.failed** - Any job failure
+5. **translation.completed** - Alternative translation completion event
+6. **subtitle.missing** - Subtitle not found (optional)
+7. **job.failed** - Any job failure
+8. **media.file.detected** - Media file detected by scanner (optional)
 
 ### Routing Patterns
 
 The consumer binds to the topic exchange with these routing patterns:
-- `subtitle.*` - All subtitle-related events
-- `job.*` - All job-related events
+- `subtitle.#` - All subtitle-related events (uses wildcard for multi-word routing keys)
+- `job.#` - All job-related events
+- `media.#` - All media-related events
+
+**Note:** The `#` wildcard matches zero or more words, allowing the consumer to receive events with routing keys like `subtitle.download.requested` or `subtitle.ready`.
 
 ## Configuration
 

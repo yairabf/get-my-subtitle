@@ -99,13 +99,19 @@ OPENSUBTITLES_RETRY_EXPONENTIAL_BASE=2               # Default: 2
 #### OpenAI Translation Configuration
 
 ```env
-OPENAI_MODEL=gpt-5-nano                              # Default: gpt-5-nano
+OPENAI_MODEL=gpt-4o-mini                             # Default: gpt-4o-mini
+                                                     # Recommended: gpt-4o-mini, gpt-4o, gpt-3.5-turbo (non-reasoning models)
 OPENAI_MAX_TOKENS=4096                               # Default: 4096
 OPENAI_TEMPERATURE=0.3                               # Default: 0.3 (lower = more consistent)
 
 # Translation Token Limits
 TRANSLATION_MAX_TOKENS_PER_CHUNK=8000               # Default: 8000
 TRANSLATION_TOKEN_SAFETY_MARGIN=0.8                  # Default: 0.8 (80% of limit)
+TRANSLATION_MAX_SEGMENTS_PER_CHUNK=100              # Default: 100 (recommended: 100-200 for GPT-4o-mini)
+
+# Translation Parallel Processing
+TRANSLATION_PARALLEL_REQUESTS=3                     # Default: 3 (for GPT-4o-mini, low rate limit)
+TRANSLATION_PARALLEL_REQUESTS_HIGH_TIER=6           # Default: 6 (for GPT-4o, GPT-4, higher tier models)
 
 # OpenAI Retry Configuration
 OPENAI_MAX_RETRIES=3                                 # Default: 3
@@ -115,20 +121,39 @@ OPENAI_RETRY_EXPONENTIAL_BASE=2                      # Default: 2
 ```
 
 **When to change:**
-- If you want to use a different OpenAI model
-- If you need to adjust translation chunk sizes for very long subtitles
-- If you want different retry behavior for API failures
+- **OPENAI_MODEL**: Use gpt-4o-mini for speed/cost, gpt-4o or gpt-4 for higher quality
+- **TRANSLATION_MAX_SEGMENTS_PER_CHUNK**: Larger batches = fewer API calls but higher token usage
+  - 100-200 for GPT-4o-mini (recommended)
+  - Up to 300-400 for higher tier models if server allows
+- **TRANSLATION_PARALLEL_REQUESTS**: Adjust based on API tier
+  - 3 for GPT-4o-mini (respects rate limits)
+  - 6 for higher tier models (GPT-4o, GPT-4)
+  - Can speed up translation by 5-10x
+- **Retry settings**: Adjust for different API failure tolerance
 
 #### File Storage
 
 ```env
+# Subtitle Storage
 SUBTITLE_STORAGE_PATH=./storage/subtitles            # Default: ./storage/subtitles
+
+# Checkpoint Configuration
+CHECKPOINT_ENABLED=true                              # Default: true (enable checkpoint/resume)
+CHECKPOINT_CLEANUP_ON_SUCCESS=true                   # Default: true (auto-cleanup checkpoints)
+CHECKPOINT_STORAGE_PATH=                             # Default: {subtitle_storage_path}/checkpoints
 ```
 
 **When to change:**
-- If you want subtitles stored in a different location
-- For production, use an absolute path or mounted volume path
-- Example: `/mnt/storage/subtitles` or `/var/lib/get-my-subtitle/subtitles`
+- **SUBTITLE_STORAGE_PATH**: Use absolute path for production (e.g., `/mnt/storage/subtitles`)
+- **CHECKPOINT_ENABLED**: Disable if you don't want checkpoint functionality
+- **CHECKPOINT_CLEANUP_ON_SUCCESS**: Set to false to keep checkpoints for debugging
+- **CHECKPOINT_STORAGE_PATH**: Override default checkpoint location if needed
+
+**Checkpoint System:**
+- Saves translation progress after each batch
+- Enables resume on crash or interruption
+- Automatically cleans up on successful completion
+- Useful for very long subtitle files
 
 #### Subtitle Language Configuration
 
@@ -142,6 +167,12 @@ SUBTITLE_FALLBACK_LANGUAGE=en             # Fallback when desired isn't found (t
 - Set `SUBTITLE_DESIRED_LANGUAGE` to the language you want subtitles in (e.g., "he" for Hebrew, "es" for Spanish)
 - Set `SUBTITLE_FALLBACK_LANGUAGE` to a language that's commonly available (usually "en" for English)
 - When desired language isn't found, the system will download in fallback language and automatically translate to desired
+
+**How it works:**
+1. System tries to download subtitle in `SUBTITLE_DESIRED_LANGUAGE`
+2. If not found, downloads in `SUBTITLE_FALLBACK_LANGUAGE`
+3. If auto-translate is enabled, automatically translates from fallback to desired language
+4. This centralized configuration is used by all services (Scanner, Manager, Downloader)
 
 #### Jellyfin Integration
 
@@ -214,11 +245,21 @@ OPENAI_API_KEY=
 OPENSUBTITLES_USERNAME=your_username
 OPENSUBTITLES_PASSWORD=your_password
 OPENAI_API_KEY=sk-your-openai-api-key-here
+OPENAI_MODEL=gpt-4o-mini
 
-# Recommended
+# Recommended: Language Configuration
+SUBTITLE_DESIRED_LANGUAGE=he               # Your goal language
+SUBTITLE_FALLBACK_LANGUAGE=en              # Fallback (usually English)
+
+# Recommended: Jellyfin Integration
 JELLYFIN_URL=http://your-jellyfin-server:8096
 JELLYFIN_API_KEY=your_jellyfin_api_key
-JELLYFIN_DEFAULT_TARGET_LANGUAGE=he
+JELLYFIN_AUTO_TRANSLATE=true
+
+# Optional: Performance Optimization
+TRANSLATION_PARALLEL_REQUESTS=3            # Speeds up translation 5-10x
+TRANSLATION_MAX_SEGMENTS_PER_CHUNK=100     # Batch size
+CHECKPOINT_ENABLED=true                    # Resume on crash
 ```
 
 #### Production Setup (Homelab/Server)

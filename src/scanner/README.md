@@ -57,6 +57,8 @@ Optional WebSocket settings:
 ### Jellyfin General Configuration
 
 - `JELLYFIN_AUTO_TRANSLATE`: Auto-translate Jellyfin media (default: `true`)
+  - When true, automatically translates subtitles if desired language isn't found
+  - Downloads in fallback language, then translates to desired language
 
 **Note:** Language configuration is now centralized. See [Subtitle Language Configuration](#subtitle-language-configuration) below.
 

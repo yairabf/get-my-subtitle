@@ -362,10 +362,13 @@ Consider using tools like:
 
 ```
 2024-01-01 10:00:10 - INFO - 🚀 Starting Subtitle Translator Worker
-2024-01-01 10:00:10 - INFO - 🤖 Using model: gpt-5-nano
+2024-01-01 10:00:10 - INFO - 🤖 Using model: gpt-4o-mini
 2024-01-01 10:00:10 - INFO - Initialized OpenAI async client
-2024-01-01 10:00:30 - INFO - Translating 42 segments from en to es
-2024-01-01 10:00:45 - INFO - ✅ Translation completed successfully!
+2024-01-01 10:00:10 - INFO - 🔄 Translating with 3 parallel requests...
+2024-01-01 10:00:30 - INFO - Translating 200 segments from en to es (2 chunks)
+2024-01-01 10:00:35 - INFO - ✅ Translated chunk 0 (100 segments) - 15.2s
+2024-01-01 10:00:35 - INFO - ✅ Translated chunk 1 (100 segments) - 14.8s
+2024-01-01 10:00:36 - INFO - ✅ Translation completed successfully in 15.5s!
 ```
 
 ## Future Enhancements

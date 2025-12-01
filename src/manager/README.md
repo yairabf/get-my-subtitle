@@ -54,6 +54,8 @@ The API will be available at `http://localhost:8000`
 GET /health
 ```
 
+Basic health check endpoint that verifies Redis connectivity.
+
 **Response:**
 ```json
 {
@@ -62,6 +64,34 @@ GET /health
   "version": "1.0.0"
 }
 ```
+
+**Notes:**
+- Includes Redis connection status in internal checks
+- Returns 200 OK if service is healthy
+- Logs warnings if Redis is unavailable but still returns 200
+
+#### Event Consumer Health Check
+```http
+GET /health/consumer
+```
+
+Check the health status of the event consumer that processes SUBTITLE_REQUESTED events from the Scanner service.
+
+**Response:**
+```json
+{
+  "status": "consuming",
+  "connected": true,
+  "queue_name": "manager.subtitle.requests",
+  "routing_key": "subtitle.requested"
+}
+```
+
+**Response Fields:**
+- `status`: "consuming" or "not_consuming"
+- `connected`: Boolean indicating RabbitMQ connection status
+- `queue_name`: Name of the queue being consumed
+- `routing_key`: Routing key pattern for events
 
 #### Request Subtitle Download
 ```http
@@ -194,17 +224,52 @@ Get simplified status information with progress percentage.
 
 Progress values:
 - `pending`: 0%
-- `downloading`: 25%
-- `translating`: 75%
-- `completed`: 100%
+- `download_queued`: 10%
+- `download_in_progress`: 25%
+- `translate_queued`: 60%
+- `translate_in_progress`: 75%
+- `done`: 100%
 - `failed`: 0%
+
+#### Get Job Event History
+```http
+GET /subtitles/{job_id}/events
+```
+
+Get complete event history for a subtitle job, providing a full audit trail of the workflow.
+
+**Response:**
+```json
+{
+  "job_id": "123e4567-e89b-12d3-a456-426614174000",
+  "event_count": 5,
+  "events": [
+    {
+      "event_type": "subtitle.download.requested",
+      "timestamp": "2024-01-01T00:00:00Z",
+      "source": "manager",
+      "payload": { ... }
+    },
+    {
+      "event_type": "subtitle.ready",
+      "timestamp": "2024-01-01T00:00:05Z",
+      "source": "downloader",
+      "payload": { ... }
+    }
+  ]
+}
+```
 
 #### Manual Library Scan
 ```http
 POST /scan
 ```
 
-Triggers a manual scan of the media library by the scanner service. This is useful for forcing a sync when the file watcher might have missed changes or after system downtime.
+Triggers a manual scan of the media library by the scanner service. This sends a request to the Scanner service to initiate a full scan of the configured media directory. Useful for:
+- Forcing a sync when the file watcher might have missed changes
+- After system downtime or restarts
+- When adding large batches of media files
+- Manual reconciliation of the media library
 
 **Response:**
 ```json
@@ -213,6 +278,14 @@ Triggers a manual scan of the media library by the scanner service. This is usef
   "message": "Manual scan initiated"
 }
 ```
+
+**Error Responses:**
+- `502 Bad Gateway`: Scanner service returned an error
+- `503 Service Unavailable`: Scanner service is unreachable
+- `500 Internal Server Error`: Internal server error
+
+**Implementation:**
+The endpoint proxies the request to the Scanner service webhook endpoint at `http://{SCANNER_WEBHOOK_HOST}:{SCANNER_WEBHOOK_PORT}/scan`.
 
 #### Jellyfin Webhook
 ```http
