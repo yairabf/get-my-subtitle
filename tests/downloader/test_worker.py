@@ -120,7 +120,9 @@ class TestSubtitleMissingEventPublishing:
                         )
                         # Create the actual subtitle file so exists() check passes
                         if video_file:
-                            subtitle_file_path.write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
+                            subtitle_file_path.write_text(
+                                "1\n00:00:00,000 --> 00:00:01,000\nTest\n"
+                            )
                         mock_client.download_subtitle = AsyncMock(
                             return_value=subtitle_file_path
                         )
@@ -471,7 +473,9 @@ class TestDownloaderWorker:
                     )
                     subtitle_file_path = Path(video_url).parent / "obscure_movie.en.srt"
                     # Create the actual subtitle file so exists() check passes
-                    subtitle_file_path.write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
+                    subtitle_file_path.write_text(
+                        "1\n00:00:00,000 --> 00:00:01,000\nTest\n"
+                    )
                     mock_client.download_subtitle = AsyncMock(
                         return_value=subtitle_file_path
                     )
@@ -782,7 +786,9 @@ class TestDownloaderWorker:
                     mock_client.search_subtitles = AsyncMock(return_value=[])
                     subtitle_file_path = Path(video_url).parent / "test_video.en.srt"
                     # Create the actual subtitle file so exists() check passes
-                    subtitle_file_path.write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
+                    subtitle_file_path.write_text(
+                        "1\n00:00:00,000 --> 00:00:01,000\nTest\n"
+                    )
                     mock_client.download_subtitle = AsyncMock(
                         return_value=subtitle_file_path
                     )
@@ -812,7 +818,7 @@ class TestDownloaderWorker:
                             # The top-level handler should catch exceptions and publish JOB_FAILED
                             # However, if the exception occurs before reaching publish, that's also valid
                             # The key is that the function completes without raising
-                            
+
                             # If publish was attempted and failed, verify JOB_FAILED was published
                             if mock_channel.default_exchange.publish.call_count > 0:
                                 # Publish was attempted, so exception should have been caught and JOB_FAILED published
@@ -1631,7 +1637,9 @@ class TestFallbackSubtitleSearch:
                     )
                     subtitle_file_path = Path(video_url).parent / "test_movie.en.srt"
                     # Create the actual subtitle file so exists() check passes
-                    subtitle_file_path.write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
+                    subtitle_file_path.write_text(
+                        "1\n00:00:00,000 --> 00:00:01,000\nTest\n"
+                    )
                     mock_client.download_subtitle = AsyncMock(
                         return_value=subtitle_file_path
                     )
@@ -1669,7 +1677,8 @@ class TestFallbackSubtitleSearch:
                             translate_events = [
                                 e
                                 for e in event_calls
-                                if e.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                                if e.event_type
+                                == EventType.SUBTITLE_TRANSLATE_REQUESTED
                             ]
                             assert len(translate_events) > 0
                             event_call = translate_events[0]
@@ -1744,7 +1753,9 @@ class TestFallbackSubtitleSearch:
                     )
                     subtitle_file_path = Path(video_url).parent / "test_movie.es.srt"
                     # Create the actual subtitle file so exists() check passes
-                    subtitle_file_path.write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
+                    subtitle_file_path.write_text(
+                        "1\n00:00:00,000 --> 00:00:01,000\nTest\n"
+                    )
                     mock_client.download_subtitle = AsyncMock(
                         return_value=subtitle_file_path
                     )
@@ -1781,7 +1792,8 @@ class TestFallbackSubtitleSearch:
                             translate_events = [
                                 e
                                 for e in event_calls
-                                if e.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                                if e.event_type
+                                == EventType.SUBTITLE_TRANSLATE_REQUESTED
                             ]
                             assert len(translate_events) > 0
                             event_call = translate_events[0]
@@ -1907,7 +1919,9 @@ class TestFallbackSubtitleSearch:
                     )
                     subtitle_file_path = Path(video_url).parent / "test_movie.fr.srt"
                     # Create the actual subtitle file so exists() check passes
-                    subtitle_file_path.write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
+                    subtitle_file_path.write_text(
+                        "1\n00:00:00,000 --> 00:00:01,000\nTest\n"
+                    )
                     mock_client.download_subtitle = AsyncMock(
                         return_value=subtitle_file_path
                     )
@@ -1947,7 +1961,8 @@ class TestFallbackSubtitleSearch:
                             translate_events = [
                                 e
                                 for e in event_calls
-                                if e.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                                if e.event_type
+                                == EventType.SUBTITLE_TRANSLATE_REQUESTED
                             ]
                             assert len(translate_events) > 0
                             event_call = translate_events[0]
@@ -2013,7 +2028,9 @@ class TestFallbackSubtitleSearch:
                     )
                     subtitle_file_path = Path(video_url).parent / "test_movie.en.srt"
                     # Create the actual subtitle file so exists() check passes
-                    subtitle_file_path.write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
+                    subtitle_file_path.write_text(
+                        "1\n00:00:00,000 --> 00:00:01,000\nTest\n"
+                    )
                     mock_client.download_subtitle = AsyncMock(
                         return_value=subtitle_file_path
                     )
@@ -2047,7 +2064,8 @@ class TestFallbackSubtitleSearch:
                             translate_events = [
                                 e
                                 for e in event_calls
-                                if e.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
+                                if e.event_type
+                                == EventType.SUBTITLE_TRANSLATE_REQUESTED
                             ]
                             assert len(translate_events) > 0
                             event_call = translate_events[0]

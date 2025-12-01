@@ -1,12 +1,13 @@
 """Translation service for subtitle translation using OpenAI GPT-5-nano."""
 
 import logging
-from typing import List
+from typing import List, Optional, Tuple
 
 from openai import AsyncOpenAI
 
 from common.config import settings
 from common.retry_utils import retry_with_exponential_backoff
+from common.subtitle_parser import TranslationCountMismatchError
 from common.utils import LanguageUtils
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,9 @@ class SubtitleTranslator:
     def __init__(self):
         """Initialize the translator with OpenAI async client."""
         self.client = None
+        self._last_parsed_segment_numbers = (
+            None  # Store parsed segment numbers for merge_translations
+        )
         if settings.openai_api_key:
             # Initialize AsyncOpenAI client with proper configuration
             # Note: Retry logic is handled by retry_with_exponential_backoff decorator
@@ -34,6 +38,19 @@ class SubtitleTranslator:
             logger.warning(
                 "OpenAI API key not configured - translator will run in mock mode"
             )
+
+    def get_last_parsed_segment_numbers(self) -> Optional[List[int]]:
+        """
+        Get parsed segment numbers from the last translation call.
+
+        This is used by merge_translations to accurately identify which segments
+        were successfully parsed when there's a mismatch in translation count.
+
+        Returns:
+            List of parsed segment numbers (1-based) from last translation,
+            or None if not available or all translations were parsed successfully.
+        """
+        return self._last_parsed_segment_numbers
 
     @property
     def _retry_decorator(self):
@@ -214,8 +231,14 @@ class SubtitleTranslator:
                 f"Usage: {response.usage if hasattr(response, 'usage') else 'N/A'}"
             )
 
-        # Parse the response
-        translations = self._parse_translation_response(message_content, len(texts))
+        # Parse the response (always returns tuple)
+        translations, parsed_segment_numbers = self._parse_translation_response(
+            message_content, len(texts)
+        )
+
+        # Store parsed_segment_numbers for use in merge_translations
+        # Will be None if all translations parsed successfully, or a list if there was a mismatch
+        self._last_parsed_segment_numbers = parsed_segment_numbers
 
         logger.info(f"Successfully translated {len(translations)} segments")
         return translations
@@ -268,18 +291,27 @@ class SubtitleTranslator:
 
     def _parse_translation_response(
         self, response: str, expected_count: int
-    ) -> List[str]:
+    ) -> Tuple[List[str], Optional[List[int]]]:
         """
         Parse GPT-5-nano's translation response.
 
         Args:
             response: Raw response from GPT-5-nano
-            expecpromptted_count: Expected number of translations
+            expected_count: Expected number of translations
 
         Returns:
-            List of translated texts
+            Tuple of (translations, parsed_segment_numbers):
+            - translations: List of translated texts
+            - parsed_segment_numbers: List of parsed segment numbers (1-based),
+              or None when all translations were parsed successfully
+
+        Raises:
+            TranslationCountMismatchError: If the number of parsed translations
+                doesn't match the expected count. This is a transient error that
+                should be retried.
         """
         translations = []
+        parsed_segment_numbers = []
 
         # Split by numbered segments
         segments = response.split("[")
@@ -292,22 +324,52 @@ class SubtitleTranslator:
             parts = segment.split("]", 1)
             if len(parts) == 2:
                 try:
-                    int(parts[0].strip())  # Validate number format
+                    segment_number = int(parts[0].strip())  # Validate number format
                     text = parts[1].strip()
                     translations.append(text)
+                    parsed_segment_numbers.append(segment_number)
                 except ValueError:
+                    # Invalid segment number format - skip this segment
                     continue
 
         if len(translations) != expected_count:
-            logger.warning(
-                f"Expected {expected_count} translations but got {len(translations)}"
-            )
-            # Log the raw response for debugging if parsing failed
-            if len(translations) == 0:
-                logger.error(
-                    f"Failed to parse any translations from response. "
-                    f"Response length: {len(response)} characters. "
-                    f"First 500 chars: {response[:500]}"
-                )
+            missing_count = expected_count - len(translations)
 
-        return translations
+            # Allow 1 missing translation as tolerance for minor parsing issues
+            if missing_count == 1:
+                logger.warning(
+                    f"⚠️  Translation parsing: expected {expected_count} translations, "
+                    f"but parsed {len(translations)} (missing 1). "
+                    f"This is acceptable - will use original text for the missing segment. "
+                    f"Parsed segment numbers: {sorted(parsed_segment_numbers) if parsed_segment_numbers else 'none'}"
+                )
+                # Return tuple with translations and parsed segment numbers for accurate missing segment identification
+                return (translations, parsed_segment_numbers)
+
+            # For more than 1 missing, log detailed information and raise error
+            logger.warning(
+                f"⚠️  Translation parsing mismatch: expected {expected_count} translations, "
+                f"but parsed {len(translations)} (missing {missing_count}). "
+                f"Parsed segment numbers: {sorted(parsed_segment_numbers) if parsed_segment_numbers else 'none'}"
+            )
+
+            # Log response sample for debugging (first and last 500 chars)
+            response_sample = None
+            if len(response) > 1000:
+                response_sample = f"{response[:500]}...\n...{response[-500:]}"
+            else:
+                response_sample = response
+
+            logger.debug(f"Response sample (for debugging):\n{response_sample}")
+
+            # Raise custom exception that will trigger retry
+            raise TranslationCountMismatchError(
+                expected_count=expected_count,
+                actual_count=len(translations),
+                parsed_segment_numbers=parsed_segment_numbers,
+                response_sample=response_sample,
+            )
+
+        # Normal case: all translations parsed successfully
+        # Return tuple with None for parsed_segment_numbers (no mismatch to track)
+        return (translations, None)

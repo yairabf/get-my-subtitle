@@ -102,6 +102,38 @@ class Settings(BaseSettings):
         default=2, env="OPENAI_RETRY_EXPONENTIAL_BASE"
     )  # Exponential base for backoff (2 = double each time)
 
+    # Translation Parallel Processing Configuration
+    translation_parallel_requests: int = Field(
+        default=3, env="TRANSLATION_PARALLEL_REQUESTS"
+    )  # Number of parallel translation requests for GPT-4o-mini (low rate limit)
+    translation_parallel_requests_high_tier: int = Field(
+        default=6, env="TRANSLATION_PARALLEL_REQUESTS_HIGH_TIER"
+    )  # Number of parallel translation requests for higher tier models (GPT-4o, GPT-4)
+
+    def get_translation_parallel_requests(self) -> int:
+        """
+        Get the appropriate number of parallel translation requests based on the model.
+
+        GPT-4o-mini and GPT-3.5 models have lower rate limits, so we use a conservative
+        parallel count (default: 3) to avoid hitting rate limits. Higher tier models
+        (GPT-4o, GPT-4, GPT-5) can handle more concurrent requests (default: 6).
+
+        This can speed up translation by 5-10x by processing multiple chunks simultaneously
+        while respecting API rate limits.
+
+        Returns:
+            Number of parallel requests to use:
+            - 3 for GPT-4o-mini and GPT-3.5 (low rate limit)
+            - 6 for GPT-4o, GPT-4, GPT-5 (higher tier API access)
+        """
+        model_lower = self.openai_model.lower()
+        # GPT-4o-mini has lower rate limits, use conservative parallel count
+        if "gpt-4o-mini" in model_lower or "gpt-3.5" in model_lower:
+            return self.translation_parallel_requests
+        # Higher tier models (GPT-4o, GPT-4, GPT-5) can handle more parallel requests
+        else:
+            return self.translation_parallel_requests_high_tier
+
     # File Storage
     subtitle_storage_path: str = Field(
         default="./storage/subtitles", env="SUBTITLE_STORAGE_PATH"

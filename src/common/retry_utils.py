@@ -55,6 +55,16 @@ def is_transient_error(error: Exception) -> bool:
     Returns:
         True if error is transient and should be retried, False otherwise
     """
+    # Check for translation count mismatch errors - these are transient
+    # (parsing failures may succeed on retry due to different API response formatting)
+    try:
+        from common.subtitle_parser import TranslationCountMismatchError
+
+        if isinstance(error, TranslationCountMismatchError):
+            return True
+    except ImportError:
+        pass
+
     # Check OpenAI errors first (most common for translation service)
     try:
         from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError

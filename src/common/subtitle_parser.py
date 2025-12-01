@@ -3,9 +3,72 @@
 import logging
 import re
 from dataclasses import dataclass
-from typing import List
+from typing import Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
+
+# Constants for error message display
+MAX_MISSING_SEGMENTS_TO_DISPLAY = 10
+
+
+class TranslationCountMismatchError(ValueError):
+    """
+    Exception raised when the number of translated segments doesn't match the expected count.
+
+    This is typically a transient error that can occur due to:
+    - API response formatting issues
+    - Parsing failures due to unexpected response format
+    - Truncated responses
+
+    This error should be retried as it may succeed on subsequent attempts.
+    """
+
+    def __init__(
+        self,
+        expected_count: int,
+        actual_count: int,
+        chunk_index: int = None,
+        total_chunks: int = None,
+        parsed_segment_numbers: List[int] = None,
+        response_sample: str = None,
+    ):
+        """
+        Initialize the error with detailed context.
+
+        Args:
+            expected_count: Expected number of translations
+            actual_count: Actual number of translations received
+            chunk_index: Index of the chunk being translated (if available)
+            total_chunks: Total number of chunks (if available)
+            parsed_segment_numbers: List of segment numbers that were successfully parsed
+            response_sample: Sample of the API response for debugging
+        """
+        self.expected_count = expected_count
+        self.actual_count = actual_count
+        self.chunk_index = chunk_index
+        self.total_chunks = total_chunks
+        self.parsed_segment_numbers = parsed_segment_numbers or []
+        self.response_sample = response_sample
+
+        # Build detailed error message
+        message = (
+            f"Translation count mismatch: expected {expected_count} translations, "
+            f"but got {actual_count} (missing {expected_count - actual_count})"
+        )
+
+        if chunk_index is not None and total_chunks is not None:
+            message += f" in chunk {chunk_index + 1}/{total_chunks}"
+
+        if parsed_segment_numbers:
+            missing = set(range(1, expected_count + 1)) - set(parsed_segment_numbers)
+            if missing:
+                missing_list = sorted(list(missing))[:MAX_MISSING_SEGMENTS_TO_DISPLAY]
+                message += f". Missing segment numbers: {missing_list}"
+                if len(missing) > MAX_MISSING_SEGMENTS_TO_DISPLAY:
+                    message += f" (and {len(missing) - MAX_MISSING_SEGMENTS_TO_DISPLAY} more)"
+
+        super().__init__(message)
+
 
 # Maximum number of subtitle segments to process in a single batch
 # This limit helps prevent API timeouts and memory issues with large subtitle files
@@ -156,8 +219,237 @@ def extract_text_for_translation(segments: List[SubtitleSegment]) -> List[str]:
     return [segment.text for segment in segments]
 
 
+def _format_chunk_info(chunk_index: Optional[int] = None, total_chunks: Optional[int] = None) -> str:
+    """
+    Format chunk information for logging messages.
+
+    Args:
+        chunk_index: Optional chunk index (0-based)
+        total_chunks: Optional total number of chunks
+
+    Returns:
+        Formatted string like " Chunk 2/5" or empty string if info not provided
+    """
+    if chunk_index is not None and total_chunks is not None:
+        return f" Chunk {chunk_index + 1}/{total_chunks}"
+    return ""
+
+
+def _calculate_missing_segment_numbers(
+    segment_count: int, parsed_segment_numbers: List[int]
+) -> Set[int]:
+    """
+    Calculate which segment numbers are missing from parsed results.
+
+    Args:
+        segment_count: Total number of segments expected (1-based count)
+        parsed_segment_numbers: List of successfully parsed segment numbers (1-based)
+
+    Returns:
+        Set of missing segment numbers (1-based)
+    """
+    expected_numbers = set(range(1, segment_count + 1))
+    parsed_numbers_set = set(parsed_segment_numbers)
+    return expected_numbers - parsed_numbers_set
+
+
+def _identify_missing_segment_index(
+    segment_count: int, parsed_segment_numbers: Optional[List[int]] = None
+) -> int:
+    """
+    Identify the 0-based index of the missing segment.
+
+    Args:
+        segment_count: Total number of segments (1-based count)
+        parsed_segment_numbers: List of successfully parsed segment numbers (1-based)
+
+    Returns:
+        0-based index of the missing segment.
+        If parsed_segment_numbers is not provided or invalid, returns last segment index.
+    """
+    if not parsed_segment_numbers:
+        # Fallback: assume last segment is missing
+        return segment_count - 1
+
+    missing_numbers = _calculate_missing_segment_numbers(segment_count, parsed_segment_numbers)
+
+    if missing_numbers:
+        missing_number = missing_numbers.pop()
+
+        # Validate missing_number is within valid range
+        if missing_number < 1 or missing_number > segment_count:
+            logger.warning(
+                f"Invalid missing segment number {missing_number} "
+                f"(expected 1-{segment_count}), falling back to last segment"
+            )
+            return segment_count - 1
+
+        # Convert 1-based segment number to 0-based index
+        return missing_number - 1
+
+    # Fallback: if no missing numbers found, assume last segment
+    return segment_count - 1
+
+
+def _create_translation_map(
+    translations: List[str], parsed_segment_numbers: Optional[List[int]] = None
+) -> Dict[int, str]:
+    """
+    Create a mapping from segment number (1-based) to translation text.
+
+    Args:
+        translations: List of translated text strings
+        parsed_segment_numbers: Optional list of segment numbers corresponding to translations
+
+    Returns:
+        Dictionary mapping segment number (1-based) to translation text
+    """
+    translation_map: Dict[int, str] = {}
+
+    if parsed_segment_numbers:
+        # Validate lengths match
+        if len(parsed_segment_numbers) != len(translations):
+            logger.warning(
+                f"Mismatch: {len(parsed_segment_numbers)} parsed segment numbers "
+                f"but {len(translations)} translations. Using fallback sequential mapping."
+            )
+            # Fall back to sequential mapping
+            for i, translation in enumerate(translations):
+                translation_map[i + 1] = translation.strip()
+        else:
+            # Map parsed segment numbers to their translations
+            for seg_num, translation in zip(parsed_segment_numbers, translations):
+                translation_map[seg_num] = translation.strip()
+    else:
+        # Fallback: assume translations are in sequential order (for segments 1, 2, 3, ...)
+        for i, translation in enumerate(translations):
+            translation_map[i + 1] = translation.strip()
+
+    return translation_map
+
+
+def _build_translated_segments_with_missing(
+    segments: List[SubtitleSegment],
+    translation_map: Dict[int, str],
+    missing_index: int,
+) -> List[SubtitleSegment]:
+    """
+    Build translated segments using translation map, with original text for missing segment.
+
+    Args:
+        segments: Original subtitle segments
+        translation_map: Mapping from segment number (1-based) to translation text
+        missing_index: 0-based index of the segment that's missing a translation
+
+    Returns:
+        List of SubtitleSegment with translations applied
+    """
+    translated_segments = []
+
+    for i, segment in enumerate(segments):
+        segment_number = segment.index  # Segment numbers are 1-based
+
+        if i == missing_index:
+            # Use original text for the missing translation
+            logger.info(
+                f"Using original text for segment {segment_number} "
+                f"(translation missing)"
+            )
+            translated_segments.append(
+                SubtitleSegment(
+                    index=segment.index,
+                    start_time=segment.start_time,
+                    end_time=segment.end_time,
+                    text=segment.text,  # Keep original text
+                )
+            )
+        else:
+            # Use translated text from the map
+            translated_text = translation_map.get(segment_number)
+            if translated_text is None:
+                # Fallback: if mapping fails, use original text
+                logger.warning(
+                    f"Could not find translation for segment {segment_number}, "
+                    f"using original text"
+                )
+                translated_text = segment.text
+
+            translated_segments.append(
+                SubtitleSegment(
+                    index=segment.index,
+                    start_time=segment.start_time,
+                    end_time=segment.end_time,
+                    text=translated_text,
+                )
+            )
+
+    return translated_segments
+
+
+def _merge_translations_with_one_missing(
+    segments: List[SubtitleSegment],
+    translations: List[str],
+    chunk_index: Optional[int] = None,
+    total_chunks: Optional[int] = None,
+    parsed_segment_numbers: Optional[List[int]] = None,
+) -> List[SubtitleSegment]:
+    """
+    Handle merging when exactly 1 translation is missing.
+
+    This is a tolerance for minor parsing issues. The missing segment will use its original text.
+
+    Args:
+        segments: Original subtitle segments
+        translations: Translated text strings (count is 1 less than segments)
+        chunk_index: Optional chunk index for better error messages
+        total_chunks: Optional total chunks count for better error messages
+        parsed_segment_numbers: Optional list of parsed segment numbers for accurate identification
+
+    Returns:
+        List of translated segments with original text for the missing segment
+    """
+    segment_count = len(segments)
+    translation_count = len(translations)
+    chunk_info = _format_chunk_info(chunk_index, total_chunks)
+
+    # Identify which segment is actually missing
+    missing_index = _identify_missing_segment_index(segment_count, parsed_segment_numbers)
+
+    # Log appropriate warning message
+    if parsed_segment_numbers:
+        missing_numbers = _calculate_missing_segment_numbers(segment_count, parsed_segment_numbers)
+        if missing_numbers:
+            missing_number = list(missing_numbers)[0]
+            logger.warning(
+                f"⚠️  Translation count mismatch: expected {segment_count} translations, "
+                f"but got {translation_count} (missing 1). "
+                f"Using original text for segment {missing_number} (index {missing_index + 1}).{chunk_info}"
+            )
+        else:
+            # Shouldn't happen, but handle gracefully
+            logger.warning(
+                f"⚠️  Translation count mismatch: expected {segment_count} translations, "
+                f"but got {translation_count} (missing 1). "
+                f"Using original text for last segment (segment {segments[missing_index].index}).{chunk_info}"
+            )
+    else:
+        logger.warning(
+            f"⚠️  Translation count mismatch: expected {segment_count} translations, "
+            f"but got {translation_count} (missing 1). "
+            f"Using original text for last segment (segment {segments[missing_index].index}).{chunk_info}"
+        )
+
+    # Create translation map and build segments
+    translation_map = _create_translation_map(translations, parsed_segment_numbers)
+    return _build_translated_segments_with_missing(segments, translation_map, missing_index)
+
+
 def merge_translations(
-    segments: List[SubtitleSegment], translations: List[str]
+    segments: List[SubtitleSegment],
+    translations: List[str],
+    chunk_index: Optional[int] = None,
+    total_chunks: Optional[int] = None,
+    parsed_segment_numbers: Optional[List[int]] = None,
 ) -> List[SubtitleSegment]:
     """
     Merge translated text back into subtitle segments.
@@ -165,21 +457,42 @@ def merge_translations(
     Args:
         segments: Original subtitle segments
         translations: Translated text strings
+        chunk_index: Optional chunk index for better error messages
+        total_chunks: Optional total chunks count for better error messages
+        parsed_segment_numbers: Optional list of segment numbers that were successfully parsed.
+            When provided and there's exactly 1 missing translation, this is used to identify
+            which segment is actually missing (instead of assuming it's the last one).
 
     Returns:
         New list of segments with translated text
 
     Raises:
-        ValueError: If segment and translation counts don't match, or if inputs are None
+        TranslationCountMismatchError: If segment and translation counts don't match
+        ValueError: If inputs are None
     """
     if segments is None or translations is None:
         raise ValueError("Segments and translations cannot be None")
 
-    if len(segments) != len(translations):
-        raise ValueError(
-            f"Segment count ({len(segments)}) doesn't match translation count ({len(translations)})"
+    segment_count = len(segments)
+    translation_count = len(translations)
+    missing_count = segment_count - translation_count
+
+    # Allow 1 missing translation as tolerance for minor parsing issues
+    if missing_count == 1:
+        return _merge_translations_with_one_missing(
+            segments, translations, chunk_index, total_chunks, parsed_segment_numbers
         )
 
+    # For mismatches other than exactly 1 missing, raise error
+    if segment_count != translation_count:
+        raise TranslationCountMismatchError(
+            expected_count=segment_count,
+            actual_count=translation_count,
+            chunk_index=chunk_index,
+            total_chunks=total_chunks,
+        )
+
+    # Normal case: counts match exactly
     translated_segments = []
     for segment, translation in zip(segments, translations):
         translated_segments.append(
