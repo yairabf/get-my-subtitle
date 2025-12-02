@@ -138,6 +138,7 @@ class TestMediaFileEventHandler:
         # Mock duplicate prevention to return not duplicate
         with patch("scanner.event_handler.duplicate_prevention") as mock_dup:
             from common.duplicate_prevention import DuplicateCheckResult
+
             mock_dup.check_and_register = AsyncMock(
                 return_value=DuplicateCheckResult(
                     is_duplicate=False, existing_job_id=None, message="Not a duplicate"

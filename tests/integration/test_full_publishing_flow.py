@@ -167,21 +167,12 @@ class TestTranslationRequestPublishingFlow:
         test_event_publisher,
         rabbitmq_channel,
     ):
-        """Test that translation request publishes both queue task and event."""
+        """Test that translation request publishes queue task (events published by downloader/consumer)."""
         # Arrange
         request_id = uuid4()
         subtitle_file_path = "/storage/subtitle.srt"
         source_language = "en"
         target_language = "de"
-
-        # Setup event subscription
-        event_queue = await rabbitmq_channel.declare_queue(
-            "test_event_queue", exclusive=True
-        )
-        exchange = await rabbitmq_channel.declare_exchange(
-            "subtitle.events", ExchangeType.TOPIC, durable=True
-        )
-        await event_queue.bind(exchange, routing_key="subtitle.translate.requested")
 
         # Act
         result = await test_orchestrator.enqueue_translation_task(
@@ -190,12 +181,6 @@ class TestTranslationRequestPublishingFlow:
 
         # Assert
         assert result is True
-
-        # Verify event published (this is the primary verification)
-        await asyncio.sleep(0.1)
-        event_message = await event_queue.get(timeout=5)
-        assert event_message is not None
-        await event_message.ack()
 
         # Verify task in queue - Translator might consume it, so check immediately
         task_queue = await rabbitmq_channel.declare_queue(
@@ -211,8 +196,10 @@ class TestTranslationRequestPublishingFlow:
             await task_message.ack()
         except QueueEmpty:
             # Message was consumed by Translator - that's fine, proves it was published
-            # The event verification above confirms the task was enqueued
             pass
+        
+        # Note: Translation events are published by downloader worker when it enqueues translation,
+        # not by orchestrator.enqueue_translation_task() which is only used for direct API requests
 
     async def test_translation_task_can_be_consumed(
         self, test_orchestrator, rabbitmq_channel
@@ -269,7 +256,7 @@ class TestTranslationRequestPublishingFlow:
         test_event_publisher,
         rabbitmq_channel,
     ):
-        """Test that translation event can be subscribed to and processed."""
+        """Test that translation event can be published and subscribed to (via EventPublisher)."""
         # Arrange
         request_id = uuid4()
         subtitle_file_path = "/storage/subtitle.srt"
@@ -285,10 +272,20 @@ class TestTranslationRequestPublishingFlow:
         )
         await event_queue.bind(exchange, routing_key="subtitle.translate.requested")
 
-        # Act - Enqueue translation task (which also publishes event)
-        await test_orchestrator.enqueue_translation_task(
-            request_id, subtitle_file_path, source_language, target_language
+        # Act - Manually publish translation event (mimicking downloader worker behavior)
+        from common.utils import DateTimeUtils
+        event = SubtitleEvent(
+            event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
+            job_id=request_id,
+            timestamp=DateTimeUtils.get_current_utc_datetime(),
+            source="downloader",  # Events are published by downloader, not orchestrator
+            payload={
+                "subtitle_file_path": subtitle_file_path,
+                "source_language": source_language,
+                "target_language": target_language,
+            },
         )
+        await test_event_publisher.publish_event(event)
 
         # Assert - Consume and validate event
         await asyncio.sleep(0.1)
@@ -301,7 +298,7 @@ class TestTranslationRequestPublishingFlow:
 
         assert str(subtitle_event.job_id) == str(request_id)
         assert subtitle_event.event_type == EventType.SUBTITLE_TRANSLATE_REQUESTED
-        assert subtitle_event.source == "manager"
+        assert subtitle_event.source == "downloader"  # Changed from "manager"
         assert subtitle_event.payload["subtitle_file_path"] == "/storage/subtitle.srt"
         assert subtitle_event.payload["source_language"] == "en"
         assert subtitle_event.payload["target_language"] == "pt"

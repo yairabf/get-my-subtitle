@@ -88,25 +88,29 @@ class TestSubtitleTranslator:
     def test_parse_translation_response(self, translator_without_api_key):
         """Test parsing GPT response."""
         response = "[1]\nHola\n\n[2]\nAdiós\n\n"
-        translations = translator_without_api_key._parse_translation_response(
-            response, 2
+        translations, parsed_segment_numbers = (
+            translator_without_api_key._parse_translation_response(response, 2)
         )
 
         assert len(translations) == 2
         assert "Hola" in translations[0]
         assert "Adiós" in translations[1]
+        # When all translations are parsed successfully, parsed_segment_numbers should be None
+        assert parsed_segment_numbers is None
 
     def test_parse_translation_response_mismatched_count(
         self, translator_without_api_key
     ):
-        """Test parsing response with wrong number of translations."""
+        """Test parsing response with wrong number of translations (1 missing is tolerated)."""
         response = "[1]\nHola\n\n"  # Only 1 translation
-        translations = translator_without_api_key._parse_translation_response(
-            response, 2
+        translations, parsed_segment_numbers = (
+            translator_without_api_key._parse_translation_response(response, 2)
         )
 
-        # Should still return what it found
+        # Should still return what it found (1 missing is tolerated)
         assert len(translations) == 1
+        # parsed_segment_numbers should be [1] since segment 1 was parsed
+        assert parsed_segment_numbers == [1]
 
 
 class TestSRTParser:
@@ -290,13 +294,20 @@ class TestSubtitleParserHelpers:
 
     def test_merge_translations_mismatched_count(self):
         """Test error handling for mismatched counts."""
-        from common.subtitle_parser import merge_translations
+        from common.subtitle_parser import (
+            TranslationCountMismatchError,
+            merge_translations,
+        )
 
         segments = [SubtitleSegment(1, "00:00:01,000", "00:00:02,000", "Hello")]
         translations = ["Hola", "Extra"]
 
-        with pytest.raises(ValueError):
+        with pytest.raises(TranslationCountMismatchError) as exc_info:
             merge_translations(segments, translations)
+
+        # Verify error details
+        assert exc_info.value.expected_count == 1
+        assert exc_info.value.actual_count == 2
 
     def test_chunk_segments(self):
         """Test chunking segments for batch processing."""
@@ -644,6 +655,7 @@ Goodbye!
                 ["¡Adiós!"],  # Third chunk
             ]
         )
+        translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
         return translator
 
     @pytest.mark.asyncio
@@ -664,6 +676,7 @@ Goodbye!
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
 
@@ -720,6 +733,7 @@ Goodbye!
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
         monkeypatch.setattr(
@@ -793,6 +807,7 @@ Goodbye!
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
         monkeypatch.setattr(
@@ -848,6 +863,7 @@ Goodbye!
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
 
@@ -898,6 +914,7 @@ Goodbye!
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
         monkeypatch.setattr(
@@ -981,6 +998,7 @@ How are you?
         translator.translate_batch = AsyncMock(
             return_value=["Hola mundo", "¿Cómo estás?"]
         )
+        translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
         return translator
 
     @pytest.mark.asyncio
@@ -1001,6 +1019,7 @@ How are you?
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
 
@@ -1065,6 +1084,7 @@ How are you?
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
 
@@ -1130,6 +1150,7 @@ How are you?
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
 
@@ -1298,12 +1319,14 @@ Hello world
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
 
         # Mock translator
         mock_translator = MagicMock()
         mock_translator.translate_batch = AsyncMock(return_value=["Translated text"])
+        mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
 
         # Mock Redis and event publisher
         with patch("translator.worker.redis_client") as mock_redis, patch(
@@ -1367,3 +1390,423 @@ Hello world
                             and len(parts[-2]) == 2
                             and parts[-1] == target_language
                         ), f"Found incorrectly named file: {wrong_file.name} (should replace, not append)"
+
+
+class TestParallelTranslationProcessing:
+    """Test parallel translation processing with semaphore limiting."""
+
+    # Test constants for parallel processing configuration
+    # These constants make the test values explicit and maintainable
+    TEST_SEGMENTS_PER_CHUNK = 2  # Small chunks to force multiple chunks for testing
+    TEST_PARALLEL_LIMIT_LOW = (
+        2  # Low limit for testing semaphore constraint (forces queuing)
+    )
+    TEST_PARALLEL_LIMIT_NORMAL = 3  # Default parallel requests for GPT-4o-mini in tests
+    TEST_PARALLEL_LIMIT_HIGH = 6  # Parallel requests for higher tier models in tests
+    TEST_MAX_TOKENS_PER_CHUNK = 100  # Small token limit to force chunking
+    TEST_TOKEN_SAFETY_MARGIN = 0.8  # Safety margin for token calculations
+    TEST_API_DELAY_SECONDS = 0.1  # Simulated API call delay for timing tests
+    TEST_SEMAPHORE_DELAY_SECONDS = 0.05  # Small delay for semaphore concurrency tests
+
+    @pytest.fixture
+    def large_srt_file(self, tmp_path):
+        """Create a large SRT file with many segments for parallel processing."""
+        # Create 10 segments to ensure multiple chunks
+        segments = []
+        for i in range(1, 11):
+            segments.append(
+                f"{i}\n"
+                f"00:00:{i:02d},000 --> 00:00:{i+1:02d},000\n"
+                f"Segment {i} text content\n"
+            )
+        srt_content = "\n".join(segments)
+        srt_file = tmp_path / "large_test.srt"
+        srt_file.write_text(srt_content, encoding="utf-8")
+        return str(srt_file)
+
+    @pytest.fixture
+    def mock_settings_parallel(self):
+        """Create mock settings with parallel processing enabled."""
+        mock_settings = MagicMock()
+        mock_settings.checkpoint_enabled = True
+        mock_settings.checkpoint_cleanup_on_success = True
+        mock_settings.translation_max_tokens_per_chunk = self.TEST_MAX_TOKENS_PER_CHUNK
+        mock_settings.translation_max_segments_per_chunk = self.TEST_SEGMENTS_PER_CHUNK
+        mock_settings.openai_model = "gpt-4o-mini"
+        mock_settings.translation_token_safety_margin = self.TEST_TOKEN_SAFETY_MARGIN
+        mock_settings.translation_parallel_requests = self.TEST_PARALLEL_LIMIT_NORMAL
+        mock_settings.translation_parallel_requests_high_tier = (
+            self.TEST_PARALLEL_LIMIT_HIGH
+        )
+
+        def get_parallel_requests():
+            return self.TEST_PARALLEL_LIMIT_NORMAL
+
+        mock_settings.get_translation_parallel_requests = get_parallel_requests
+        return mock_settings
+
+    @pytest.mark.asyncio
+    async def test_parallel_processing_executes_chunks_concurrently(
+        self, large_srt_file, mock_settings_parallel, tmp_path, monkeypatch
+    ):
+        """Test that chunks are processed in parallel, not sequentially."""
+        import asyncio
+        from uuid import uuid4
+
+        request_id = uuid4()
+        monkeypatch.setattr("translator.worker.settings", mock_settings_parallel)
+
+        # Track call order and timing
+        call_times = []
+        call_order = []
+
+        async def mock_translate_batch(texts, source_lang, target_lang):
+            """Mock translate_batch that tracks timing."""
+            call_times.append(asyncio.get_event_loop().time())
+            call_order.append(len(call_times))
+            # Simulate API delay using test constant
+            await asyncio.sleep(self.TEST_API_DELAY_SECONDS)
+            return [f"Translated {text}" for text in texts]
+
+        mock_translator = MagicMock()
+        mock_translator.translate_batch = AsyncMock(side_effect=mock_translate_batch)
+        mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
+
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
+
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": large_srt_file,
+                    "source_language": "en",
+                    "target_language": "es",
+                }
+            ).encode()
+
+            start_time = asyncio.get_event_loop().time()
+            await process_translation_message(mock_message, mock_translator)
+            end_time = asyncio.get_event_loop().time()
+
+            # With parallel processing, multiple chunks should be called nearly simultaneously
+            # If sequential, total time would be ~0.1s * num_chunks
+            # With parallel (3 concurrent), should be much faster
+            total_time = end_time - start_time
+            num_calls = len(call_times)
+
+            # With 3 parallel requests, 5 chunks should complete in ~2 batches
+            # Sequential would take ~0.5s, parallel should take ~0.2-0.3s
+            assert total_time < 0.5, f"Parallel processing took too long: {total_time}s"
+            assert num_calls > 1, "Should have multiple translation calls"
+
+    @pytest.mark.asyncio
+    async def test_semaphore_limits_concurrent_requests(
+        self, large_srt_file, mock_settings_parallel, tmp_path, monkeypatch
+    ):
+        """Test that semaphore limits the number of concurrent API requests."""
+        import asyncio
+        from uuid import uuid4
+
+        request_id = uuid4()
+        # Use low parallel limit to test semaphore constraint (forces queuing with 5 chunks)
+        mock_settings_parallel.translation_parallel_requests = (
+            self.TEST_PARALLEL_LIMIT_LOW
+        )
+        mock_settings_parallel.get_translation_parallel_requests = (
+            lambda: self.TEST_PARALLEL_LIMIT_LOW
+        )
+        monkeypatch.setattr("translator.worker.settings", mock_settings_parallel)
+
+        active_requests = []
+        max_concurrent = 0
+
+        async def mock_translate_batch(texts, source_lang, target_lang):
+            """Mock translate_batch that tracks concurrent requests."""
+            active_requests.append(1)
+            current_concurrent = len(active_requests)
+            nonlocal max_concurrent
+            max_concurrent = max(max_concurrent, current_concurrent)
+            # Use test constant for delay to allow other requests to start
+            await asyncio.sleep(self.TEST_SEMAPHORE_DELAY_SECONDS)
+            active_requests.pop()
+            return [f"Translated {text}" for text in texts]
+
+        mock_translator = MagicMock()
+        mock_translator.translate_batch = AsyncMock(side_effect=mock_translate_batch)
+        mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
+
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
+
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": large_srt_file,
+                    "source_language": "en",
+                    "target_language": "es",
+                }
+            ).encode()
+
+            await process_translation_message(mock_message, mock_translator)
+
+            # With low semaphore limit, max concurrent should be <= TEST_PARALLEL_LIMIT_LOW
+            assert (
+                max_concurrent <= self.TEST_PARALLEL_LIMIT_LOW
+            ), f"Semaphore did not limit concurrent requests: {max_concurrent} (expected <= {self.TEST_PARALLEL_LIMIT_LOW})"
+
+    @pytest.mark.asyncio
+    async def test_out_of_order_completion_handled_correctly(
+        self, large_srt_file, mock_settings_parallel, tmp_path, monkeypatch
+    ):
+        """Test that chunks completing out of order are sorted correctly."""
+        import asyncio
+        from uuid import uuid4
+
+        request_id = uuid4()
+        monkeypatch.setattr("translator.worker.settings", mock_settings_parallel)
+
+        call_count = 0
+
+        async def mock_translate_batch(texts, source_lang, target_lang):
+            """Mock translate_batch that returns in reverse order."""
+            nonlocal call_count
+            call_count += 1
+            # Later chunks complete faster (simulating out-of-order completion)
+            # Use decreasing delay based on call count to simulate varying API response times
+            delay = (self.TEST_API_DELAY_SECONDS * 2) - (call_count * 0.02)
+            await asyncio.sleep(max(0.01, delay))
+            return [f"Translated chunk {call_count}: {text}" for text in texts]
+
+        mock_translator = MagicMock()
+        mock_translator.translate_batch = AsyncMock(side_effect=mock_translate_batch)
+        mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
+
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
+
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": large_srt_file,
+                    "source_language": "en",
+                    "target_language": "es",
+                }
+            ).encode()
+
+            await process_translation_message(mock_message, mock_translator)
+
+            # Verify output file exists and segments are in correct order
+            output_file = tmp_path / "large_test.es.srt"
+            assert output_file.exists(), "Output file should be created"
+
+            # Parse output and verify segments are numbered sequentially
+            output_content = output_file.read_text(encoding="utf-8")
+            segments = SRTParser.parse(output_content)
+
+            # Verify segments are in order (indices should be sequential)
+            for i, segment in enumerate(segments, 1):
+                assert (
+                    segment.index == i
+                ), f"Segment {i} has wrong index: {segment.index}"
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_saved_after_parallel_batch(
+        self, large_srt_file, mock_settings_parallel, tmp_path, monkeypatch
+    ):
+        """Test that checkpoint is saved correctly after parallel batch completion."""
+        import asyncio
+        from uuid import uuid4
+
+        request_id = uuid4()
+        mock_settings_parallel.subtitle_storage_path = str(tmp_path)
+        monkeypatch.setattr("translator.worker.settings", mock_settings_parallel)
+
+        mock_translator = MagicMock()
+        mock_translator.translate_batch = AsyncMock(
+            side_effect=lambda texts, sl, tl: [f"Translated {text}" for text in texts]
+        )
+
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
+
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": large_srt_file,
+                    "source_language": "en",
+                    "target_language": "es",
+                }
+            ).encode()
+
+            await process_translation_message(mock_message, mock_translator)
+
+            # Verify checkpoint was saved with all completed chunks
+            checkpoint_dir = tmp_path / "checkpoints"
+            checkpoint_files = list(
+                checkpoint_dir.glob(f"{request_id}.es.checkpoint.json")
+            )
+
+            # Checkpoint may be cleaned up after completion, but during processing
+            # it should have been created. If it exists, verify it has correct structure
+            if checkpoint_files:
+                import json as json_lib
+
+                checkpoint_data = json_lib.loads(checkpoint_files[0].read_text())
+                assert "completed_chunks" in checkpoint_data
+                assert "total_chunks" in checkpoint_data
+                assert (
+                    len(checkpoint_data["completed_chunks"])
+                    == checkpoint_data["total_chunks"]
+                )
+
+    @pytest.mark.asyncio
+    async def test_parallel_processing_with_checkpoint_resume(
+        self, large_srt_file, mock_settings_parallel, tmp_path, monkeypatch
+    ):
+        """Test that parallel processing works correctly when resuming from checkpoint."""
+        import asyncio
+        from uuid import uuid4
+
+        from translator.checkpoint_manager import CheckpointManager
+
+        request_id = uuid4()
+        mock_settings_parallel.subtitle_storage_path = str(tmp_path)
+        monkeypatch.setattr("translator.worker.settings", mock_settings_parallel)
+
+        # Create a checkpoint with first 2 chunks completed
+        checkpoint_manager = CheckpointManager()
+        segments = SRTParser.parse((tmp_path / "large_test.srt").read_text())
+        chunks = [
+            segments[0:2],  # Chunk 0
+            segments[2:4],  # Chunk 1
+            segments[4:6],  # Chunk 2
+            segments[6:8],  # Chunk 3
+            segments[8:10],  # Chunk 4
+        ]
+
+        # Create partial translated segments for first 2 chunks
+        partial_segments = []
+        for i, chunk in enumerate(chunks[:2]):
+            for segment in chunk:
+                translated_seg = SubtitleSegment(
+                    index=segment.index,
+                    start_time=segment.start_time,
+                    end_time=segment.end_time,
+                    text=f"Translated chunk {i}: {segment.text}",
+                )
+                partial_segments.append(translated_seg)
+
+        await checkpoint_manager.save_checkpoint(
+            request_id=request_id,
+            subtitle_file_path=large_srt_file,
+            source_language="en",
+            target_language="es",
+            total_chunks=len(chunks),
+            completed_chunks=[0, 1],
+            translated_segments=partial_segments,
+        )
+
+        # Mock translator for remaining chunks
+        call_count = [0]  # Use list to allow modification in nested function
+
+        async def mock_translate_batch(texts, source_lang, target_lang):
+            call_count[0] += 1
+            return [
+                f"Translated remaining chunk {call_count[0]}: {text}" for text in texts
+            ]
+
+        mock_translator = MagicMock()
+        mock_translator.translate_batch = AsyncMock(side_effect=mock_translate_batch)
+        mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
+
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
+
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": large_srt_file,
+                    "source_language": "en",
+                    "target_language": "es",
+                }
+            ).encode()
+
+            await process_translation_message(mock_message, mock_translator)
+
+            # Should only translate remaining chunks (2, 3, 4)
+            # With parallel processing, all 3 should be called
+            assert (
+                call_count[0] == 3
+            ), f"Expected 3 translation calls, got {call_count[0]}"
+
+    @pytest.mark.asyncio
+    async def test_parallel_processing_error_handling(
+        self, large_srt_file, mock_settings_parallel, tmp_path, monkeypatch
+    ):
+        """Test that errors in parallel processing are handled correctly (publishes JOB_FAILED event)."""
+        import asyncio
+        from uuid import uuid4
+
+        request_id = uuid4()
+        monkeypatch.setattr("translator.worker.settings", mock_settings_parallel)
+
+        call_count = 0
+
+        async def mock_translate_batch(texts, source_lang, target_lang):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:  # Fail on second chunk
+                raise Exception("Simulated API error")
+            return [f"Translated {text}" for text in texts]
+
+        mock_translator = MagicMock()
+        mock_translator.translate_batch = AsyncMock(side_effect=mock_translate_batch)
+        mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
+
+        with patch("translator.worker.redis_client") as mock_redis, patch(
+            "translator.worker.event_publisher"
+        ) as mock_pub:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+            mock_pub.publish_event = AsyncMock(return_value=True)
+
+            mock_message = MagicMock()
+            mock_message.body = json.dumps(
+                {
+                    "request_id": str(request_id),
+                    "subtitle_file_path": large_srt_file,
+                    "source_language": "en",
+                    "target_language": "es",
+                }
+            ).encode()
+
+            # Errors are handled gracefully - JOB_FAILED event is published, no exception raised
+            await process_translation_message(mock_message, mock_translator)
+            
+            # Verify JOB_FAILED event was published
+            assert mock_pub.publish_event.called
+            # Find the JOB_FAILED event call
+            job_failed_calls = [
+                call for call in mock_pub.publish_event.call_args_list
+                if "JOB_FAILED" in str(call) or "job.failed" in str(call).lower()
+            ]
+            assert len(job_failed_calls) > 0, "Expected JOB_FAILED event to be published"

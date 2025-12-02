@@ -151,11 +151,67 @@ class TestTextExtractionAndMerging:
         assert translated_segments[0].index == 1
 
     def test_merge_translations_mismatched_count(self, sample_segments):
-        """Test merging with mismatched segment and translation counts."""
+        """Test merging with mismatched segment and translation counts (more than 1 missing)."""
+        from common.subtitle_parser import TranslationCountMismatchError
+
+        translations = ["Hola"]  # Only 1 translation for 3 segments (2 missing)
+
+        with pytest.raises(TranslationCountMismatchError) as exc_info:
+            merge_translations(sample_segments, translations)
+
+        # Verify error details
+        assert exc_info.value.expected_count == 3
+        assert exc_info.value.actual_count == 1
+        assert "expected 3 translations" in str(exc_info.value).lower()
+
+    def test_merge_translations_allows_one_missing(self, sample_segments):
+        """Test that 1 missing translation is allowed and uses original text."""
         translations = ["Hola", "Mundo"]  # Only 2 translations for 3 segments
 
-        with pytest.raises(ValueError, match="doesn't match"):
-            merge_translations(sample_segments, translations)
+        translated_segments = merge_translations(sample_segments, translations)
+
+        # Should have 3 segments
+        assert len(translated_segments) == 3
+
+        # First 2 should be translated
+        assert translated_segments[0].text == "Hola"
+        assert translated_segments[1].text == "Mundo"
+
+        # Last one should use original text
+        assert translated_segments[2].text == sample_segments[2].text
+        assert translated_segments[2].text == "Test"
+
+        # All timing should be preserved
+        assert translated_segments[0].start_time == sample_segments[0].start_time
+        assert translated_segments[2].start_time == sample_segments[2].start_time
+
+    def test_merge_translations_identifies_missing_segment_with_parsed_numbers(
+        self, sample_segments
+    ):
+        """Test that parsed_segment_numbers correctly identifies which segment is missing."""
+        # Simulate missing middle segment (segment 2)
+        translations = ["Hola", "Prueba"]  # Missing translation for segment 2
+        parsed_segment_numbers = [1, 3]  # Only segments 1 and 3 were parsed
+
+        translated_segments = merge_translations(
+            sample_segments, translations, parsed_segment_numbers=parsed_segment_numbers
+        )
+
+        # Should have 3 segments
+        assert len(translated_segments) == 3
+
+        # First segment should be translated
+        assert translated_segments[0].text == "Hola"
+        assert translated_segments[0].index == 1
+
+        # Second segment (missing) should use original text
+        assert translated_segments[1].text == sample_segments[1].text
+        assert translated_segments[1].text == "World"
+        assert translated_segments[1].index == 2
+
+        # Third segment should be translated
+        assert translated_segments[2].text == "Prueba"
+        assert translated_segments[2].index == 3
 
     def test_merge_translations_strips_whitespace(self, sample_segments):
         """Test that merge strips whitespace from translations."""
