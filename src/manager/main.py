@@ -15,6 +15,7 @@ from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus
 from common.utils import DateTimeUtils, StatusProgressCalculator
 from manager.event_consumer import event_consumer
+from manager.health import check_health
 from manager.orchestrator import orchestrator
 from manager.schemas import (
     HealthResponse,
@@ -116,9 +117,15 @@ app.add_middleware(
 )
 
 
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint."""
+@app.get("/health", response_model=Dict[str, Any])
+async def health_check_endpoint():
+    """Comprehensive health check endpoint for all Manager service components."""
+    return await check_health()
+
+
+@app.get("/health/simple", response_model=HealthResponse)
+async def simple_health_check():
+    """Simple health check endpoint for backward compatibility."""
     redis_health = await redis_client.health_check()
 
     # Include Redis status in health check
@@ -134,12 +141,28 @@ async def health_check():
 @app.get("/health/consumer", response_model=Dict[str, Any])
 async def consumer_health_check():
     """Check event consumer health status."""
+    consumer_healthy = await event_consumer.is_healthy()
     return {
-        "status": "consuming" if event_consumer.is_consuming else "not_consuming",
+        "status": "healthy" if consumer_healthy else "unhealthy",
+        "is_consuming": event_consumer.is_consuming,
         "connected": event_consumer.connection is not None
         and not event_consumer.connection.is_closed,
         "queue_name": event_consumer.queue_name,
         "routing_key": event_consumer.routing_key,
+    }
+
+
+@app.get("/health/orchestrator", response_model=Dict[str, Any])
+async def orchestrator_health_check():
+    """Check orchestrator health status."""
+    orchestrator_healthy = await orchestrator.is_healthy()
+    return {
+        "status": "healthy" if orchestrator_healthy else "unhealthy",
+        "connected": orchestrator.connection is not None
+        and not orchestrator.connection.is_closed,
+        "has_channel": orchestrator.channel is not None,
+        "download_queue": orchestrator.download_queue_name,
+        "translation_queue": orchestrator.translation_queue_name,
     }
 
 

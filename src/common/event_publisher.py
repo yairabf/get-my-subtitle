@@ -105,8 +105,17 @@ class EventPublisher:
             finally:
                 logger.info("Disconnected event publisher from RabbitMQ")
     
+    async def is_healthy(self) -> bool:
+        """
+        Check if RabbitMQ connection is healthy (public API).
+        
+        Returns:
+            True if connection, channel, and exchange are all healthy, False otherwise
+        """
+        return await self._check_health()
+    
     async def _check_health(self) -> bool:
-        """Check if RabbitMQ connection is healthy."""
+        """Check if RabbitMQ connection is healthy (internal implementation)."""
         if not self.connection or self.connection.is_closed:
             return False
         

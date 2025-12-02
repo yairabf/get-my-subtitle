@@ -14,6 +14,7 @@ from aio_pika.abc import AbstractIncomingMessage
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.config import settings  # noqa: E402
+from common.connection_utils import check_and_log_reconnection  # noqa: E402
 from common.event_publisher import event_publisher  # noqa: E402
 from common.logging_config import setup_service_logging  # noqa: E402
 from common.redis_client import redis_client  # noqa: E402
@@ -508,8 +509,11 @@ async def consume_translation_messages() -> None:
                     current_time = asyncio.get_event_loop().time()
                     if current_time - last_health_check > health_check_interval:
                         # Check Redis connection
-                        if not await redis_client.ensure_connected():
-                            logger.warning("Redis connection lost, will reconnect on next loop...")
+                        await check_and_log_reconnection(
+                            redis_client.ensure_connected,
+                            "Redis",
+                            "translator"
+                        )
                         
                         # Check RabbitMQ connection
                         if connection.is_closed:

@@ -1,5 +1,6 @@
 """Orchestrator for managing subtitle processing workflow."""
 
+import asyncio
 import logging
 from typing import Optional
 from uuid import UUID
@@ -30,28 +31,45 @@ class SubtitleOrchestrator:
         self.channel: Optional[AbstractChannel] = None
         self.download_queue_name = "subtitle.download"
         self.translation_queue_name = "subtitle.translation"
+        self._reconnect_lock = asyncio.Lock()
 
-    async def connect(self) -> None:
-        """Establish connection to RabbitMQ."""
-        try:
-            self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
-            self.channel = await self.connection.channel()
+    async def connect(self, max_retries: int = 10, retry_delay: float = 3.0) -> None:
+        """
+        Establish connection to RabbitMQ with retry logic.
+        
+        Args:
+            max_retries: Maximum number of connection attempts
+            retry_delay: Initial delay between retries in seconds
+        """
+        for attempt in range(max_retries):
+            try:
+                self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+                self.channel = await self.connection.channel()
 
-            # Declare queues
-            await self._declare_queues()
+                # Declare queues
+                await self._declare_queues()
 
-            # Event publisher is connected in main.py lifespan, no need to connect here
-            # Just ensure it's connected (idempotent)
-            if not event_publisher.connection or event_publisher.connection.is_closed:
-                await event_publisher.connect(max_retries=10, retry_delay=3.0)
+                # Event publisher is connected in main.py lifespan, no need to connect here
+                # Just ensure it's connected (idempotent)
+                if not event_publisher.connection or event_publisher.connection.is_closed:
+                    await event_publisher.connect(max_retries=10, retry_delay=3.0)
 
-            logger.info("Connected to RabbitMQ successfully")
-        except Exception as e:
-            logger.warning(f"Failed to connect to RabbitMQ: {e}")
-            logger.warning(
-                "Running in mock mode - messages will be logged but not queued"
-            )
-            # Don't raise the exception, allow the app to start in mock mode
+                logger.info("✅ Orchestrator connected to RabbitMQ successfully")
+                return  # Success, exit retry loop
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Failed to connect to RabbitMQ (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {retry_delay}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.warning(f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}")
+                    logger.warning(
+                        "Running in mock mode - messages will be logged but not queued"
+                    )
+                    # Don't raise the exception, allow the app to start in mock mode
 
     async def disconnect(self) -> None:
         """Close connection to RabbitMQ."""
@@ -61,6 +79,74 @@ class SubtitleOrchestrator:
         if self.connection and not self.connection.is_closed:
             await self.connection.close()
             logger.info("Disconnected from RabbitMQ")
+    
+    async def is_healthy(self) -> bool:
+        """
+        Check if orchestrator is healthy and connected to RabbitMQ.
+        
+        Returns:
+            True if connection and channel are healthy, False otherwise
+        """
+        try:
+            # Check if connection exists and is open
+            if not self.connection or self.connection.is_closed:
+                return False
+            
+            # Check if channel exists
+            if not self.channel:
+                return False
+            
+            return True
+        except Exception as e:
+            logger.warning(f"Orchestrator health check failed: {e}")
+            return False
+    
+    async def ensure_connected(self) -> bool:
+        """
+        Ensure RabbitMQ connection is healthy, reconnect if needed.
+        
+        Returns:
+            True if connected, False otherwise
+        """
+        # Check if already healthy
+        if await self.is_healthy():
+            return True
+        
+        # Not connected, try to reconnect with lock to prevent concurrent attempts
+        async with self._reconnect_lock:
+            # Double-check after acquiring lock
+            if await self.is_healthy():
+                return True
+            
+            logger.info("Orchestrator connection unhealthy, attempting to reconnect...")
+            await self.reconnect()
+        
+        return await self.is_healthy()
+    
+    async def reconnect(self) -> None:
+        """Reconnect to RabbitMQ with exponential backoff."""
+        logger.info("Starting RabbitMQ reconnection for orchestrator...")
+        
+        # Close existing connection
+        if self.connection and not self.connection.is_closed:
+            try:
+                await self.connection.close()
+            except Exception as e:
+                logger.debug(f"Error closing stale connection: {e}")
+        
+        self.connection = None
+        self.channel = None
+        
+        # Attempt reconnection with retry logic
+        await self.connect(
+            max_retries=settings.rabbitmq_reconnect_max_retries,
+            retry_delay=settings.rabbitmq_reconnect_initial_delay
+        )
+        
+        if await self.is_healthy():
+            logger.info("✅ Orchestrator reconnection successful")
+        else:
+            logger.error("❌ Orchestrator reconnection failed")
 
     async def _declare_queues(self) -> None:
         """Declare required queues."""
@@ -88,7 +174,8 @@ class SubtitleOrchestrator:
         Returns:
             True if task was successfully enqueued, False otherwise
         """
-        if not self.channel:
+        # Ensure connection is healthy before attempting to enqueue
+        if not await self.ensure_connected():
             logger.warning(
                 f"Mock mode: Would enqueue download task for request {request_id}"
             )
@@ -156,7 +243,8 @@ class SubtitleOrchestrator:
         Returns:
             True if task was successfully enqueued, False otherwise
         """
-        if not self.channel:
+        # Ensure connection is healthy before attempting to enqueue
+        if not await self.ensure_connected():
             logger.warning(
                 f"Mock mode: Would enqueue translation task for request {request_id}"
             )
@@ -214,7 +302,8 @@ class SubtitleOrchestrator:
 
     async def get_queue_status(self) -> dict:
         """Get status of processing queues."""
-        if not self.channel:
+        # Ensure connection is healthy before attempting to get status
+        if not await self.ensure_connected():
             logger.warning("Mock mode: Returning mock queue status")
             return {
                 "download_queue_size": 0,
