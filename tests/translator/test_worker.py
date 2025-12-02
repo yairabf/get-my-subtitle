@@ -103,8 +103,8 @@ class TestSubtitleTranslator:
     ):
         """Test parsing response with wrong number of translations (1 missing is tolerated)."""
         response = "[1]\nHola\n\n"  # Only 1 translation
-        translations, parsed_segment_numbers = translator_without_api_key._parse_translation_response(
-            response, 2
+        translations, parsed_segment_numbers = (
+            translator_without_api_key._parse_translation_response(response, 2)
         )
 
         # Should still return what it found (1 missing is tolerated)
@@ -1398,7 +1398,9 @@ class TestParallelTranslationProcessing:
     # Test constants for parallel processing configuration
     # These constants make the test values explicit and maintainable
     TEST_SEGMENTS_PER_CHUNK = 2  # Small chunks to force multiple chunks for testing
-    TEST_PARALLEL_LIMIT_LOW = 2  # Low limit for testing semaphore constraint (forces queuing)
+    TEST_PARALLEL_LIMIT_LOW = (
+        2  # Low limit for testing semaphore constraint (forces queuing)
+    )
     TEST_PARALLEL_LIMIT_NORMAL = 3  # Default parallel requests for GPT-4o-mini in tests
     TEST_PARALLEL_LIMIT_HIGH = 6  # Parallel requests for higher tier models in tests
     TEST_MAX_TOKENS_PER_CHUNK = 100  # Small token limit to force chunking
@@ -1511,8 +1513,12 @@ class TestParallelTranslationProcessing:
 
         request_id = uuid4()
         # Use low parallel limit to test semaphore constraint (forces queuing with 5 chunks)
-        mock_settings_parallel.translation_parallel_requests = self.TEST_PARALLEL_LIMIT_LOW
-        mock_settings_parallel.get_translation_parallel_requests = lambda: self.TEST_PARALLEL_LIMIT_LOW
+        mock_settings_parallel.translation_parallel_requests = (
+            self.TEST_PARALLEL_LIMIT_LOW
+        )
+        mock_settings_parallel.get_translation_parallel_requests = (
+            lambda: self.TEST_PARALLEL_LIMIT_LOW
+        )
         monkeypatch.setattr("translator.worker.settings", mock_settings_parallel)
 
         active_requests = []
@@ -1757,7 +1763,7 @@ class TestParallelTranslationProcessing:
     async def test_parallel_processing_error_handling(
         self, large_srt_file, mock_settings_parallel, tmp_path, monkeypatch
     ):
-        """Test that errors in parallel processing are handled correctly."""
+        """Test that errors in parallel processing are handled correctly (publishes JOB_FAILED event)."""
         import asyncio
         from uuid import uuid4
 
@@ -1793,6 +1799,14 @@ class TestParallelTranslationProcessing:
                 }
             ).encode()
 
-            # Should raise exception when chunk fails
-            with pytest.raises(Exception, match="Simulated API error"):
-                await process_translation_message(mock_message, mock_translator)
+            # Errors are handled gracefully - JOB_FAILED event is published, no exception raised
+            await process_translation_message(mock_message, mock_translator)
+            
+            # Verify JOB_FAILED event was published
+            assert mock_pub.publish_event.called
+            # Find the JOB_FAILED event call
+            job_failed_calls = [
+                call for call in mock_pub.publish_event.call_args_list
+                if "JOB_FAILED" in str(call) or "job.failed" in str(call).lower()
+            ]
+            assert len(job_failed_calls) > 0, "Expected JOB_FAILED event to be published"
