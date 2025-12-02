@@ -7,6 +7,7 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from redis import asyncio as redis
 
 from common.config import settings
 from common.event_publisher import event_publisher
@@ -44,35 +45,65 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting subtitle management API...")
     
-    # Try to connect to Redis, but don't fail if it's not ready yet
-    # The health check will report unhealthy until connections succeed
+    # Quick connection attempts during startup (don't block for too long)
+    # Background reconnection will continue via health checks and ensure_connected
+    logger.info("Attempting quick connections to dependencies...")
+    
+    # Try Redis with a simple single attempt (don't wait for full retry logic)
     try:
-        await redis_client.connect()
-    except Exception as e:
-        logger.warning(f"Failed to connect to Redis during startup: {e}")
-        logger.info("Service will start anyway - health check will report unhealthy until Redis connects")
+        # Just try to create connection without retries
+        redis_client.client = await asyncio.wait_for(
+            redis.from_url(
+                settings.redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+                max_connections=10,
+            ),
+            timeout=3.0
+        )
+        # Quick ping test
+        await asyncio.wait_for(redis_client.client.ping(), timeout=2.0)
+        redis_client.connected = True
+        logger.info("✅ Redis connected successfully")
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"Redis not available during startup: {e}")
+        logger.info("Service will start anyway - connections will be established via background health checks")
+        redis_client.connected = False
 
-    # Connect event publisher first (with retries for Docker startup)
+    # Try Event Publisher with fewer retries (max 3 attempts, 2 second delays)
     logger.info("Connecting event publisher...")
     try:
-        await event_publisher.connect(max_retries=10, retry_delay=3.0)
+        await asyncio.wait_for(
+            event_publisher.connect(max_retries=3, retry_delay=2.0),
+            timeout=15.0
+        )
+        logger.info("✅ Event publisher connected successfully")
+    except asyncio.TimeoutError:
+        logger.warning("Event publisher connection timed out during startup (will retry in background)")
     except Exception as e:
-        logger.warning(f"Failed to connect event publisher during startup: {e}")
-        logger.info("Service will start anyway - health check will report unhealthy until RabbitMQ connects")
+        logger.warning(f"Event publisher connection failed: {e} (will retry in background)")
 
+    # Try Orchestrator with fewer retries
     try:
-        await orchestrator.connect()
+        await asyncio.wait_for(orchestrator.connect(max_retries=3, retry_delay=2.0), timeout=15.0)
+        logger.info("✅ Orchestrator connected successfully")
+    except asyncio.TimeoutError:
+        logger.warning("Orchestrator connection timed out during startup (will retry in background)")
     except Exception as e:
-        logger.warning(f"Failed to connect orchestrator during startup: {e}")
-        logger.info("Service will start anyway - health check will report unhealthy until RabbitMQ connects")
+        logger.warning(f"Orchestrator connection failed: {e} (will retry in background)")
 
-    # Connect and start event consumer (with retries for Docker startup)
+    # Try Event Consumer with fewer retries
     logger.info("Starting event consumer for SUBTITLE_REQUESTED events...")
     try:
-        await event_consumer.connect(max_retries=10, retry_delay=3.0)
+        await asyncio.wait_for(
+            event_consumer.connect(max_retries=3, retry_delay=2.0),
+            timeout=15.0
+        )
+        logger.info("✅ Event consumer connected successfully")
+    except asyncio.TimeoutError:
+        logger.warning("Event consumer connection timed out during startup (will retry in background)")
     except Exception as e:
-        logger.warning(f"Failed to connect event consumer during startup: {e}")
-        logger.info("Service will start anyway - health check will report unhealthy until RabbitMQ connects")
+        logger.warning(f"Event consumer connection failed: {e} (will retry in background)")
 
     # Verify consumer is connected before starting
     if event_consumer.queue is None or event_consumer.channel is None:
