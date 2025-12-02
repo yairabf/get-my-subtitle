@@ -410,7 +410,8 @@ class TestRedisJobClientErrorHandling:
     async def test_get_job_returns_none_when_not_connected(self, sample_job_id):
         """Test that get_job returns None when Redis is not connected."""
         client = RedisJobClient()
-        # Don't connect - should handle gracefully
+        # Mock ensure_connected to return False (simulating connection failure)
+        client.ensure_connected = AsyncMock(return_value=False)
 
         job = await client.get_job(sample_job_id)
 
@@ -421,7 +422,8 @@ class TestRedisJobClientErrorHandling:
     ):
         """Test that update_job_status returns False when Redis is not connected."""
         client = RedisJobClient()
-        # Don't connect - should handle gracefully
+        # Mock ensure_connected to return False (simulating connection failure)
+        client.ensure_connected = AsyncMock(return_value=False)
 
         result = await client.update_job_status(sample_job_id, SubtitleStatus.DONE)
 
@@ -430,7 +432,8 @@ class TestRedisJobClientErrorHandling:
     async def test_list_jobs_returns_empty_list_when_not_connected(self):
         """Test that list_jobs returns empty list when Redis is not connected."""
         client = RedisJobClient()
-        # Don't connect - should handle gracefully
+        # Mock ensure_connected to return False (simulating connection failure)
+        client.ensure_connected = AsyncMock(return_value=False)
 
         jobs = await client.list_jobs()
 
@@ -451,7 +454,8 @@ class TestRedisJobClientErrorHandling:
     ):
         """Test that get_job_events returns empty list when Redis is not connected."""
         client = RedisJobClient()
-        # Don't connect - should handle gracefully
+        # Mock ensure_connected to return False (simulating connection failure)
+        client.ensure_connected = AsyncMock(return_value=False)
 
         events = await client.get_job_events(sample_job_id)
 
