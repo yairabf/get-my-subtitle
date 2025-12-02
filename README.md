@@ -29,6 +29,19 @@ A microservices-based subtitle management system that automatically fetches, tra
 
 ## Recent Updates
 
+### Latest Release (December 2024)
+
+**🔌 Infrastructure Resilience:**
+- **Automatic Reconnection System**: Redis and RabbitMQ automatically reconnect when services crash or restart
+  - Background health monitoring every 30 seconds (configurable)
+  - Exponential backoff reconnection strategy (3s → 6s → 12s → 24s → 30s max)
+  - Race condition prevention with asyncio locks for thread safety
+  - 5-second timeout on Redis ping operations prevents indefinite hanging
+  - Python 3.12+ compatible with timezone-aware datetime
+  - Zero message loss during reconnection
+  - Works seamlessly with Docker container restarts
+  - No manual intervention required
+
 **Performance & Reliability Improvements:**
 - ✨ **Parallel Translation Processing**: Process 3-6 translation chunks simultaneously (5-10x faster)
 - 🚀 **Optimized Batch Sizes**: Increased default batch size from 50 to 100 segments for GPT-4o-mini
@@ -83,11 +96,19 @@ A microservices-based subtitle management system that automatically fetches, tra
   - Custom exception handling for translation count mismatches with detailed context
   - Retry mechanism recognizes parsing failures as transient errors
   - Graceful handling of partial failures in parallel processing with detailed error reporting
+- **Automatic Reconnection**: Self-healing infrastructure connections
+  - Redis and RabbitMQ automatically reconnect when services restart/crash
+  - Background health monitoring (configurable intervals, default: 30s)
+  - Exponential backoff prevents connection spam (3s → 30s max delay)
+  - Concurrent reconnection prevention with asyncio locks
+  - 5-second timeout on Redis ping operations prevents indefinite hanging
+  - Guaranteed cleanup with try/finally error handling
+  - No manual intervention required after service restarts
 - **Real-Time Status Updates**: Redis-based job tracking with event history
 - **Jellyfin Integration**: Automatic subtitle processing for Jellyfin media library
 - **Configurable Batch Sizes**: Optimize translation performance based on model capabilities
 - **Configurable Parallel Requests**: Adjust concurrent translation requests based on API tier (3 for GPT-4o-mini, 6 for higher tier)
-- **Health Monitoring**: Health check endpoints for all services
+- **Health Monitoring**: Health check endpoints for all services with automatic recovery
 - **Comprehensive Logging**: Structured logging with file and console output
 
 The system uses an event-driven microservices architecture, making it scalable, maintainable, and easy to extend with new subtitle sources or translation services.
@@ -168,6 +189,17 @@ The system uses an event-driven architecture where:
    # Optional: Configure parallel translation processing (speeds up translation 5-10x)
    TRANSLATION_PARALLEL_REQUESTS=3              # For GPT-4o-mini (low rate limit)
    TRANSLATION_PARALLEL_REQUESTS_HIGH_TIER=6    # For GPT-4o, GPT-4 (higher tier)
+   
+   # Optional: Configure automatic reconnection behavior
+   REDIS_HEALTH_CHECK_INTERVAL=30               # Health check interval in seconds
+   REDIS_RECONNECT_MAX_RETRIES=10               # Maximum reconnection attempts
+   REDIS_RECONNECT_INITIAL_DELAY=3.0            # Initial reconnection delay in seconds
+   REDIS_RECONNECT_MAX_DELAY=30.0               # Maximum reconnection delay in seconds
+   
+   RABBITMQ_HEALTH_CHECK_INTERVAL=30            # Health check interval in seconds
+   RABBITMQ_RECONNECT_MAX_RETRIES=10            # Maximum reconnection attempts
+   RABBITMQ_RECONNECT_INITIAL_DELAY=3.0         # Initial reconnection delay in seconds
+   RABBITMQ_RECONNECT_MAX_DELAY=30.0            # Maximum reconnection delay in seconds
    ```
 
 4. **Start services:**
@@ -287,8 +319,10 @@ docker-compose logs -f
 - Configure `JELLYFIN_URL` and `JELLYFIN_API_KEY` if using Jellyfin integration
 - Set up reverse proxy (nginx/traefik) for the Manager API
 - Configure `TRANSLATION_PARALLEL_REQUESTS` based on your OpenAI API tier for optimal performance
+- Adjust reconnection settings based on your infrastructure reliability needs
 - Use monitoring scripts (`monitor-workers.sh`, `monitor-realtime.sh`) to track system health
 - Set up log rotation for production environments
+- Test reconnection behavior with `RECONNECTION_TESTING_GUIDE.md`
 - See [Configuration Guide](docs/CONFIGURATION.md) for detailed production setup
 
 ### Performance Optimization
@@ -317,11 +351,17 @@ The system has been optimized for speed and reliability:
   - Configurable via `CHECKPOINT_ENABLED` and `CHECKPOINT_CLEANUP_ON_SUCCESS`
 
 **Reliability Features:**
+- **Automatic Reconnection**: Self-healing Redis and RabbitMQ connections with exponential backoff
+  - Health monitoring every 30 seconds (configurable)
+  - Automatic reconnection on connection loss
+  - No message loss during reconnection
+  - Works seamlessly with Docker container restarts
 - **Retry Logic**: Exponential backoff for both OpenAI and OpenSubtitles APIs
 - **Error Recovery**: Graceful handling of partial failures in parallel processing
 - **Health Checks**: Automatic service health monitoring via Docker health checks
 - **Duplicate Prevention**: Prevents processing the same file multiple times
 - **Event-Driven Architecture**: Decoupled services ensure system resilience
+- **Graceful Shutdown**: Proper cleanup and resource management on service shutdown
 
 ## Documentation
 
@@ -330,6 +370,8 @@ The system has been optimized for speed and reliability:
 - **[Configuration Guide](docs/CONFIGURATION.md)** - Complete environment variable and Docker Compose configuration reference
 - **[Development Guide](docs/DEVELOPMENT.md)** - Local development setup, debugging, and workflows
 - **[Testing Guide](docs/TESTING.md)** - Testing documentation and test execution
+- **[Reconnection Testing Guide](RECONNECTION_TESTING_GUIDE.md)** - Testing Redis/RabbitMQ reconnection functionality
+- **[Reconnection Implementation Summary](RECONNECTION_IMPLEMENTATION_SUMMARY.md)** - Technical details of automatic reconnection system
 
 ### Service Documentation
 
