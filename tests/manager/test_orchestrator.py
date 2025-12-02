@@ -627,7 +627,8 @@ class TestOrchestratorMockMode:
     async def test_get_queue_status_in_mock_mode_returns_zeros(self):
         """Test that get_queue_status in mock mode returns zero counts."""
         orchestrator = SubtitleOrchestrator()
-        # Don't connect - stays in mock mode
+        # Mock ensure_connected to return False (simulating connection failure)
+        orchestrator.ensure_connected = AsyncMock(return_value=False)
 
         status = await orchestrator.get_queue_status()
 

@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -399,7 +400,8 @@ class TestRedisJobClientErrorHandling:
     ):
         """Test that save_job returns False when Redis is not connected."""
         client = RedisJobClient()
-        # Don't connect - should handle gracefully
+        # Mock ensure_connected to return False (simulating connection failure)
+        client.ensure_connected = AsyncMock(return_value=False)
 
         result = await client.save_job(sample_subtitle_response)
 
@@ -437,7 +439,8 @@ class TestRedisJobClientErrorHandling:
     async def test_record_event_returns_false_when_not_connected(self, sample_job_id):
         """Test that record_event returns False when Redis is not connected."""
         client = RedisJobClient()
-        # Don't connect - should handle gracefully
+        # Mock ensure_connected to return False (simulating connection failure)
+        client.ensure_connected = AsyncMock(return_value=False)
 
         result = await client.record_event(sample_job_id, "test.event", {}, "test")
 
