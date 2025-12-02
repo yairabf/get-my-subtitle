@@ -27,8 +27,15 @@ class EventPublisher:
         self.exchange: Optional[AbstractExchange] = None
         self.exchange_name = "subtitle.events"
         self._reconnecting: bool = False
-        self._reconnect_lock: asyncio.Lock = asyncio.Lock()
+        self._reconnect_lock: Optional[asyncio.Lock] = None
         self._last_health_check: Optional[datetime] = None
+    
+    @property
+    def reconnect_lock(self) -> asyncio.Lock:
+        """Lazy initialization of reconnect lock (must be created within event loop)."""
+        if self._reconnect_lock is None:
+            self._reconnect_lock = asyncio.Lock()
+        return self._reconnect_lock
 
     async def connect(self, max_retries: int = 10, retry_delay: float = 3.0) -> None:
         """Establish connection to RabbitMQ and declare topic exchange with retry logic."""
@@ -169,7 +176,7 @@ class EventPublisher:
             return True
         
         # Not connected, try to reconnect with lock to prevent concurrent attempts
-        async with self._reconnect_lock:
+        async with self.reconnect_lock:
             # Double-check after acquiring lock
             if await self._check_health():
                 return True
@@ -234,7 +241,7 @@ class EventPublisher:
             # Attempt reconnection and retry once if requested
             if retry_on_failure:
                 logger.info("Attempting to reconnect and retry event publishing...")
-                async with self._reconnect_lock:
+                async with self.reconnect_lock:
                     if not await self._check_health():
                         await self._reconnect_with_backoff()
                 

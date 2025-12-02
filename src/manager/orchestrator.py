@@ -31,7 +31,14 @@ class SubtitleOrchestrator:
         self.channel: Optional[AbstractChannel] = None
         self.download_queue_name = "subtitle.download"
         self.translation_queue_name = "subtitle.translation"
-        self._reconnect_lock = asyncio.Lock()
+        self._reconnect_lock: Optional[asyncio.Lock] = None
+    
+    @property
+    def reconnect_lock(self) -> asyncio.Lock:
+        """Lazy initialization of reconnect lock (must be created within event loop)."""
+        if self._reconnect_lock is None:
+            self._reconnect_lock = asyncio.Lock()
+        return self._reconnect_lock
 
     async def connect(self, max_retries: int = 10, retry_delay: float = 3.0) -> None:
         """
@@ -113,7 +120,7 @@ class SubtitleOrchestrator:
             return True
         
         # Not connected, try to reconnect with lock to prevent concurrent attempts
-        async with self._reconnect_lock:
+        async with self.reconnect_lock:
             # Double-check after acquiring lock
             if await self.is_healthy():
                 return True
