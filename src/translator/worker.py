@@ -533,7 +533,7 @@ async def consume_translation_messages() -> None:
             should_stop = True
         except Exception as e:
             consecutive_failures += 1
-            logger.error(f"❌ Error in consumer (failure #{consecutive_failures}): {e}")
+            logger.error(f"❌ Error in translator (failure #{consecutive_failures}): {e}")
             
             if not should_stop:
                 if consecutive_failures >= max_consecutive_failures:
