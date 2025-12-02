@@ -89,18 +89,22 @@ publisher.ensure_connected = AsyncMock(return_value=False)
 
 **Time Saved:** ~60 seconds (RabbitMQ has shorter retry logic)
 
-### Fix #3: Mock ensure_connected() in Orchestrator Test
+### Fix #3: Mock ensure_connected() in Orchestrator Tests
 
 **File:** `tests/manager/test_orchestrator.py`
 
-**Test Fixed:**
+**Tests Fixed:**
 - `test_get_queue_status_in_mock_mode_returns_zeros`
+- `test_enqueue_download_task_in_mock_mode_returns_false` (renamed from `returns_true`)
+- `test_enqueue_translation_task_in_mock_mode_returns_false` (renamed from `returns_true`)
 
 **Solution:**
 ```python
 orchestrator = SubtitleOrchestrator()
 orchestrator.ensure_connected = AsyncMock(return_value=False)
 ```
+
+**Important:** After Fix #2 (Orchestrator Return Value Fix), the enqueue methods now correctly return `False` when connection fails. Tests were updated to reflect this correct behavior.
 
 **Time Saved:** ~60 seconds
 
