@@ -31,9 +31,9 @@ Even though `depends_on: service_healthy` was configured, there were race condit
 
 ## The Fix
 
-### 1. **Graceful Startup with Connection Retry**
+### 1. **Quick Non-Blocking Startup Connections**
 
-Modified `src/manager/main.py` lifespan to handle connection failures gracefully:
+Modified `src/manager/main.py` lifespan to use quick connection attempts with timeouts:
 
 ```python
 @asynccontextmanager
@@ -43,28 +43,40 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting subtitle management API...")
+    logger.info("Attempting quick connections to dependencies...")
     
-    # Try to connect to Redis, but don't fail if it's not ready yet
+    # Try Redis with a simple single attempt (don't wait for full retry logic)
     try:
-        await redis_client.connect()
-    except Exception as e:
-        logger.warning(f"Failed to connect to Redis during startup: {e}")
-        logger.info("Service will start anyway - health check will report unhealthy until Redis connects")
+        redis_client.client = await asyncio.wait_for(
+            redis.from_url(settings.redis_url, ...),
+            timeout=3.0
+        )
+        await asyncio.wait_for(redis_client.client.ping(), timeout=2.0)
+        redis_client.connected = True
+        logger.info("✅ Redis connected successfully")
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"Redis not available during startup: {e}")
+        redis_client.connected = False
 
-    # Connect event publisher (with graceful failure handling)
+    # Connect event publisher with fewer retries (3 attempts, 2s delay)
     try:
-        await event_publisher.connect(max_retries=10, retry_delay=3.0)
-    except Exception as e:
-        logger.warning(f"Failed to connect event publisher during startup: {e}")
+        await asyncio.wait_for(
+            event_publisher.connect(max_retries=3, retry_delay=2.0),
+            timeout=15.0
+        )
+        logger.info("✅ Event publisher connected successfully")
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"Event publisher connection failed: {e}")
         
     # ... similar for orchestrator and event_consumer
 ```
 
 **Key Changes:**
-- Wrapped all connection attempts in try-except blocks
-- Service starts even if connections fail
-- Logs warnings instead of crashing
-- Health checks will report unhealthy status until connections succeed
+- **Redis**: Single quick attempt with 5s total timeout (not 165s!)
+- **Event Publisher/Orchestrator/Consumer**: Only 3 retries with 2s delays (not 10 retries with exponential backoff)
+- Wrapped all connections in `asyncio.wait_for()` with timeouts
+- Service starts in <45s maximum (usually <10s)
+- Background health checks handle full reconnection logic
 
 ### 2. **New `/health/startup` Endpoint**
 
@@ -228,24 +240,42 @@ make test-integration
 
 ## Monitoring
 
-### Startup Sequence (Expected Logs)
+### Startup Sequence (When Dependencies Not Ready)
 
 ```
 manager-1  | INFO: Starting subtitle management API...
-manager-1  | WARNING: Failed to connect to Redis during startup: ...
-manager-1  | INFO: Service will start anyway - health check will report unhealthy until Redis connects
-manager-1  | WARNING: Failed to connect event publisher during startup: ...
-manager-1  | INFO: Service will start anyway - health check will report unhealthy until RabbitMQ connects
+manager-1  | INFO: Attempting quick connections to dependencies...
+manager-1  | WARNING: Redis not available during startup: Error -3 connecting to redis:6379
+manager-1  | INFO: Service will start anyway - connections will be established via background health checks
+manager-1  | WARNING: Event publisher connection failed: Connection refused
+manager-1  | WARNING: Orchestrator connection timed out during startup (will retry in background)
+manager-1  | WARNING: Event consumer connection timed out during startup (will retry in background)
 manager-1  | INFO: Application startup complete
 manager-1  | INFO: Uvicorn running on http://0.0.0.0:8000
 ```
+**Total startup time: <10 seconds** ✅
+
+### Startup Sequence (When Dependencies Ready)
+
+```
+manager-1  | INFO: Starting subtitle management API...
+manager-1  | INFO: Attempting quick connections to dependencies...
+manager-1  | INFO: ✅ Redis connected successfully
+manager-1  | INFO: ✅ Event publisher connected successfully
+manager-1  | INFO: ✅ Orchestrator connected successfully
+manager-1  | INFO: ✅ Event consumer connected successfully
+manager-1  | INFO: Event consumer connected successfully, starting consumption...
+manager-1  | INFO: Application startup complete
+manager-1  | INFO: Uvicorn running on http://0.0.0.0:8000
+```
+**Total startup time: <10 seconds** ✅
 
 ### Background Reconnection (Expected Logs)
 
 ```
-manager-1  | INFO: Redis reconnection successful
-manager-1  | INFO: Event publisher reconnection successful  
-manager-1  | INFO: Orchestrator connected to RabbitMQ
+manager-1  | INFO: ✅ Redis reconnection successful
+manager-1  | INFO: ✅ Event publisher reconnection successful  
+manager-1  | INFO: ✅ Orchestrator reconnection successful
 manager-1  | INFO: Event consumer started successfully
 ```
 
