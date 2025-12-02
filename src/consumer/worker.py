@@ -454,7 +454,8 @@ class EventConsumer:
             if not await check_and_log_reconnection(
                 redis_client.ensure_connected,
                 "Redis",
-                "consumer"
+                "consumer",
+                lambda: redis_client.connected
             ):
                 return False
 

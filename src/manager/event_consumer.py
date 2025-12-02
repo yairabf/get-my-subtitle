@@ -483,7 +483,8 @@ class SubtitleEventConsumer:
             if not await check_and_log_reconnection(
                 redis_client.ensure_connected,
                 "Redis",
-                "manager event consumer"
+                "manager event consumer",
+                lambda: redis_client.connected
             ):
                 return False
 

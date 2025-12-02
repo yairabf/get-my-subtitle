@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 async def check_and_log_reconnection(
     ensure_connected_func,
     connection_name: str,
-    worker_name: Optional[str] = None
+    worker_name: Optional[str] = None,
+    check_before_func=None
 ) -> bool:
     """
     Check connection health and log reconnection success if applicable.
@@ -18,10 +19,16 @@ async def check_and_log_reconnection(
     provided ensure_connected function, and logs the outcome with consistent messaging.
     Includes comprehensive exception handling to prevent crashes in health check loops.
     
+    Note: The ensure_connected_func is expected to internally handle reconnection,
+    so we only need to call it once. We track the connection state before calling
+    to determine if reconnection occurred.
+    
     Args:
         ensure_connected_func: Async function that ensures connection (e.g., redis_client.ensure_connected)
         connection_name: Name of the connection for logging (e.g., "Redis", "Event Publisher")
         worker_name: Optional worker name for context (e.g., "translator", "downloader")
+        check_before_func: Optional function to check connection state before ensure_connected
+                          (e.g., lambda: redis_client.connected)
         
     Returns:
         True if connected, False otherwise
@@ -30,33 +37,35 @@ async def check_and_log_reconnection(
         >>> await check_and_log_reconnection(
         ...     redis_client.ensure_connected,
         ...     "Redis",
-        ...     "translator"
+        ...     "translator",
+        ...     lambda: redis_client.connected
         ... )
     """
     context = f" in {worker_name}" if worker_name else ""
     
     try:
-        # First check: detect if connection is lost
-        was_disconnected = not await ensure_connected_func()
-        
-        if was_disconnected:
-            # Log warning about disconnection
-            logger.warning(f"{connection_name} connection lost{context}, attempting reconnection...")
-            
+        # Check if connection was healthy before calling ensure_connected
+        was_connected_before = True
+        if check_before_func:
             try:
-                # Second check: verify if reconnection succeeded
-                if await ensure_connected_func():
-                    logger.info(f"✅ {connection_name} reconnection successful{context}")
-                    return True
-                
-                return False
-                
-            except Exception as e:
-                logger.warning(f"{connection_name} reconnection check failed{context}: {e}")
-                return False
+                was_connected_before = check_before_func()
+            except Exception:
+                was_connected_before = False
         
-        # Was already connected
-        return True
+        # Call ensure_connected which handles reconnection internally
+        try:
+            is_connected = await ensure_connected_func()
+        except Exception as e:
+            logger.error(f"Error ensuring {connection_name} connection{context}: {e}")
+            return False
+        
+        # If connection succeeded and it was disconnected before, log success
+        if is_connected and not was_connected_before:
+            logger.info(f"✅ {connection_name} reconnection successful{context}")
+        elif not is_connected:
+            logger.warning(f"{connection_name} connection failed{context}")
+        
+        return is_connected
         
     except Exception as e:
         logger.error(f"Error checking {connection_name} connection{context}: {e}")

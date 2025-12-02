@@ -70,14 +70,16 @@ async def main() -> None:
                 await check_and_log_reconnection(
                     redis_client.ensure_connected,
                     "Redis",
-                    "scanner"
+                    "scanner",
+                    lambda: redis_client.connected
                 )
                 
                 # Check event publisher connection
                 await check_and_log_reconnection(
                     event_publisher.ensure_connected,
                     "Event Publisher",
-                    "scanner"
+                    "scanner",
+                    lambda: event_publisher.connection is not None and not event_publisher.connection.is_closed
                 )
                 
                 last_health_check = current_time

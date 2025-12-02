@@ -614,11 +614,14 @@ async def consume_messages() -> None:
                     current_time = asyncio.get_event_loop().time()
                     if current_time - last_health_check > health_check_interval:
                         # Check Redis connection
-                        await check_and_log_reconnection(
+                        if not await check_and_log_reconnection(
                             redis_client.ensure_connected,
                             "Redis",
-                            "downloader"
-                        )
+                            "downloader",
+                            lambda: redis_client.connected
+                        ):
+                            logger.error("Redis connection failed, stopping message processing...")
+                            raise ConnectionError("Redis connection unavailable")
                         
                         # Check RabbitMQ connection
                         if connection.is_closed:

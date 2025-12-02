@@ -176,11 +176,11 @@ class SubtitleOrchestrator:
         """
         # Ensure connection is healthy before attempting to enqueue
         if not await self.ensure_connected():
-            logger.warning(
-                f"Mock mode: Would enqueue download task for request {request_id}"
+            logger.error(
+                f"Failed to enqueue download task for request {request_id}: RabbitMQ connection unavailable"
             )
             logger.warning(f"Task data: {request.model_dump()}")
-            return True
+            return False
 
         try:
             download_task = DownloadTask(
@@ -245,13 +245,13 @@ class SubtitleOrchestrator:
         """
         # Ensure connection is healthy before attempting to enqueue
         if not await self.ensure_connected():
-            logger.warning(
-                f"Mock mode: Would enqueue translation task for request {request_id}"
+            logger.error(
+                f"Failed to enqueue translation task for request {request_id}: RabbitMQ connection unavailable"
             )
             logger.warning(
                 f"Task data: file={subtitle_file_path}, source={source_language}, target={target_language}"
             )
-            return True
+            return False
 
         try:
             translation_task = TranslationTask(

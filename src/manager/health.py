@@ -88,14 +88,24 @@ async def check_health() -> Dict[str, Any]:
         # Check Redis connection
         try:
             redis_healthy = await redis_client.ensure_connected()
-            health_status["checks"]["redis_connected"] = redis_healthy
             
             if redis_healthy and redis_client.client:
-                await redis_client.client.ping()
-                health_status["details"]["redis"] = {"status": "connected"}
+                try:
+                    await redis_client.client.ping()
+                    health_status["checks"]["redis_connected"] = True
+                    health_status["details"]["redis"] = {"status": "connected"}
+                except Exception as ping_error:
+                    # Ping failed even though connection exists
+                    health_status["checks"]["redis_connected"] = False
+                    health_status["details"]["redis"] = {
+                        "status": "error",
+                        "error": f"Ping failed: {ping_error}"
+                    }
             else:
+                health_status["checks"]["redis_connected"] = False
                 health_status["details"]["redis"] = {"status": "not_connected"}
         except Exception as e:
+            health_status["checks"]["redis_connected"] = False
             health_status["details"]["redis"] = {"status": "error", "error": str(e)}
 
         # Determine overall status
