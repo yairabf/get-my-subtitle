@@ -20,17 +20,15 @@ logger = service_logger.logger
 async def main() -> None:
     """Main entry point for the scanner service."""
     scanner = MediaScanner()
+    shutdown_event = asyncio.Event()
 
-    # Setup signal handlers for graceful shutdown
-    def signal_handler(signum, frame):
+    # Setup async signal handlers for graceful shutdown
+    def signal_handler_sync(signum, frame):
         logger.info(f"Received signal {signum}, shutting down...")
-        scanner.stop()
-        # Schedule async cleanup
-        asyncio.create_task(scanner.stop_webhook_server())
-        asyncio.create_task(scanner.disconnect())
+        shutdown_event.set()
 
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler_sync)
+    signal.signal(signal.SIGTERM, signal_handler_sync)
 
     try:
         # Connect to services
@@ -45,7 +43,7 @@ async def main() -> None:
         # Start fallback sync
         await scanner.start_fallback_sync()
 
-        # Keep running until stopped
+        # Keep running until stopped with periodic health checks
         logger.info("🚀 Scanner service running. Press Ctrl+C to stop.")
         logger.info("   - File system watcher: active")
         logger.info("   - Webhook server: active")
@@ -55,8 +53,25 @@ async def main() -> None:
         logger.info(
             f"   - Fallback sync: {'enabled' if settings.jellyfin_fallback_sync_enabled else 'disabled'}"
         )
-        while scanner.is_running():
+        
+        health_check_interval = settings.redis_health_check_interval
+        last_health_check = 0
+        
+        while scanner.is_running() and not shutdown_event.is_set():
             await asyncio.sleep(1)
+            
+            # Periodic health check
+            current_time = asyncio.get_event_loop().time()
+            if current_time - last_health_check > health_check_interval:
+                # Check Redis connection
+                if not await redis_client.ensure_connected():
+                    logger.warning("Redis connection lost, attempting reconnection...")
+                
+                # Check event publisher connection
+                if not await event_publisher.ensure_connected():
+                    logger.warning("Event publisher connection lost, attempting reconnection...")
+                
+                last_health_check = current_time
 
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")

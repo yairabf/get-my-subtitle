@@ -449,57 +449,110 @@ async def process_translation_message(
 
 
 async def consume_translation_messages() -> None:
-    """Consume translation messages from the RabbitMQ queue."""
+    """Consume translation messages from the RabbitMQ queue with automatic reconnection."""
     connection = None
     translator = SubtitleTranslator()
+    reconnect_delay = settings.rabbitmq_reconnect_initial_delay
+    consecutive_failures = 0
+    max_consecutive_failures = 3
+    should_stop = False
 
-    try:
-        # Connect to Redis
-        logger.info("🔌 Connecting to Redis...")
-        await redis_client.connect()
+    while not should_stop:
+        try:
+            # Clean up stale connections
+            if connection and not connection.is_closed:
+                try:
+                    await connection.close()
+                except Exception:
+                    pass
+                connection = None
 
-        # Connect event publisher
-        logger.info("🔌 Connecting event publisher...")
-        await event_publisher.connect()
+            # Connect to Redis
+            logger.info("🔌 Connecting to Redis...")
+            await redis_client.connect()
 
-        # Connect to RabbitMQ
-        logger.info("🔌 Connecting to RabbitMQ...")
-        connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+            # Connect event publisher
+            logger.info("🔌 Connecting event publisher...")
+            await event_publisher.connect()
 
-        # Create channel
-        channel = await connection.channel()
+            # Connect to RabbitMQ
+            logger.info("🔌 Connecting to RabbitMQ...")
+            connection = await aio_pika.connect_robust(settings.rabbitmq_url)
 
-        # Set QoS to process one message at a time
-        await channel.set_qos(prefetch_count=1)
+            # Create channel
+            channel = await connection.channel()
 
-        # Declare the queue
-        queue_name = "subtitle.translation"
-        logger.info(f"📋 Declaring queue: {queue_name}")
-        queue = await channel.declare_queue(queue_name, durable=True)
+            # Set QoS to process one message at a time
+            await channel.set_qos(prefetch_count=1)
 
-        logger.info("🎧 Starting to consume translation messages...")
-        logger.info("Press Ctrl+C to stop")
-        logger.info("=" * 50)
+            # Declare the queue
+            queue_name = "subtitle.translation"
+            logger.info(f"📋 Declaring queue: {queue_name}")
+            queue = await channel.declare_queue(queue_name, durable=True)
 
-        # Start consuming messages
-        async with queue.iterator() as queue_iter:
-            async for message in queue_iter:
-                async with message.process():
-                    await process_translation_message(message, translator)
+            # Reset failure counter on successful connection
+            consecutive_failures = 0
+            reconnect_delay = settings.rabbitmq_reconnect_initial_delay
 
-    except KeyboardInterrupt:
-        logger.info("🛑 Received interrupt signal, shutting down...")
-    except Exception as e:
-        logger.error(f"❌ Error in consumer: {e}")
-    finally:
-        logger.info("🔌 Disconnecting event publisher...")
-        await event_publisher.disconnect()
+            logger.info("🎧 Starting to consume translation messages...")
+            logger.info("Press Ctrl+C to stop")
+            logger.info("=" * 50)
 
-        if connection and not connection.is_closed:
-            logger.info("🔌 Closing RabbitMQ connection...")
-            await connection.close()
-        logger.info("🔌 Closing Redis connection...")
-        await redis_client.disconnect()
+            # Start consuming messages with health monitoring
+            last_health_check = asyncio.get_event_loop().time()
+            health_check_interval = settings.rabbitmq_health_check_interval
+
+            async with queue.iterator() as queue_iter:
+                async for message in queue_iter:
+                    # Periodic health check
+                    current_time = asyncio.get_event_loop().time()
+                    if current_time - last_health_check > health_check_interval:
+                        # Check Redis connection
+                        if not await redis_client.ensure_connected():
+                            logger.warning("Redis connection lost, will reconnect on next loop...")
+                        
+                        # Check RabbitMQ connection
+                        if connection.is_closed:
+                            logger.warning("RabbitMQ connection lost, reconnecting...")
+                            raise ConnectionError("RabbitMQ connection closed")
+                        
+                        last_health_check = current_time
+
+                    async with message.process():
+                        await process_translation_message(message, translator)
+
+        except KeyboardInterrupt:
+            logger.info("🛑 Received interrupt signal, shutting down...")
+            should_stop = True
+        except Exception as e:
+            consecutive_failures += 1
+            logger.error(f"❌ Error in consumer (failure #{consecutive_failures}): {e}")
+            
+            if not should_stop:
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.error(
+                        f"❌ Too many consecutive failures ({consecutive_failures}), "
+                        f"increasing reconnect delay to {reconnect_delay * 2}s"
+                    )
+                    reconnect_delay = min(
+                        reconnect_delay * 2,
+                        settings.rabbitmq_reconnect_max_delay
+                    )
+                    consecutive_failures = 0
+
+                logger.warning(f"Attempting to reconnect in {reconnect_delay}s...")
+                await asyncio.sleep(reconnect_delay)
+        finally:
+            if should_stop:
+                logger.info("🔌 Disconnecting event publisher...")
+                await event_publisher.disconnect()
+
+                if connection and not connection.is_closed:
+                    logger.info("🔌 Closing RabbitMQ connection...")
+                    await connection.close()
+                logger.info("🔌 Closing Redis connection...")
+                await redis_client.disconnect()
+                break
 
 
 async def main() -> None:

@@ -449,6 +449,11 @@ class EventConsumer:
             if not self.is_consuming:
                 return False
 
+            # Check Redis connection health
+            if not await redis_client.ensure_connected():
+                logger.warning("Redis connection lost in consumer health check")
+                return False
+
             # Queue object exists, which means channel is valid
             # No need to call get_queue as we already have the queue object
 

@@ -21,6 +21,20 @@ class Settings(BaseSettings):
     redis_job_ttl_active: int = Field(
         default=0, env="REDIS_JOB_TTL_ACTIVE"
     )  # No expiration
+    
+    # Redis Reconnection Configuration
+    redis_health_check_interval: int = Field(
+        default=30, env="REDIS_HEALTH_CHECK_INTERVAL"
+    )  # Health check interval in seconds
+    redis_reconnect_max_retries: int = Field(
+        default=10, env="REDIS_RECONNECT_MAX_RETRIES"
+    )  # Maximum reconnection attempts
+    redis_reconnect_initial_delay: float = Field(
+        default=3.0, env="REDIS_RECONNECT_INITIAL_DELAY"
+    )  # Initial reconnection delay in seconds
+    redis_reconnect_max_delay: float = Field(
+        default=30.0, env="REDIS_RECONNECT_MAX_DELAY"
+    )  # Maximum reconnection delay in seconds
 
     # Duplicate Prevention Configuration
     duplicate_prevention_enabled: bool = Field(
@@ -39,6 +53,20 @@ class Settings(BaseSettings):
         env="RABBITMQ_TRANSLATION_QUEUE_ROUTING_KEY",
         description="RabbitMQ routing key for translation queue",
     )
+    
+    # RabbitMQ Reconnection Configuration
+    rabbitmq_health_check_interval: int = Field(
+        default=30, env="RABBITMQ_HEALTH_CHECK_INTERVAL"
+    )  # Health check interval in seconds
+    rabbitmq_reconnect_max_retries: int = Field(
+        default=10, env="RABBITMQ_RECONNECT_MAX_RETRIES"
+    )  # Maximum reconnection attempts
+    rabbitmq_reconnect_initial_delay: float = Field(
+        default=3.0, env="RABBITMQ_RECONNECT_INITIAL_DELAY"
+    )  # Initial reconnection delay in seconds
+    rabbitmq_reconnect_max_delay: float = Field(
+        default=30.0, env="RABBITMQ_RECONNECT_MAX_DELAY"
+    )  # Maximum reconnection delay in seconds
 
     # API Configuration
     api_host: str = Field(default="0.0.0.0", env="API_HOST")

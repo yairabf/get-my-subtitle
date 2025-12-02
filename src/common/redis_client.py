@@ -1,7 +1,9 @@
 """Redis client for job tracking across all services."""
 
+import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -23,31 +25,159 @@ class RedisJobClient:
         """Initialize the Redis client."""
         self.client: Optional[Redis] = None
         self.connected: bool = False
+        self._reconnecting: bool = False
+        self._reconnect_lock: asyncio.Lock = asyncio.Lock()
+        self._last_health_check: Optional[datetime] = None
+        self._health_check_task: Optional[asyncio.Task] = None
 
     async def connect(self) -> None:
-        """Establish connection to Redis."""
-        try:
-            self.client = await redis.from_url(
-                settings.redis_url,
-                encoding="utf-8",
-                decode_responses=True,
-                max_connections=10,
-            )
-            # Test connection
-            await self.client.ping()
-            self.connected = True
-            logger.info("Connected to Redis successfully")
-        except RedisError as e:
-            logger.warning(f"Failed to connect to Redis: {e}")
-            logger.warning("Jobs will not be persisted - Redis unavailable")
-            self.connected = False
+        """Establish connection to Redis with retry logic."""
+        for attempt in range(settings.redis_reconnect_max_retries):
+            try:
+                self.client = await redis.from_url(
+                    settings.redis_url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                    max_connections=10,
+                )
+                # Test connection with timeout
+                await asyncio.wait_for(
+                    self.client.ping(),
+                    timeout=5.0
+                )
+                self.connected = True
+                self._last_health_check = datetime.now(timezone.utc)
+                logger.info("Connected to Redis successfully")
+                
+                # Start health check background task
+                if self._health_check_task is None or self._health_check_task.done():
+                    self._health_check_task = asyncio.create_task(self._health_check_loop())
+                
+                return
+            except RedisError as e:
+                if attempt < settings.redis_reconnect_max_retries - 1:
+                    delay = min(
+                        settings.redis_reconnect_initial_delay * (2 ** attempt),
+                        settings.redis_reconnect_max_delay
+                    )
+                    logger.warning(
+                        f"Failed to connect to Redis (attempt {attempt + 1}/{settings.redis_reconnect_max_retries}): {e}. "
+                        f"Retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"Failed to connect to Redis after {settings.redis_reconnect_max_retries} attempts: {e}")
+                    logger.warning("Jobs will not be persisted - Redis unavailable")
+                    self.connected = False
 
     async def disconnect(self) -> None:
         """Close connection to Redis."""
-        if self.client:
-            await self.client.close()
+        try:
+            # Stop health check task
+            if self._health_check_task and not self._health_check_task.done():
+                self._health_check_task.cancel()
+                try:
+                    await self._health_check_task
+                except asyncio.CancelledError:
+                    pass
+        finally:
+            if self.client:
+                try:
+                    await self.client.close()
+                except Exception as e:
+                    logger.warning(f"Error closing Redis client: {e}")
+                finally:
+                    self.connected = False
+                    logger.info("Disconnected from Redis")
+    
+    async def _health_check_loop(self) -> None:
+        """Periodic background task to monitor Redis connection health."""
+        try:
+            while True:
+                await asyncio.sleep(settings.redis_health_check_interval)
+                
+                if not await self._check_health():
+                    logger.warning("Redis health check failed, attempting reconnection...")
+                    await self._reconnect_with_backoff()
+        except asyncio.CancelledError:
+            logger.debug("Redis health check loop cancelled")
+        except Exception as e:
+            logger.error(f"Unexpected error in Redis health check loop: {e}")
+    
+    async def _check_health(self) -> bool:
+        """Check if Redis connection is healthy."""
+        if not self.client:
+            return False
+        
+        try:
+            # Add timeout to prevent indefinite hanging
+            await asyncio.wait_for(
+                self.client.ping(),
+                timeout=5.0
+            )
+            self._last_health_check = datetime.now(timezone.utc)
+            return True
+        except (RedisError, asyncio.TimeoutError) as e:
+            logger.warning(f"Redis health check failed: {e}")
             self.connected = False
-            logger.info("Disconnected from Redis")
+            return False
+    
+    async def _reconnect_with_backoff(self) -> None:
+        """Reconnect to Redis with exponential backoff."""
+        logger.info("Starting Redis reconnection...")
+        
+        # Close existing connection
+        if self.client:
+            try:
+                await self.client.close()
+            except Exception:
+                pass
+            self.client = None
+        
+        # Attempt reconnection
+        await self.connect()
+        
+        if self.connected:
+            logger.info("Redis reconnection successful")
+        else:
+            logger.error("Redis reconnection failed after all retries")
+    
+    async def ensure_connected(self) -> bool:
+        """
+        Ensure Redis connection is healthy, reconnect if needed.
+        
+        Returns:
+            True if connected, False otherwise
+        """
+        if self.connected and self.client:
+            # Check if we need a health check
+            if self._last_health_check:
+                seconds_since_check = (datetime.now(timezone.utc) - self._last_health_check).total_seconds()
+                # Only check if it's been more than 10 seconds since last check
+                if seconds_since_check < 10:
+                    return True
+            
+            # Quick health check with timeout
+            try:
+                await asyncio.wait_for(
+                    self.client.ping(),
+                    timeout=5.0
+                )
+                self._last_health_check = datetime.now(timezone.utc)
+                return True
+            except (RedisError, asyncio.TimeoutError):
+                logger.warning("Redis connection lost, attempting reconnection...")
+                self.connected = False
+        
+        # Not connected, try to reconnect with lock to prevent concurrent attempts
+        async with self._reconnect_lock:
+            # Double-check after acquiring lock
+            if self.connected and self.client:
+                return True
+            
+            await self._reconnect_with_backoff()
+        
+        return self.connected
 
     def _get_job_key(self, job_id: UUID) -> str:
         """
@@ -98,7 +228,7 @@ class RedisJobClient:
         Returns:
             True if successful, False otherwise
         """
-        if not self.connected or not self.client:
+        if not await self.ensure_connected():
             logger.warning(f"Redis unavailable - cannot save job {job.id}")
             return False
 
@@ -137,7 +267,7 @@ class RedisJobClient:
         Returns:
             SubtitleResponse object if found, None otherwise
         """
-        if not self.connected or not self.client:
+        if not await self.ensure_connected():
             logger.warning(f"Redis unavailable - cannot get job {job_id}")
             return None
 
@@ -182,7 +312,7 @@ class RedisJobClient:
         Returns:
             True if successful, False otherwise
         """
-        if not self.connected or not self.client:
+        if not await self.ensure_connected():
             logger.warning(f"Redis unavailable - cannot update job {job_id}")
             return False
 
@@ -227,7 +357,7 @@ class RedisJobClient:
         Returns:
             List of SubtitleResponse objects
         """
-        if not self.connected or not self.client:
+        if not await self.ensure_connected():
             logger.warning("Redis unavailable - cannot list jobs")
             return []
 
@@ -276,7 +406,7 @@ class RedisJobClient:
         Returns:
             True if successful, False otherwise
         """
-        if not self.connected or not self.client:
+        if not await self.ensure_connected():
             logger.warning(f"Redis unavailable - cannot delete job {job_id}")
             return False
 
@@ -317,7 +447,7 @@ class RedisJobClient:
         Returns:
             True if successful, False otherwise
         """
-        if not self.connected or not self.client:
+        if not await self.ensure_connected():
             logger.warning(f"Redis unavailable - cannot update phase for job {job_id}")
             return False
 
@@ -372,7 +502,7 @@ class RedisJobClient:
         Returns:
             True if successful, False otherwise
         """
-        if not self.connected or not self.client:
+        if not await self.ensure_connected():
             logger.warning(f"Redis unavailable - cannot record event for job {job_id}")
             return False
 
@@ -421,7 +551,7 @@ class RedisJobClient:
         Returns:
             List of event records (most recent first)
         """
-        if not self.connected or not self.client:
+        if not await self.ensure_connected():
             logger.warning(f"Redis unavailable - cannot get events for job {job_id}")
             return []
 
