@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from common.config import settings
@@ -118,9 +118,19 @@ app.add_middleware(
 
 
 @app.get("/health", response_model=Dict[str, Any])
-async def health_check_endpoint():
+async def health_check_endpoint(response: Response):
     """Comprehensive health check endpoint for all Manager service components."""
-    return await check_health()
+    health_status = await check_health()
+    
+    # Set HTTP status code based on health status
+    if health_status.get("status") == "unhealthy":
+        response.status_code = 503  # Service Unavailable
+    elif health_status.get("status") == "error":
+        response.status_code = 500  # Internal Server Error
+    else:
+        response.status_code = 200  # OK
+    
+    return health_status
 
 
 @app.get("/health/simple", response_model=HealthResponse)
