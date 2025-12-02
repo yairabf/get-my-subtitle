@@ -42,3 +42,4 @@ echo -e "\n${YELLOW}Monitor the scan progress with:${NC}"
 echo "  ./monitor-workers.sh"
 
 
+
