@@ -43,22 +43,43 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting subtitle management API...")
-    await redis_client.connect()
+    
+    # Try to connect to Redis, but don't fail if it's not ready yet
+    # The health check will report unhealthy until connections succeed
+    try:
+        await redis_client.connect()
+    except Exception as e:
+        logger.warning(f"Failed to connect to Redis during startup: {e}")
+        logger.info("Service will start anyway - health check will report unhealthy until Redis connects")
 
     # Connect event publisher first (with retries for Docker startup)
     logger.info("Connecting event publisher...")
-    await event_publisher.connect(max_retries=10, retry_delay=3.0)
+    try:
+        await event_publisher.connect(max_retries=10, retry_delay=3.0)
+    except Exception as e:
+        logger.warning(f"Failed to connect event publisher during startup: {e}")
+        logger.info("Service will start anyway - health check will report unhealthy until RabbitMQ connects")
 
-    await orchestrator.connect()
+    try:
+        await orchestrator.connect()
+    except Exception as e:
+        logger.warning(f"Failed to connect orchestrator during startup: {e}")
+        logger.info("Service will start anyway - health check will report unhealthy until RabbitMQ connects")
 
     # Connect and start event consumer (with retries for Docker startup)
     logger.info("Starting event consumer for SUBTITLE_REQUESTED events...")
-    await event_consumer.connect(max_retries=10, retry_delay=3.0)
+    try:
+        await event_consumer.connect(max_retries=10, retry_delay=3.0)
+    except Exception as e:
+        logger.warning(f"Failed to connect event consumer during startup: {e}")
+        logger.info("Service will start anyway - health check will report unhealthy until RabbitMQ connects")
 
     # Verify consumer is connected before starting
     if event_consumer.queue is None or event_consumer.channel is None:
-        logger.error("Event consumer not properly connected, cannot start consuming")
+        logger.warning("Event consumer not properly connected yet, will retry connection via health checks")
+        logger.info("Consumer will start when RabbitMQ connection is established")
     else:
+        logger.info("Event consumer connected successfully, starting consumption...")
         consumer_task = asyncio.create_task(event_consumer.start_consuming())
 
         # Add error handler to catch task exceptions
@@ -146,6 +167,21 @@ async def simple_health_check():
         )
 
     return health_status
+
+
+@app.get("/health/startup", response_model=Dict[str, str])
+async def startup_health_check():
+    """
+    Startup health check endpoint for Docker healthcheck.
+    
+    Returns 200 OK if the application is running, regardless of dependency status.
+    This allows the container to start and report healthy even if Redis/RabbitMQ
+    aren't ready yet. Use /health endpoint for detailed dependency status.
+    """
+    return {
+        "status": "running",
+        "message": "Manager service is running (use /health for detailed status)"
+    }
 
 
 @app.get("/health/consumer", response_model=Dict[str, Any])
