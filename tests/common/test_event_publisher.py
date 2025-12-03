@@ -321,7 +321,8 @@ class TestEventPublisherMockMode:
     async def test_publish_event_in_mock_mode_logs_warning(self, caplog):
         """Test that publish_event in mock mode logs appropriate warning."""
         publisher = EventPublisher()
-        # Don't connect - publisher stays in mock mode
+        # Mock ensure_connected to return False (simulating connection failure / mock mode)
+        publisher.ensure_connected = AsyncMock(return_value=False)
 
         job_id = uuid4()
         event = SubtitleEvent(

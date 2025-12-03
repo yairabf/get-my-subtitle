@@ -15,6 +15,7 @@ from aio_pika.abc import (
 )
 
 from common.config import settings
+from common.connection_utils import check_and_log_reconnection
 from common.duplicate_prevention import DuplicatePreventionService
 from common.event_publisher import event_publisher
 from common.redis_client import redis_client
@@ -41,6 +42,7 @@ class SubtitleEventConsumer:
         self.queue_name = "manager.subtitle.requests"
         self.routing_key = "subtitle.requested"
         self.is_consuming = False
+        self._should_stop = False
 
     async def connect(self, max_retries: int = 10, retry_delay: float = 3.0) -> None:
         """Establish connection to RabbitMQ and bind queue to topic exchange with retry logic."""
@@ -96,54 +98,111 @@ class SubtitleEventConsumer:
             logger.info("Disconnected event consumer from RabbitMQ")
 
     async def start_consuming(self) -> None:
-        """Start consuming messages from the queue."""
-        if not self.queue or not self.channel:
-            logger.warning(
-                "Mock mode: Event consumer not connected, cannot consume messages"
-            )
-            return
+        """Start consuming messages with automatic reconnection and health monitoring."""
+        self._should_stop = False
+        reconnect_delay = settings.rabbitmq_reconnect_initial_delay
+        consecutive_failures = 0
+        max_consecutive_failures = 3
 
-        try:
-            self.is_consuming = True
-            logger.info(
-                f"Starting to consume events (SUBTITLE_REQUESTED only) "
-                f"from queue '{self.queue_name}'"
-            )
+        while not self._should_stop:
+            try:
+                # Clean up any existing connections before reconnecting
+                if self.connection and not self.connection.is_closed:
+                    try:
+                        await self.connection.close()
+                    except Exception:
+                        pass
+                    self.connection = None
+                    self.channel = None
+                    self.exchange = None
+                    self.queue = None
 
-            # Verify channel is still valid
-            if (
-                self.channel
-                and hasattr(self.channel, "is_closed")
-                and self.channel.is_closed
-            ):
-                logger.error("Channel is closed, cannot start consuming")
-                return
-
-            logger.info(f"Queue iterator starting for queue '{self.queue_name}'")
-            async with self.queue.iterator() as queue_iter:
-                logger.info(
-                    f"Queue iterator created, waiting for messages on '{self.queue_name}'..."
-                )
-                async for message in queue_iter:
-                    if not self.is_consuming:
-                        logger.info("Consumer stopped, breaking message loop")
-                        break
-
-                    logger.debug(
-                        f"Received message from queue '{self.queue_name}', routing_key: {message.routing_key}"
+                # Connect to RabbitMQ
+                await self.connect()
+                
+                # Check if connection succeeded
+                if not self.queue or not self.channel:
+                    logger.warning(
+                        "Mock mode: Event consumer not connected, cannot consume messages"
                     )
-                    await self._on_message(message)
+                    # In mock mode, just sleep and retry
+                    if not self._should_stop:
+                        await asyncio.sleep(reconnect_delay)
+                    continue
 
-        except asyncio.CancelledError:
-            logger.info("Event consumer task cancelled")
-            raise
-        except Exception as e:
-            logger.error(f"Error in event consumer loop: {e}", exc_info=True)
-            # Don't raise - allow the service to continue running
-            # The error will be logged and can be investigated
-            logger.error(
-                "Event consumer loop failed, but service will continue running"
-            )
+                # Reset failure counter on successful connection
+                consecutive_failures = 0
+                reconnect_delay = settings.rabbitmq_reconnect_initial_delay
+
+                self.is_consuming = True
+                logger.info("🎧 Starting to consume SUBTITLE_REQUESTED events...")
+                logger.info("Press Ctrl+C to stop")
+                logger.info("=" * 60)
+
+                # Start consuming with health monitoring
+                await self._consume_with_health_monitoring()
+
+            except KeyboardInterrupt:
+                logger.info("🛑 Received interrupt signal, shutting down...")
+                self._should_stop = True
+                break
+            except asyncio.CancelledError:
+                logger.info("Event consumer task cancelled")
+                self._should_stop = True
+                raise
+            except Exception as e:
+                self.is_consuming = False
+                consecutive_failures += 1
+                logger.error(
+                    f"❌ Error in event consumer (failure #{consecutive_failures}): {e}",
+                    exc_info=True
+                )
+
+                if not self._should_stop:
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.error(
+                            f"❌ Too many consecutive failures ({consecutive_failures}), "
+                            f"increasing reconnect delay to {reconnect_delay * 2}s"
+                        )
+                        reconnect_delay = min(
+                            reconnect_delay * 2,
+                            settings.rabbitmq_reconnect_max_delay
+                        )
+                        consecutive_failures = 0  # Reset after backing off
+
+                    logger.warning(f"Attempting to reconnect in {reconnect_delay}s...")
+                    await asyncio.sleep(reconnect_delay)
+                else:
+                    break
+            finally:
+                if self._should_stop:
+                    await self.disconnect()
+    
+    async def _consume_with_health_monitoring(self) -> None:
+        """Consume messages with periodic health checks."""
+        last_health_check = asyncio.get_event_loop().time()
+        health_check_interval = settings.rabbitmq_health_check_interval
+
+        async with self.queue.iterator() as queue_iter:
+            async for message in queue_iter:
+                if self._should_stop or not self.is_consuming:
+                    logger.info("Consumer stopped, breaking message loop")
+                    break
+
+                # Periodic health check
+                current_time = asyncio.get_event_loop().time()
+                if current_time - last_health_check > health_check_interval:
+                    if not await self.is_healthy():
+                        logger.warning(
+                            "⚠️ Health check failed during consumption, will reconnect..."
+                        )
+                        raise ConnectionError("Health check failed")
+                    last_health_check = current_time
+
+                logger.debug(
+                    f"Received message from queue '{self.queue_name}', routing_key: {message.routing_key}"
+                )
+                await self._on_message(message)
 
     async def _on_message(self, message: AbstractIncomingMessage) -> None:
         """
@@ -396,9 +455,48 @@ class SubtitleEventConsumer:
                     exc_info=True,
                 )
 
+    async def is_healthy(self) -> bool:
+        """
+        Check if the consumer is healthy and consuming messages.
+        
+        Returns:
+            True if consumer is connected and consuming, False otherwise
+        """
+        try:
+            # Check if connection exists and is open
+            if not self.connection or self.connection.is_closed:
+                return False
+
+            # Check if channel exists
+            if not self.channel:
+                return False
+
+            # Check if exchange and queue are set up
+            if not self.exchange or not self.queue:
+                return False
+
+            # Check if consuming flag is set
+            if not self.is_consuming:
+                return False
+
+            # Check Redis connection health
+            if not await check_and_log_reconnection(
+                redis_client.ensure_connected,
+                "Redis",
+                "manager event consumer",
+                lambda: redis_client.connected
+            ):
+                return False
+
+            return True
+        except Exception as e:
+            logger.warning(f"Event consumer health check failed with exception: {e}")
+            return False
+
     def stop(self) -> None:
         """Signal the consumer to stop consuming messages."""
         logger.info("Stopping event consumer...")
+        self._should_stop = True
         self.is_consuming = False
 
 

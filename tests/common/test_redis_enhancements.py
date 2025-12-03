@@ -8,6 +8,7 @@ from common.redis_client import RedisJobClient
 from common.schemas import SubtitleResponse, SubtitleStatus
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_update_phase_updates_status_with_source():
     """Test that update_phase correctly updates job status with source tracking."""
@@ -46,6 +47,7 @@ async def test_update_phase_updates_status_with_source():
         await client.disconnect()
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_update_phase_with_metadata():
     """Test that update_phase can merge metadata into job."""
@@ -85,6 +87,7 @@ async def test_update_phase_with_metadata():
         await client.disconnect()
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_record_event_stores_event_history():
     """Test that record_event stores events in Redis list."""
@@ -121,6 +124,7 @@ async def test_record_event_stores_event_history():
         await client.disconnect()
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_get_job_events_retrieves_event_history():
     """Test that get_job_events retrieves recorded events."""
@@ -166,6 +170,7 @@ async def test_get_job_events_retrieves_event_history():
         await client.disconnect()
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_get_job_events_with_limit():
     """Test that get_job_events respects limit parameter."""
@@ -201,6 +206,7 @@ async def test_get_job_events_with_limit():
         await client.disconnect()
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_get_job_events_returns_empty_for_new_job():
     """Test that get_job_events returns empty list for job with no events."""
@@ -231,6 +237,7 @@ async def test_get_job_events_returns_empty_for_new_job():
         await client.disconnect()
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_update_phase_on_nonexistent_job_returns_false():
     """Test that update_phase returns False for non-existent job."""

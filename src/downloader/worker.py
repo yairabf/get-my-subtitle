@@ -13,6 +13,7 @@ from aio_pika.abc import AbstractIncomingMessage
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from common.config import settings  # noqa: E402
+from common.connection_utils import check_and_log_reconnection  # noqa: E402
 from common.event_publisher import event_publisher  # noqa: E402
 from common.logging_config import setup_service_logging  # noqa: E402
 from common.redis_client import redis_client  # noqa: E402
@@ -613,8 +614,14 @@ async def consume_messages() -> None:
                     current_time = asyncio.get_event_loop().time()
                     if current_time - last_health_check > health_check_interval:
                         # Check Redis connection
-                        if not await redis_client.ensure_connected():
-                            logger.warning("Redis connection lost, will reconnect on next loop...")
+                        if not await check_and_log_reconnection(
+                            redis_client.ensure_connected,
+                            "Redis",
+                            "downloader",
+                            lambda: redis_client.connected
+                        ):
+                            logger.error("Redis connection failed, stopping message processing...")
+                            raise ConnectionError("Redis connection unavailable")
                         
                         # Check RabbitMQ connection
                         if connection.is_closed:
@@ -631,7 +638,7 @@ async def consume_messages() -> None:
             should_stop = True
         except Exception as e:
             consecutive_failures += 1
-            logger.error(f"❌ Error in consumer (failure #{consecutive_failures}): {e}")
+            logger.error(f"❌ Error in downloader (failure #{consecutive_failures}): {e}")
             
             if not should_stop:
                 if consecutive_failures >= max_consecutive_failures:

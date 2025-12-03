@@ -26,9 +26,16 @@ class RedisJobClient:
         self.client: Optional[Redis] = None
         self.connected: bool = False
         self._reconnecting: bool = False
-        self._reconnect_lock: asyncio.Lock = asyncio.Lock()
+        self._reconnect_lock: Optional[asyncio.Lock] = None
         self._last_health_check: Optional[datetime] = None
         self._health_check_task: Optional[asyncio.Task] = None
+    
+    @property
+    def reconnect_lock(self) -> asyncio.Lock:
+        """Lazy initialization of reconnect lock (must be created within event loop)."""
+        if self._reconnect_lock is None:
+            self._reconnect_lock = asyncio.Lock()
+        return self._reconnect_lock
 
     async def connect(self) -> None:
         """Establish connection to Redis with retry logic."""
@@ -170,7 +177,7 @@ class RedisJobClient:
                 self.connected = False
         
         # Not connected, try to reconnect with lock to prevent concurrent attempts
-        async with self._reconnect_lock:
+        async with self.reconnect_lock:
             # Double-check after acquiring lock
             if self.connected and self.client:
                 return True

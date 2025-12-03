@@ -600,34 +600,37 @@ class TestOrchestratorQueueStatus:
 class TestOrchestratorMockMode:
     """Test SubtitleOrchestrator mock mode behavior when dependencies unavailable."""
 
-    async def test_enqueue_download_task_in_mock_mode_returns_true(
+    async def test_enqueue_download_task_in_mock_mode_returns_false(
         self, sample_subtitle_request_obj
     ):
-        """Test that enqueue_download_task in mock mode returns True."""
+        """Test that enqueue_download_task returns False when connection fails."""
         orchestrator = SubtitleOrchestrator()
-        # Don't connect - stays in mock mode
+        # Mock ensure_connected to return False (simulating connection failure)
+        orchestrator.ensure_connected = AsyncMock(return_value=False)
 
         result = await orchestrator.enqueue_download_task(
             sample_subtitle_request_obj, uuid4()
         )
 
-        assert result is True
+        assert result is False
 
-    async def test_enqueue_translation_task_in_mock_mode_returns_true(self):
-        """Test that enqueue_translation_task in mock mode returns True."""
+    async def test_enqueue_translation_task_in_mock_mode_returns_false(self):
+        """Test that enqueue_translation_task returns False when connection fails."""
         orchestrator = SubtitleOrchestrator()
-        # Don't connect - stays in mock mode
+        # Mock ensure_connected to return False (simulating connection failure)
+        orchestrator.ensure_connected = AsyncMock(return_value=False)
 
         result = await orchestrator.enqueue_translation_task(
             uuid4(), "/path/to/subtitle.srt", "en", "es"
         )
 
-        assert result is True
+        assert result is False
 
     async def test_get_queue_status_in_mock_mode_returns_zeros(self):
         """Test that get_queue_status in mock mode returns zero counts."""
         orchestrator = SubtitleOrchestrator()
-        # Don't connect - stays in mock mode
+        # Mock ensure_connected to return False (simulating connection failure)
+        orchestrator.ensure_connected = AsyncMock(return_value=False)
 
         status = await orchestrator.get_queue_status()
 

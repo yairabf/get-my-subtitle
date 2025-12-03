@@ -5,8 +5,9 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from redis import asyncio as redis
 
 from common.config import settings
 from common.event_publisher import event_publisher
@@ -15,6 +16,7 @@ from common.redis_client import redis_client
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus
 from common.utils import DateTimeUtils, StatusProgressCalculator
 from manager.event_consumer import event_consumer
+from manager.health import check_health
 from manager.orchestrator import orchestrator
 from manager.schemas import (
     HealthResponse,
@@ -42,22 +44,73 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting subtitle management API...")
-    await redis_client.connect()
+    
+    # Quick connection attempts during startup (don't block for too long)
+    # Background reconnection will continue via health checks and ensure_connected
+    logger.info("Attempting quick connections to dependencies...")
+    
+    # Try Redis with a simple single attempt (don't wait for full retry logic)
+    try:
+        # Just try to create connection without retries
+        redis_client.client = await asyncio.wait_for(
+            redis.from_url(
+                settings.redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+                max_connections=10,
+            ),
+            timeout=3.0
+        )
+        # Quick ping test
+        await asyncio.wait_for(redis_client.client.ping(), timeout=2.0)
+        redis_client.connected = True
+        logger.info("✅ Redis connected successfully")
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"Redis not available during startup: {e}")
+        logger.info("Service will start anyway - connections will be established via background health checks")
+        redis_client.connected = False
 
-    # Connect event publisher first (with retries for Docker startup)
+    # Try Event Publisher with fewer retries (max 3 attempts, 2 second delays)
     logger.info("Connecting event publisher...")
-    await event_publisher.connect(max_retries=10, retry_delay=3.0)
+    try:
+        await asyncio.wait_for(
+            event_publisher.connect(max_retries=3, retry_delay=2.0),
+            timeout=15.0
+        )
+        logger.info("✅ Event publisher connected successfully")
+    except asyncio.TimeoutError:
+        logger.warning("Event publisher connection timed out during startup (will retry in background)")
+    except Exception as e:
+        logger.warning(f"Event publisher connection failed: {e} (will retry in background)")
 
-    await orchestrator.connect()
+    # Try Orchestrator with fewer retries
+    try:
+        await asyncio.wait_for(orchestrator.connect(max_retries=3, retry_delay=2.0), timeout=15.0)
+        logger.info("✅ Orchestrator connected successfully")
+    except asyncio.TimeoutError:
+        logger.warning("Orchestrator connection timed out during startup (will retry in background)")
+    except Exception as e:
+        logger.warning(f"Orchestrator connection failed: {e} (will retry in background)")
 
-    # Connect and start event consumer (with retries for Docker startup)
+    # Try Event Consumer with fewer retries
     logger.info("Starting event consumer for SUBTITLE_REQUESTED events...")
-    await event_consumer.connect(max_retries=10, retry_delay=3.0)
+    try:
+        await asyncio.wait_for(
+            event_consumer.connect(max_retries=3, retry_delay=2.0),
+            timeout=15.0
+        )
+        logger.info("✅ Event consumer connected successfully")
+    except asyncio.TimeoutError:
+        logger.warning("Event consumer connection timed out during startup (will retry in background)")
+    except Exception as e:
+        logger.warning(f"Event consumer connection failed: {e} (will retry in background)")
 
     # Verify consumer is connected before starting
     if event_consumer.queue is None or event_consumer.channel is None:
-        logger.error("Event consumer not properly connected, cannot start consuming")
+        logger.warning("Event consumer not properly connected yet, will retry connection via health checks")
+        logger.info("Consumer will start when RabbitMQ connection is established")
     else:
+        logger.info("Event consumer connected successfully, starting consumption...")
         consumer_task = asyncio.create_task(event_consumer.start_consuming())
 
         # Add error handler to catch task exceptions
@@ -116,9 +169,25 @@ app.add_middleware(
 )
 
 
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint."""
+@app.get("/health", response_model=Dict[str, Any])
+async def health_check_endpoint(response: Response):
+    """Comprehensive health check endpoint for all Manager service components."""
+    health_status = await check_health()
+    
+    # Set HTTP status code based on health status
+    if health_status.get("status") == "unhealthy":
+        response.status_code = 503  # Service Unavailable
+    elif health_status.get("status") == "error":
+        response.status_code = 500  # Internal Server Error
+    else:
+        response.status_code = 200  # OK
+    
+    return health_status
+
+
+@app.get("/health/simple", response_model=HealthResponse)
+async def simple_health_check():
+    """Simple health check endpoint for backward compatibility."""
     redis_health = await redis_client.health_check()
 
     # Include Redis status in health check
@@ -131,15 +200,46 @@ async def health_check():
     return health_status
 
 
+@app.get("/health/startup", response_model=Dict[str, str])
+async def startup_health_check():
+    """
+    Startup health check endpoint for Docker healthcheck.
+    
+    Returns 200 OK if the application is running, regardless of dependency status.
+    This allows the container to start and report healthy even if Redis/RabbitMQ
+    aren't ready yet. Use /health endpoint for detailed dependency status.
+    """
+    return {
+        "status": "running",
+        "message": "Manager service is running (use /health for detailed status)"
+    }
+
+
 @app.get("/health/consumer", response_model=Dict[str, Any])
 async def consumer_health_check():
     """Check event consumer health status."""
+    consumer_healthy = await event_consumer.is_healthy()
     return {
-        "status": "consuming" if event_consumer.is_consuming else "not_consuming",
+        "status": "healthy" if consumer_healthy else "unhealthy",
+        "is_consuming": event_consumer.is_consuming,
         "connected": event_consumer.connection is not None
         and not event_consumer.connection.is_closed,
         "queue_name": event_consumer.queue_name,
         "routing_key": event_consumer.routing_key,
+    }
+
+
+@app.get("/health/orchestrator", response_model=Dict[str, Any])
+async def orchestrator_health_check():
+    """Check orchestrator health status."""
+    orchestrator_healthy = await orchestrator.is_healthy()
+    return {
+        "status": "healthy" if orchestrator_healthy else "unhealthy",
+        "connected": orchestrator.connection is not None
+        and not orchestrator.connection.is_closed,
+        "has_channel": orchestrator.channel is not None,
+        "download_queue": orchestrator.download_queue_name,
+        "translation_queue": orchestrator.translation_queue_name,
     }
 
 

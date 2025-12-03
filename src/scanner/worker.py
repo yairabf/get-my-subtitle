@@ -9,7 +9,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.config import settings  # noqa: E402
+from common.connection_utils import check_and_log_reconnection  # noqa: E402
+from common.event_publisher import event_publisher  # noqa: E402
 from common.logging_config import setup_service_logging  # noqa: E402
+from common.redis_client import redis_client  # noqa: E402
 from scanner.scanner import MediaScanner  # noqa: E402
 
 # Configure logging
@@ -64,12 +67,20 @@ async def main() -> None:
             current_time = asyncio.get_event_loop().time()
             if current_time - last_health_check > health_check_interval:
                 # Check Redis connection
-                if not await redis_client.ensure_connected():
-                    logger.warning("Redis connection lost, attempting reconnection...")
+                await check_and_log_reconnection(
+                    redis_client.ensure_connected,
+                    "Redis",
+                    "scanner",
+                    lambda: redis_client.connected
+                )
                 
                 # Check event publisher connection
-                if not await event_publisher.ensure_connected():
-                    logger.warning("Event publisher connection lost, attempting reconnection...")
+                await check_and_log_reconnection(
+                    event_publisher.ensure_connected,
+                    "Event Publisher",
+                    "scanner",
+                    lambda: event_publisher.connection is not None and not event_publisher.connection.is_closed
+                )
                 
                 last_health_check = current_time
 

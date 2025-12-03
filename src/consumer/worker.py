@@ -14,6 +14,7 @@ from aio_pika.abc import AbstractIncomingMessage
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.config import settings  # noqa: E402
+from common.connection_utils import check_and_log_reconnection  # noqa: E402
 from common.logging_config import setup_service_logging  # noqa: E402
 from common.redis_client import redis_client  # noqa: E402
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus  # noqa: E402
@@ -450,8 +451,12 @@ class EventConsumer:
                 return False
 
             # Check Redis connection health
-            if not await redis_client.ensure_connected():
-                logger.warning("Redis connection lost in consumer health check")
+            if not await check_and_log_reconnection(
+                redis_client.ensure_connected,
+                "Redis",
+                "consumer",
+                lambda: redis_client.connected
+            ):
                 return False
 
             # Queue object exists, which means channel is valid
