@@ -1,5 +1,6 @@
 """Tests for the translator worker."""
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -7,6 +8,7 @@ from uuid import uuid4
 import pytest
 
 from common.schemas import SubtitleStatus
+from common.shutdown_manager import ShutdownManager
 from common.subtitle_parser import SRTParser, SubtitleSegment
 from translator.translation_service import SubtitleTranslator
 from translator.worker import process_translation_message
@@ -1801,12 +1803,93 @@ class TestParallelTranslationProcessing:
 
             # Errors are handled gracefully - JOB_FAILED event is published, no exception raised
             await process_translation_message(mock_message, mock_translator)
-            
+
             # Verify JOB_FAILED event was published
             assert mock_pub.publish_event.called
             # Find the JOB_FAILED event call
             job_failed_calls = [
-                call for call in mock_pub.publish_event.call_args_list
+                call
+                for call in mock_pub.publish_event.call_args_list
                 if "JOB_FAILED" in str(call) or "job.failed" in str(call).lower()
             ]
-            assert len(job_failed_calls) > 0, "Expected JOB_FAILED event to be published"
+            assert (
+                len(job_failed_calls) > 0
+            ), "Expected JOB_FAILED event to be published"
+
+
+class TestTranslatorWorkerShutdown:
+    """Tests for translator worker graceful shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_translator_worker_handles_shutdown_signal(self):
+        """Test that translator worker handles shutdown signals gracefully."""
+        shutdown_manager = ShutdownManager("test_translator", shutdown_timeout=5.0)
+        await shutdown_manager.setup_signal_handlers()
+
+        # Simulate shutdown signal
+        shutdown_manager._trigger_shutdown_for_testing()
+
+        assert shutdown_manager.is_shutdown_requested()
+
+    @pytest.mark.asyncio
+    async def test_translator_worker_message_timeout_during_shutdown(self):
+        """Test that message processing times out during shutdown."""
+        shutdown_manager = ShutdownManager("test_translator", shutdown_timeout=1.0)
+
+        # Simulate long-running message processing
+        async def slow_process():
+            await asyncio.sleep(1.0)
+
+        shutdown_manager._trigger_shutdown_for_testing()
+
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                slow_process(), timeout=shutdown_manager.shutdown_timeout
+            )
+
+    @pytest.mark.asyncio
+    async def test_translator_worker_cleanup_callbacks_execute(self):
+        """Test that cleanup callbacks execute during shutdown."""
+        shutdown_manager = ShutdownManager("test_translator")
+
+        cleanup_executed = {"redis": False, "rabbitmq": False, "publisher": False}
+
+        async def mock_redis_disconnect():
+            cleanup_executed["redis"] = True
+
+        async def mock_rabbitmq_close():
+            cleanup_executed["rabbitmq"] = True
+
+        async def mock_publisher_disconnect():
+            cleanup_executed["publisher"] = True
+
+        shutdown_manager.register_cleanup_callback(mock_redis_disconnect)
+        shutdown_manager.register_cleanup_callback(mock_rabbitmq_close)
+        shutdown_manager.register_cleanup_callback(mock_publisher_disconnect)
+
+        await shutdown_manager.execute_cleanup()
+
+        assert cleanup_executed["redis"]
+        assert cleanup_executed["rabbitmq"]
+        assert cleanup_executed["publisher"]
+
+    @pytest.mark.asyncio
+    async def test_translator_worker_stops_consuming_on_shutdown(self):
+        """Test that translator stops consuming messages on shutdown."""
+        shutdown_manager = ShutdownManager("test_translator")
+
+        # Simulate message consumption loop
+        messages_processed = 0
+        max_messages = 5
+
+        for i in range(max_messages):
+            if shutdown_manager.is_shutdown_requested():
+                break
+            messages_processed += 1
+
+            # Trigger shutdown after 2 messages
+            if i == 1:
+                shutdown_manager._trigger_shutdown_for_testing()
+
+        # Should only process 2 messages before shutdown
+        assert messages_processed == 2

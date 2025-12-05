@@ -32,7 +32,7 @@ class SubtitleOrchestrator:
         self.download_queue_name = "subtitle.download"
         self.translation_queue_name = "subtitle.translation"
         self._reconnect_lock: Optional[asyncio.Lock] = None
-    
+
     @property
     def reconnect_lock(self) -> asyncio.Lock:
         """Lazy initialization of reconnect lock (must be created within event loop)."""
@@ -43,7 +43,7 @@ class SubtitleOrchestrator:
     async def connect(self, max_retries: int = 10, retry_delay: float = 3.0) -> None:
         """
         Establish connection to RabbitMQ with retry logic.
-        
+
         Args:
             max_retries: Maximum number of connection attempts
             retry_delay: Initial delay between retries in seconds
@@ -51,6 +51,14 @@ class SubtitleOrchestrator:
         for attempt in range(max_retries):
             try:
                 self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+
+                # Add reconnection callbacks
+                self.connection.reconnect_callbacks.add(
+                    lambda conn: logger.info(
+                        "🔄 Orchestrator reconnected to RabbitMQ successfully!"
+                    )
+                )
+
                 self.channel = await self.connection.channel()
 
                 # Declare queues
@@ -58,12 +66,15 @@ class SubtitleOrchestrator:
 
                 # Event publisher is connected in main.py lifespan, no need to connect here
                 # Just ensure it's connected (idempotent)
-                if not event_publisher.connection or event_publisher.connection.is_closed:
+                if (
+                    not event_publisher.connection
+                    or event_publisher.connection.is_closed
+                ):
                     await event_publisher.connect(max_retries=10, retry_delay=3.0)
 
                 logger.info("✅ Orchestrator connected to RabbitMQ successfully")
                 return  # Success, exit retry loop
-                
+
             except Exception as e:
                 if attempt < max_retries - 1:
                     logger.warning(
@@ -72,7 +83,9 @@ class SubtitleOrchestrator:
                     )
                     await asyncio.sleep(retry_delay)
                 else:
-                    logger.warning(f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}")
+                    logger.warning(
+                        f"Failed to connect to RabbitMQ after {max_retries} attempts: {e}"
+                    )
                     logger.warning(
                         "Running in mock mode - messages will be logged but not queued"
                     )
@@ -86,11 +99,11 @@ class SubtitleOrchestrator:
         if self.connection and not self.connection.is_closed:
             await self.connection.close()
             logger.info("Disconnected from RabbitMQ")
-    
+
     async def is_healthy(self) -> bool:
         """
         Check if orchestrator is healthy and connected to RabbitMQ.
-        
+
         Returns:
             True if connection and channel are healthy, False otherwise
         """
@@ -98,58 +111,58 @@ class SubtitleOrchestrator:
             # Check if connection exists and is open
             if not self.connection or self.connection.is_closed:
                 return False
-            
+
             # Check if channel exists
             if not self.channel:
                 return False
-            
+
             return True
         except Exception as e:
             logger.warning(f"Orchestrator health check failed: {e}")
             return False
-    
+
     async def ensure_connected(self) -> bool:
         """
         Ensure RabbitMQ connection is healthy, reconnect if needed.
-        
+
         Returns:
             True if connected, False otherwise
         """
         # Check if already healthy
         if await self.is_healthy():
             return True
-        
+
         # Not connected, try to reconnect with lock to prevent concurrent attempts
         async with self.reconnect_lock:
             # Double-check after acquiring lock
             if await self.is_healthy():
                 return True
-            
+
             logger.info("Orchestrator connection unhealthy, attempting to reconnect...")
             await self.reconnect()
-        
+
         return await self.is_healthy()
-    
+
     async def reconnect(self) -> None:
         """Reconnect to RabbitMQ with exponential backoff."""
         logger.info("Starting RabbitMQ reconnection for orchestrator...")
-        
+
         # Close existing connection
         if self.connection and not self.connection.is_closed:
             try:
                 await self.connection.close()
             except Exception as e:
                 logger.debug(f"Error closing stale connection: {e}")
-        
+
         self.connection = None
         self.channel = None
-        
+
         # Attempt reconnection with retry logic
         await self.connect(
             max_retries=settings.rabbitmq_reconnect_max_retries,
-            retry_delay=settings.rabbitmq_reconnect_initial_delay
+            retry_delay=settings.rabbitmq_reconnect_initial_delay,
         )
-        
+
         if await self.is_healthy():
             logger.info("✅ Orchestrator reconnection successful")
         else:

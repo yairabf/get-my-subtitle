@@ -18,10 +18,16 @@ from common.connection_utils import check_and_log_reconnection  # noqa: E402
 from common.logging_config import setup_service_logging  # noqa: E402
 from common.redis_client import redis_client  # noqa: E402
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus  # noqa: E402
+from common.shutdown_manager import ShutdownManager  # noqa: E402
 
 # Configure logging
 service_logger = setup_service_logging("consumer", enable_file_logging=True)
 logger = service_logger.logger
+
+# Message consumption constants
+QUEUE_GET_TIMEOUT = 1.0  # Seconds to wait for message from queue
+QUEUE_WAIT_TIMEOUT = 1.1  # asyncio timeout (slightly longer than queue timeout)
+BUSY_WAIT_SLEEP = 0.1  # Sleep duration to reduce CPU usage during empty queue
 
 
 class EventConsumer:
@@ -35,7 +41,9 @@ class EventConsumer:
         self.exchange_name = "subtitle.events"
         self.queue_name = "subtitle.events.consumer"
         self.is_consuming = False
-        self._should_stop = False
+        self.shutdown_manager = ShutdownManager(
+            "consumer", shutdown_timeout=settings.shutdown_timeout
+        )
 
     async def connect(self, max_retries: int = 10, retry_delay: float = 3.0) -> None:
         """Establish connection to RabbitMQ and Redis with retry logic."""
@@ -48,6 +56,14 @@ class EventConsumer:
         for attempt in range(max_retries):
             try:
                 self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+
+                # Add reconnection callbacks
+                self.connection.reconnect_callbacks.add(
+                    lambda conn: logger.info(
+                        "🔄 Consumer worker reconnected to RabbitMQ successfully!"
+                    )
+                )
+
                 self.channel = await self.connection.channel()
 
                 # Set QoS to process one message at a time
@@ -334,13 +350,15 @@ class EventConsumer:
 
     async def start_consuming(self) -> None:
         """Start consuming events from the queue with automatic reconnection and health monitoring."""
-        self._should_stop = False
+        # Setup signal handlers
+        await self.shutdown_manager.setup_signal_handlers()
+
         reconnect_delay = 3.0
         health_check_interval = 30.0  # Check health every 30 seconds
         consecutive_failures = 0
         max_consecutive_failures = 3
 
-        while not self._should_stop:
+        while not self.shutdown_manager.is_shutdown_requested():
             try:
                 # Clean up any existing connections before reconnecting
                 if self.connection and not self.connection.is_closed:
@@ -368,12 +386,19 @@ class EventConsumer:
                     """Consume messages with periodic health checks."""
                     last_health_check = asyncio.get_event_loop().time()
 
-                    async with queue.iterator() as queue_iter:
-                        async for message in queue_iter:
-                            if self._should_stop:
+                    # Consume messages with periodic shutdown checks
+                    while not self.shutdown_manager.is_shutdown_requested():
+                        try:
+                            # Get message with timeout to allow periodic shutdown checks
+                            message = await asyncio.wait_for(
+                                queue.get(timeout=QUEUE_GET_TIMEOUT),
+                                timeout=QUEUE_WAIT_TIMEOUT,
+                            )
+
+                            # Periodic health check (skip during shutdown)
+                            if self.shutdown_manager.is_shutdown_requested():
                                 break
 
-                            # Periodic health check
                             current_time = asyncio.get_event_loop().time()
                             if current_time - last_health_check > health_check_interval:
                                 if not await self.is_healthy():
@@ -383,14 +408,41 @@ class EventConsumer:
                                     raise ConnectionError("Health check failed")
                                 last_health_check = current_time
 
-                            async with message.process():
-                                await self.process_event(message)
+                            # Process message with timeout for graceful shutdown
+                            try:
+                                async with message.process():
+                                    await asyncio.wait_for(
+                                        self.process_event(message),
+                                        timeout=self.shutdown_manager.shutdown_timeout,
+                                    )
+                            except asyncio.TimeoutError:
+                                logger.warning(
+                                    f"⚠️  Message processing timeout ({self.shutdown_manager.shutdown_timeout}s) "
+                                    f"during shutdown - message will be requeued"
+                                )
+                                # Message will be nacked automatically by context manager
+                                break
+
+                        except asyncio.TimeoutError:
+                            # No message received within timeout, reduce busy-wait
+                            await asyncio.sleep(BUSY_WAIT_SLEEP)
+                            continue
+                        except aio_pika.exceptions.QueueEmpty:
+                            # No messages in queue, reduce CPU usage
+                            await asyncio.sleep(BUSY_WAIT_SLEEP)
+                            continue
+
+                    # Log shutdown initiation
+                    if self.shutdown_manager.is_shutdown_requested():
+                        logger.info(
+                            "🛑 Shutdown requested, stopping message consumption..."
+                        )
 
                 await consume_with_health_check()
 
             except KeyboardInterrupt:
                 logger.info("🛑 Received interrupt signal, shutting down...")
-                self._should_stop = True
+                # Signal already handled by shutdown_manager
                 break
             except Exception as e:
                 self.is_consuming = False
@@ -402,7 +454,7 @@ class EventConsumer:
 
                 logger.debug(f"Traceback: {traceback.format_exc()}")
 
-                if not self._should_stop:
+                if not self.shutdown_manager.is_shutdown_requested():
                     if consecutive_failures >= max_consecutive_failures:
                         logger.error(
                             f"❌ Too many consecutive failures ({consecutive_failures}), "
@@ -416,14 +468,14 @@ class EventConsumer:
                 else:
                     break
             finally:
-                if self._should_stop:
+                if self.shutdown_manager.is_shutdown_requested():
                     await self.disconnect()
                     break
 
     def stop(self) -> None:
         """Stop consuming events gracefully."""
         logger.info("🛑 Stopping consumer...")
-        self._should_stop = True
+        self.shutdown_manager.request_shutdown()
         self.is_consuming = False
 
     async def is_healthy(self) -> bool:
@@ -455,7 +507,7 @@ class EventConsumer:
                 redis_client.ensure_connected,
                 "Redis",
                 "consumer",
-                lambda: redis_client.connected
+                lambda: redis_client.connected,
             ):
                 return False
 

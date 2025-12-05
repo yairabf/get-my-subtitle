@@ -29,7 +29,7 @@ class RedisJobClient:
         self._reconnect_lock: Optional[asyncio.Lock] = None
         self._last_health_check: Optional[datetime] = None
         self._health_check_task: Optional[asyncio.Task] = None
-    
+
     @property
     def reconnect_lock(self) -> asyncio.Lock:
         """Lazy initialization of reconnect lock (must be created within event loop)."""
@@ -48,24 +48,23 @@ class RedisJobClient:
                     max_connections=10,
                 )
                 # Test connection with timeout
-                await asyncio.wait_for(
-                    self.client.ping(),
-                    timeout=5.0
-                )
+                await asyncio.wait_for(self.client.ping(), timeout=5.0)
                 self.connected = True
                 self._last_health_check = datetime.now(timezone.utc)
-                logger.info("Connected to Redis successfully")
-                
+                logger.info("✅ Connected to Redis successfully")
+
                 # Start health check background task
                 if self._health_check_task is None or self._health_check_task.done():
-                    self._health_check_task = asyncio.create_task(self._health_check_loop())
-                
+                    self._health_check_task = asyncio.create_task(
+                        self._health_check_loop()
+                    )
+
                 return
             except RedisError as e:
                 if attempt < settings.redis_reconnect_max_retries - 1:
                     delay = min(
-                        settings.redis_reconnect_initial_delay * (2 ** attempt),
-                        settings.redis_reconnect_max_delay
+                        settings.redis_reconnect_initial_delay * (2**attempt),
+                        settings.redis_reconnect_max_delay,
                     )
                     logger.warning(
                         f"Failed to connect to Redis (attempt {attempt + 1}/{settings.redis_reconnect_max_retries}): {e}. "
@@ -73,7 +72,9 @@ class RedisJobClient:
                     )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error(f"Failed to connect to Redis after {settings.redis_reconnect_max_retries} attempts: {e}")
+                    logger.error(
+                        f"Failed to connect to Redis after {settings.redis_reconnect_max_retries} attempts: {e}"
+                    )
                     logger.warning("Jobs will not be persisted - Redis unavailable")
                     self.connected = False
 
@@ -96,43 +97,40 @@ class RedisJobClient:
                 finally:
                     self.connected = False
                     logger.info("Disconnected from Redis")
-    
+
     async def _health_check_loop(self) -> None:
         """Periodic background task to monitor Redis connection health."""
         try:
             while True:
                 await asyncio.sleep(settings.redis_health_check_interval)
-                
+
                 if not await self._check_health():
-                    logger.warning("Redis health check failed, attempting reconnection...")
+                    logger.warning("⚠️ Redis health check failed - connection unhealthy")
                     await self._reconnect_with_backoff()
         except asyncio.CancelledError:
             logger.debug("Redis health check loop cancelled")
         except Exception as e:
             logger.error(f"Unexpected error in Redis health check loop: {e}")
-    
+
     async def _check_health(self) -> bool:
         """Check if Redis connection is healthy."""
         if not self.client:
             return False
-        
+
         try:
             # Add timeout to prevent indefinite hanging
-            await asyncio.wait_for(
-                self.client.ping(),
-                timeout=5.0
-            )
+            await asyncio.wait_for(self.client.ping(), timeout=5.0)
             self._last_health_check = datetime.now(timezone.utc)
             return True
         except (RedisError, asyncio.TimeoutError) as e:
             logger.warning(f"Redis health check failed: {e}")
             self.connected = False
             return False
-    
+
     async def _reconnect_with_backoff(self) -> None:
         """Reconnect to Redis with exponential backoff."""
-        logger.info("Starting Redis reconnection...")
-        
+        logger.info("🔄 Starting Redis reconnection process...")
+
         # Close existing connection
         if self.client:
             try:
@@ -140,50 +138,50 @@ class RedisJobClient:
             except Exception:
                 pass
             self.client = None
-        
+
         # Attempt reconnection
         await self.connect()
-        
+
         if self.connected:
-            logger.info("Redis reconnection successful")
+            logger.info("✅ Redis reconnection successful! Connection restored.")
         else:
-            logger.error("Redis reconnection failed after all retries")
-    
+            logger.error("❌ Redis reconnection failed after all retry attempts")
+
     async def ensure_connected(self) -> bool:
         """
         Ensure Redis connection is healthy, reconnect if needed.
-        
+
         Returns:
             True if connected, False otherwise
         """
         if self.connected and self.client:
             # Check if we need a health check
             if self._last_health_check:
-                seconds_since_check = (datetime.now(timezone.utc) - self._last_health_check).total_seconds()
+                seconds_since_check = (
+                    datetime.now(timezone.utc) - self._last_health_check
+                ).total_seconds()
                 # Only check if it's been more than 10 seconds since last check
                 if seconds_since_check < 10:
                     return True
-            
+
             # Quick health check with timeout
             try:
-                await asyncio.wait_for(
-                    self.client.ping(),
-                    timeout=5.0
-                )
+                await asyncio.wait_for(self.client.ping(), timeout=5.0)
                 self._last_health_check = datetime.now(timezone.utc)
                 return True
-            except (RedisError, asyncio.TimeoutError):
-                logger.warning("Redis connection lost, attempting reconnection...")
+            except (RedisError, asyncio.TimeoutError) as e:
+                logger.warning(f"⚠️ Redis connection lost: {e}")
+                logger.info("🔄 Attempting Redis reconnection...")
                 self.connected = False
-        
+
         # Not connected, try to reconnect with lock to prevent concurrent attempts
         async with self.reconnect_lock:
             # Double-check after acquiring lock
             if self.connected and self.client:
                 return True
-            
+
             await self._reconnect_with_backoff()
-        
+
         return self.connected
 
     def _get_job_key(self, job_id: UUID) -> str:

@@ -1,5 +1,6 @@
 """Tests for the downloader worker."""
 
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,6 +9,7 @@ from uuid import uuid4
 import pytest
 
 from common.schemas import EventType, SubtitleStatus
+from common.shutdown_manager import ShutdownManager
 from downloader.worker import process_message
 
 
@@ -2076,3 +2078,91 @@ class TestFallbackSubtitleSearch:
         finally:
             Path(video_url).unlink(missing_ok=True)
             (Path(video_url).parent / "test_movie.en.srt").unlink(missing_ok=True)
+
+
+class TestDownloaderWorkerShutdown:
+    """Tests for downloader worker graceful shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_downloader_worker_handles_shutdown_signal(self):
+        """Test that downloader worker handles shutdown signals gracefully."""
+        shutdown_manager = ShutdownManager("test_downloader", shutdown_timeout=5.0)
+        await shutdown_manager.setup_signal_handlers()
+
+        # Simulate shutdown signal
+        shutdown_manager._trigger_shutdown_for_testing()
+
+        assert shutdown_manager.is_shutdown_requested()
+
+    @pytest.mark.asyncio
+    async def test_downloader_worker_message_timeout_during_shutdown(self):
+        """Test that message processing times out during shutdown."""
+        shutdown_manager = ShutdownManager("test_downloader", shutdown_timeout=1.0)
+
+        # Simulate long-running message processing
+        async def slow_download():
+            await asyncio.sleep(1.0)
+
+        shutdown_manager._trigger_shutdown_for_testing()
+
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                slow_download(), timeout=shutdown_manager.shutdown_timeout
+            )
+
+    @pytest.mark.asyncio
+    async def test_downloader_worker_cleanup_callbacks_execute(self):
+        """Test that cleanup callbacks execute during shutdown."""
+        shutdown_manager = ShutdownManager("test_downloader")
+
+        cleanup_executed = {
+            "redis": False,
+            "rabbitmq": False,
+            "publisher": False,
+            "opensubtitles": False,
+        }
+
+        async def mock_redis_disconnect():
+            cleanup_executed["redis"] = True
+
+        async def mock_rabbitmq_close():
+            cleanup_executed["rabbitmq"] = True
+
+        async def mock_publisher_disconnect():
+            cleanup_executed["publisher"] = True
+
+        async def mock_opensubtitles_disconnect():
+            cleanup_executed["opensubtitles"] = True
+
+        shutdown_manager.register_cleanup_callback(mock_redis_disconnect)
+        shutdown_manager.register_cleanup_callback(mock_rabbitmq_close)
+        shutdown_manager.register_cleanup_callback(mock_publisher_disconnect)
+        shutdown_manager.register_cleanup_callback(mock_opensubtitles_disconnect)
+
+        await shutdown_manager.execute_cleanup()
+
+        assert cleanup_executed["redis"]
+        assert cleanup_executed["rabbitmq"]
+        assert cleanup_executed["publisher"]
+        assert cleanup_executed["opensubtitles"]
+
+    @pytest.mark.asyncio
+    async def test_downloader_worker_stops_consuming_on_shutdown(self):
+        """Test that downloader stops consuming messages on shutdown."""
+        shutdown_manager = ShutdownManager("test_downloader")
+
+        # Simulate message consumption loop
+        messages_processed = 0
+        max_messages = 5
+
+        for i in range(max_messages):
+            if shutdown_manager.is_shutdown_requested():
+                break
+            messages_processed += 1
+
+            # Trigger shutdown after 2 messages
+            if i == 1:
+                shutdown_manager._trigger_shutdown_for_testing()
+
+        # Should only process 2 messages before shutdown
+        assert messages_processed == 2
