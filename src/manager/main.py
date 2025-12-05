@@ -44,11 +44,11 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting subtitle management API...")
-    
+
     # Quick connection attempts during startup (don't block for too long)
     # Background reconnection will continue via health checks and ensure_connected
     logger.info("Attempting quick connections to dependencies...")
-    
+
     # Try Redis with a simple single attempt (don't wait for full retry logic)
     try:
         # Just try to create connection without retries
@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
                 decode_responses=True,
                 max_connections=10,
             ),
-            timeout=3.0
+            timeout=3.0,
         )
         # Quick ping test
         await asyncio.wait_for(redis_client.client.ping(), timeout=2.0)
@@ -67,47 +67,63 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Redis connected successfully")
     except (asyncio.TimeoutError, Exception) as e:
         logger.warning(f"Redis not available during startup: {e}")
-        logger.info("Service will start anyway - connections will be established via background health checks")
+        logger.info(
+            "Service will start anyway - connections will be established via background health checks"
+        )
         redis_client.connected = False
 
     # Try Event Publisher with fewer retries (max 3 attempts, 2 second delays)
     logger.info("Connecting event publisher...")
     try:
         await asyncio.wait_for(
-            event_publisher.connect(max_retries=3, retry_delay=2.0),
-            timeout=15.0
+            event_publisher.connect(max_retries=3, retry_delay=2.0), timeout=15.0
         )
         logger.info("✅ Event publisher connected successfully")
     except asyncio.TimeoutError:
-        logger.warning("Event publisher connection timed out during startup (will retry in background)")
+        logger.warning(
+            "Event publisher connection timed out during startup (will retry in background)"
+        )
     except Exception as e:
-        logger.warning(f"Event publisher connection failed: {e} (will retry in background)")
+        logger.warning(
+            f"Event publisher connection failed: {e} (will retry in background)"
+        )
 
     # Try Orchestrator with fewer retries
     try:
-        await asyncio.wait_for(orchestrator.connect(max_retries=3, retry_delay=2.0), timeout=15.0)
+        await asyncio.wait_for(
+            orchestrator.connect(max_retries=3, retry_delay=2.0), timeout=15.0
+        )
         logger.info("✅ Orchestrator connected successfully")
     except asyncio.TimeoutError:
-        logger.warning("Orchestrator connection timed out during startup (will retry in background)")
+        logger.warning(
+            "Orchestrator connection timed out during startup (will retry in background)"
+        )
     except Exception as e:
-        logger.warning(f"Orchestrator connection failed: {e} (will retry in background)")
+        logger.warning(
+            f"Orchestrator connection failed: {e} (will retry in background)"
+        )
 
     # Try Event Consumer with fewer retries
     logger.info("Starting event consumer for SUBTITLE_REQUESTED events...")
     try:
         await asyncio.wait_for(
-            event_consumer.connect(max_retries=3, retry_delay=2.0),
-            timeout=15.0
+            event_consumer.connect(max_retries=3, retry_delay=2.0), timeout=15.0
         )
         logger.info("✅ Event consumer connected successfully")
     except asyncio.TimeoutError:
-        logger.warning("Event consumer connection timed out during startup (will retry in background)")
+        logger.warning(
+            "Event consumer connection timed out during startup (will retry in background)"
+        )
     except Exception as e:
-        logger.warning(f"Event consumer connection failed: {e} (will retry in background)")
+        logger.warning(
+            f"Event consumer connection failed: {e} (will retry in background)"
+        )
 
     # Verify consumer is connected before starting
     if event_consumer.queue is None or event_consumer.channel is None:
-        logger.warning("Event consumer not properly connected yet, will retry connection via health checks")
+        logger.warning(
+            "Event consumer not properly connected yet, will retry connection via health checks"
+        )
         logger.info("Consumer will start when RabbitMQ connection is established")
     else:
         logger.info("Event consumer connected successfully, starting consumption...")
@@ -173,7 +189,7 @@ app.add_middleware(
 async def health_check_endpoint(response: Response):
     """Comprehensive health check endpoint for all Manager service components."""
     health_status = await check_health()
-    
+
     # Set HTTP status code based on health status
     if health_status.get("status") == "unhealthy":
         response.status_code = 503  # Service Unavailable
@@ -181,7 +197,7 @@ async def health_check_endpoint(response: Response):
         response.status_code = 500  # Internal Server Error
     else:
         response.status_code = 200  # OK
-    
+
     return health_status
 
 
@@ -204,14 +220,14 @@ async def simple_health_check():
 async def startup_health_check():
     """
     Startup health check endpoint for Docker healthcheck.
-    
+
     Returns 200 OK if the application is running, regardless of dependency status.
     This allows the container to start and report healthy even if Redis/RabbitMQ
     aren't ready yet. Use /health endpoint for detailed dependency status.
     """
     return {
         "status": "running",
-        "message": "Manager service is running (use /health for detailed status)"
+        "message": "Manager service is running (use /health for detailed status)",
     }
 
 

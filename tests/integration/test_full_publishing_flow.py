@@ -197,7 +197,7 @@ class TestTranslationRequestPublishingFlow:
         except QueueEmpty:
             # Message was consumed by Translator - that's fine, proves it was published
             pass
-        
+
         # Note: Translation events are published by downloader worker when it enqueues translation,
         # not by orchestrator.enqueue_translation_task() which is only used for direct API requests
 
@@ -274,6 +274,7 @@ class TestTranslationRequestPublishingFlow:
 
         # Act - Manually publish translation event (mimicking downloader worker behavior)
         from common.utils import DateTimeUtils
+
         event = SubtitleEvent(
             event_type=EventType.SUBTITLE_TRANSLATE_REQUESTED,
             job_id=request_id,

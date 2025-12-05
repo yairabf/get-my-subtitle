@@ -88,7 +88,7 @@ async def check_health() -> Dict[str, Any]:
         # Check Redis connection
         try:
             redis_healthy = await redis_client.ensure_connected()
-            
+
             if redis_healthy and redis_client.client:
                 try:
                     await redis_client.client.ping()
@@ -99,7 +99,7 @@ async def check_health() -> Dict[str, Any]:
                     health_status["checks"]["redis_connected"] = False
                     health_status["details"]["redis"] = {
                         "status": "error",
-                        "error": f"Ping failed: {ping_error}"
+                        "error": f"Ping failed: {ping_error}",
                     }
             else:
                 health_status["checks"]["redis_connected"] = False
@@ -120,4 +120,3 @@ async def check_health() -> Dict[str, Any]:
         health_status["status"] = "error"
         health_status["error"] = str(e)
         return health_status
-

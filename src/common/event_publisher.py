@@ -29,14 +29,14 @@ class EventPublisher:
         self._reconnecting: bool = False
         self._reconnect_lock: Optional[asyncio.Lock] = None
         self._last_health_check: Optional[datetime] = None
-    
+
     @property
     def reconnect_lock(self) -> asyncio.Lock:
         """Lazy initialization of reconnect lock (must be created within event loop)."""
         if self._reconnect_lock is None:
             self._reconnect_lock = asyncio.Lock()
         return self._reconnect_lock
-    
+
     async def _on_reconnect(self, connection: AbstractConnection) -> None:
         """Callback when connection is re-established."""
         logger.info("🔄 Event publisher reconnected to RabbitMQ successfully!")
@@ -46,11 +46,15 @@ class EventPublisher:
             self.exchange = await self.channel.declare_exchange(
                 self.exchange_name, ExchangeType.TOPIC, durable=True
             )
-            logger.info(f"✅ Event publisher re-declared exchange: {self.exchange_name}")
+            logger.info(
+                f"✅ Event publisher re-declared exchange: {self.exchange_name}"
+            )
         except Exception as e:
             logger.error(f"Failed to re-declare exchange after reconnection: {e}")
-    
-    async def _on_disconnect(self, connection: AbstractConnection, exc: Optional[Exception] = None) -> None:
+
+    async def _on_disconnect(
+        self, connection: AbstractConnection, exc: Optional[Exception] = None
+    ) -> None:
         """Callback when connection is lost."""
         # Only log if there was an actual error during active connection
         # Don't log during normal startup/shutdown
@@ -82,11 +86,11 @@ class EventPublisher:
                     f"[EVENT_PUBLISHER] Attempting to connect to {settings.rabbitmq_url}"
                 )
                 self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
-                
+
                 # Add reconnection callbacks to log successful reconnections
                 self.connection.reconnect_callbacks.add(self._on_reconnect)
                 self.connection.close_callbacks.add(self._on_disconnect)
-                
+
                 print("[EVENT_PUBLISHER] Connection established, getting channel...")
                 self.channel = await self.connection.channel()
 
@@ -136,24 +140,24 @@ class EventPublisher:
                 logger.warning(f"Error closing RabbitMQ connection: {e}")
             finally:
                 logger.info("Disconnected event publisher from RabbitMQ")
-    
+
     async def is_healthy(self) -> bool:
         """
         Check if RabbitMQ connection is healthy (public API).
-        
+
         Returns:
             True if connection, channel, and exchange are all healthy, False otherwise
         """
         return await self._check_health()
-    
+
     async def _check_health(self) -> bool:
         """Check if RabbitMQ connection is healthy (internal implementation)."""
         if not self.connection or self.connection.is_closed:
             return False
-        
+
         if not self.channel or not self.exchange:
             return False
-        
+
         try:
             # Try to verify the exchange is still accessible
             # connect_robust should handle reconnection automatically,
@@ -163,54 +167,56 @@ class EventPublisher:
         except Exception as e:
             logger.warning(f"RabbitMQ health check failed: {e}")
             return False
-    
+
     async def _reconnect_with_backoff(self) -> None:
         """Reconnect to RabbitMQ with exponential backoff."""
         logger.info("Starting RabbitMQ reconnection for event publisher...")
-        
+
         # Close existing connection
         if self.connection and not self.connection.is_closed:
             try:
                 await self.connection.close()
             except Exception:
                 pass
-        
+
         self.connection = None
         self.channel = None
         self.exchange = None
-        
+
         # Attempt reconnection
         await self.connect(
             max_retries=settings.rabbitmq_reconnect_max_retries,
-            retry_delay=settings.rabbitmq_reconnect_initial_delay
+            retry_delay=settings.rabbitmq_reconnect_initial_delay,
         )
-        
+
         if self.exchange:
             logger.info("RabbitMQ event publisher reconnection successful")
         else:
             logger.error("RabbitMQ event publisher reconnection failed")
-    
+
     async def ensure_connected(self) -> bool:
         """
         Ensure RabbitMQ connection is healthy, reconnect if needed.
-        
+
         Returns:
             True if connected, False otherwise
         """
         if await self._check_health():
             return True
-        
+
         # Not connected, try to reconnect with lock to prevent concurrent attempts
         async with self.reconnect_lock:
             # Double-check after acquiring lock
             if await self._check_health():
                 return True
-            
+
             await self._reconnect_with_backoff()
-        
+
         return self.exchange is not None
 
-    async def publish_event(self, event: SubtitleEvent, retry_on_failure: bool = True) -> bool:
+    async def publish_event(
+        self, event: SubtitleEvent, retry_on_failure: bool = True
+    ) -> bool:
         """
         Publish event to topic exchange with routing key.
 
@@ -262,18 +268,18 @@ class EventPublisher:
             logger.error(
                 f"Failed to publish event {event.event_type.value} for job {event.job_id}: {e}"
             )
-            
+
             # Attempt reconnection and retry once if requested
             if retry_on_failure:
                 logger.info("Attempting to reconnect and retry event publishing...")
                 async with self.reconnect_lock:
                     if not await self._check_health():
                         await self._reconnect_with_backoff()
-                
+
                 if await self.ensure_connected():
                     # Retry once without further retries
                     return await self.publish_event(event, retry_on_failure=False)
-            
+
             return False
 
 

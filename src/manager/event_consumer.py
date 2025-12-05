@@ -49,12 +49,14 @@ class SubtitleEventConsumer:
         for attempt in range(max_retries):
             try:
                 self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
-                
+
                 # Add reconnection callbacks
                 self.connection.reconnect_callbacks.add(
-                    lambda conn: logger.info("🔄 Manager event consumer reconnected to RabbitMQ successfully!")
+                    lambda conn: logger.info(
+                        "🔄 Manager event consumer reconnected to RabbitMQ successfully!"
+                    )
                 )
-                
+
                 self.channel = await self.connection.channel()
 
                 # Declare topic exchange (should already exist from event_publisher)
@@ -125,7 +127,7 @@ class SubtitleEventConsumer:
 
                 # Connect to RabbitMQ
                 await self.connect()
-                
+
                 # Check if connection succeeded
                 if not self.queue or not self.channel:
                     logger.warning(
@@ -161,7 +163,7 @@ class SubtitleEventConsumer:
                 consecutive_failures += 1
                 logger.error(
                     f"❌ Error in event consumer (failure #{consecutive_failures}): {e}",
-                    exc_info=True
+                    exc_info=True,
                 )
 
                 if not self._should_stop:
@@ -171,8 +173,7 @@ class SubtitleEventConsumer:
                             f"increasing reconnect delay to {reconnect_delay * 2}s"
                         )
                         reconnect_delay = min(
-                            reconnect_delay * 2,
-                            settings.rabbitmq_reconnect_max_delay
+                            reconnect_delay * 2, settings.rabbitmq_reconnect_max_delay
                         )
                         consecutive_failures = 0  # Reset after backing off
 
@@ -183,7 +184,7 @@ class SubtitleEventConsumer:
             finally:
                 if self._should_stop:
                     await self.disconnect()
-    
+
     async def _consume_with_health_monitoring(self) -> None:
         """Consume messages with periodic health checks."""
         last_health_check = asyncio.get_event_loop().time()
@@ -464,7 +465,7 @@ class SubtitleEventConsumer:
     async def is_healthy(self) -> bool:
         """
         Check if the consumer is healthy and consuming messages.
-        
+
         Returns:
             True if consumer is connected and consuming, False otherwise
         """
@@ -490,7 +491,7 @@ class SubtitleEventConsumer:
                 redis_client.ensure_connected,
                 "Redis",
                 "manager event consumer",
-                lambda: redis_client.connected
+                lambda: redis_client.connected,
             ):
                 return False
 
