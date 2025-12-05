@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     redis_job_ttl_active: int = Field(
         default=0, env="REDIS_JOB_TTL_ACTIVE"
     )  # No expiration
-    
+
     # Redis Reconnection Configuration
     redis_health_check_interval: int = Field(
         default=30, env="REDIS_HEALTH_CHECK_INTERVAL"
@@ -53,7 +53,7 @@ class Settings(BaseSettings):
         env="RABBITMQ_TRANSLATION_QUEUE_ROUTING_KEY",
         description="RabbitMQ routing key for translation queue",
     )
-    
+
     # RabbitMQ Reconnection Configuration
     rabbitmq_health_check_interval: int = Field(
         default=30, env="RABBITMQ_HEALTH_CHECK_INTERVAL"
@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     rabbitmq_reconnect_max_delay: float = Field(
         default=30.0, env="RABBITMQ_RECONNECT_MAX_DELAY"
     )  # Maximum reconnection delay in seconds
+
+    # Graceful Shutdown Configuration
+    shutdown_timeout: float = Field(
+        default=30.0, env="SHUTDOWN_TIMEOUT"
+    )  # Timeout in seconds for graceful shutdown (in-flight message processing)
 
     # API Configuration
     api_host: str = Field(default="0.0.0.0", env="API_HOST")
