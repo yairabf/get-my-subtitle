@@ -19,6 +19,7 @@ from common.event_publisher import event_publisher  # noqa: E402
 from common.logging_config import setup_service_logging  # noqa: E402
 from common.redis_client import redis_client  # noqa: E402
 from common.schemas import EventType, SubtitleEvent, SubtitleStatus  # noqa: E402
+from common.shutdown_manager import ShutdownManager  # noqa: E402
 from common.subtitle_parser import (  # noqa: E402
     SRTParser,
     SubtitleSegment,
@@ -34,6 +35,11 @@ from translator.translation_service import SubtitleTranslator  # noqa: E402
 # Configure logging
 service_logger = setup_service_logging("translator", enable_file_logging=True)
 logger = service_logger.logger
+
+# Message consumption constants
+QUEUE_GET_TIMEOUT = 1.0  # Seconds to wait for message from queue
+QUEUE_WAIT_TIMEOUT = 1.1  # asyncio timeout (slightly longer than queue timeout)
+BUSY_WAIT_SLEEP = 0.1  # Sleep duration to reduce CPU usage during empty queue
 
 
 async def process_translation_message(
@@ -456,9 +462,14 @@ async def consume_translation_messages() -> None:
     reconnect_delay = settings.rabbitmq_reconnect_initial_delay
     consecutive_failures = 0
     max_consecutive_failures = 3
-    should_stop = False
+    shutdown_manager = ShutdownManager(
+        "translator", shutdown_timeout=settings.shutdown_timeout
+    )
 
-    while not should_stop:
+    # Setup signal handlers
+    await shutdown_manager.setup_signal_handlers()
+
+    while not shutdown_manager.is_shutdown_requested():
         try:
             # Clean up stale connections
             if connection and not connection.is_closed:
@@ -479,10 +490,12 @@ async def consume_translation_messages() -> None:
             # Connect to RabbitMQ
             logger.info("🔌 Connecting to RabbitMQ...")
             connection = await aio_pika.connect_robust(settings.rabbitmq_url)
-            
+
             # Add reconnection callbacks
             connection.reconnect_callbacks.add(
-                lambda conn: logger.info("🔄 Translator worker reconnected to RabbitMQ successfully!")
+                lambda conn: logger.info(
+                    "🔄 Translator worker reconnected to RabbitMQ successfully!"
+                )
             )
 
             # Create channel
@@ -508,9 +521,18 @@ async def consume_translation_messages() -> None:
             last_health_check = asyncio.get_event_loop().time()
             health_check_interval = settings.rabbitmq_health_check_interval
 
-            async with queue.iterator() as queue_iter:
-                async for message in queue_iter:
-                    # Periodic health check
+            # Consume messages with periodic shutdown checks
+            while not shutdown_manager.is_shutdown_requested():
+                try:
+                    # Get message with timeout to allow periodic shutdown checks
+                    message = await asyncio.wait_for(
+                        queue.get(timeout=QUEUE_GET_TIMEOUT), timeout=QUEUE_WAIT_TIMEOUT
+                    )
+
+                    # Periodic health check (skip during shutdown)
+                    if shutdown_manager.is_shutdown_requested():
+                        break
+
                     current_time = asyncio.get_event_loop().time()
                     if current_time - last_health_check > health_check_interval:
                         # Check Redis connection
@@ -518,44 +540,72 @@ async def consume_translation_messages() -> None:
                             redis_client.ensure_connected,
                             "Redis",
                             "translator",
-                            lambda: redis_client.connected
+                            lambda: redis_client.connected,
                         ):
-                            logger.error("Redis connection failed, stopping message processing...")
+                            logger.error(
+                                "Redis connection failed, stopping message processing..."
+                            )
                             raise ConnectionError("Redis connection unavailable")
-                        
+
                         # Check RabbitMQ connection
                         if connection.is_closed:
                             logger.warning("RabbitMQ connection lost, reconnecting...")
                             raise ConnectionError("RabbitMQ connection closed")
-                        
+
                         last_health_check = current_time
 
-                    async with message.process():
-                        await process_translation_message(message, translator)
+                    # Process message with timeout for graceful shutdown
+                    try:
+                        async with message.process():
+                            await asyncio.wait_for(
+                                process_translation_message(message, translator),
+                                timeout=shutdown_manager.shutdown_timeout,
+                            )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            f"⚠️  Message processing timeout ({shutdown_manager.shutdown_timeout}s) "
+                            f"during shutdown - message will be requeued"
+                        )
+                        # Message will be nacked automatically by context manager
+                        break
+
+                except asyncio.TimeoutError:
+                    # No message received within timeout, reduce busy-wait
+                    await asyncio.sleep(BUSY_WAIT_SLEEP)
+                    continue
+                except aio_pika.exceptions.QueueEmpty:
+                    # No messages in queue, reduce CPU usage
+                    await asyncio.sleep(BUSY_WAIT_SLEEP)
+                    continue
+
+            # Log shutdown initiation
+            if shutdown_manager.is_shutdown_requested():
+                logger.info("🛑 Shutdown requested, stopping message consumption...")
 
         except KeyboardInterrupt:
             logger.info("🛑 Received interrupt signal, shutting down...")
-            should_stop = True
+            # Signal already handled by shutdown_manager
         except Exception as e:
             consecutive_failures += 1
-            logger.error(f"❌ Error in translator (failure #{consecutive_failures}): {e}")
-            
-            if not should_stop:
+            logger.error(
+                f"❌ Error in translator (failure #{consecutive_failures}): {e}"
+            )
+
+            if not shutdown_manager.is_shutdown_requested():
                 if consecutive_failures >= max_consecutive_failures:
                     logger.error(
                         f"❌ Too many consecutive failures ({consecutive_failures}), "
                         f"increasing reconnect delay to {reconnect_delay * 2}s"
                     )
                     reconnect_delay = min(
-                        reconnect_delay * 2,
-                        settings.rabbitmq_reconnect_max_delay
+                        reconnect_delay * 2, settings.rabbitmq_reconnect_max_delay
                     )
                     consecutive_failures = 0
 
                 logger.warning(f"Attempting to reconnect in {reconnect_delay}s...")
                 await asyncio.sleep(reconnect_delay)
         finally:
-            if should_stop:
+            if shutdown_manager.is_shutdown_requested():
                 logger.info("🔌 Disconnecting event publisher...")
                 await event_publisher.disconnect()
 

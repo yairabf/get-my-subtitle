@@ -1,7 +1,6 @@
 """Scanner worker for monitoring media files and triggering subtitle processing."""
 
 import asyncio
-import signal
 import sys
 from pathlib import Path
 
@@ -13,6 +12,7 @@ from common.connection_utils import check_and_log_reconnection  # noqa: E402
 from common.event_publisher import event_publisher  # noqa: E402
 from common.logging_config import setup_service_logging  # noqa: E402
 from common.redis_client import redis_client  # noqa: E402
+from common.shutdown_manager import ShutdownManager  # noqa: E402
 from scanner.scanner import MediaScanner  # noqa: E402
 
 # Configure logging
@@ -23,15 +23,17 @@ logger = service_logger.logger
 async def main() -> None:
     """Main entry point for the scanner service."""
     scanner = MediaScanner()
-    shutdown_event = asyncio.Event()
+    shutdown_manager = ShutdownManager(
+        "scanner", shutdown_timeout=settings.shutdown_timeout
+    )
 
     # Setup async signal handlers for graceful shutdown
-    def signal_handler_sync(signum, frame):
-        logger.info(f"Received signal {signum}, shutting down...")
-        shutdown_event.set()
+    await shutdown_manager.setup_signal_handlers()
 
-    signal.signal(signal.SIGINT, signal_handler_sync)
-    signal.signal(signal.SIGTERM, signal_handler_sync)
+    # Register cleanup callbacks (executed in reverse order)
+    shutdown_manager.register_cleanup_callback(lambda: scanner.disconnect())
+    shutdown_manager.register_cleanup_callback(lambda: scanner.stop_webhook_server())
+    shutdown_manager.register_cleanup_callback(lambda: scanner.stop())
 
     try:
         # Connect to services
@@ -56,13 +58,13 @@ async def main() -> None:
         logger.info(
             f"   - Fallback sync: {'enabled' if settings.jellyfin_fallback_sync_enabled else 'disabled'}"
         )
-        
+
         health_check_interval = settings.redis_health_check_interval
         last_health_check = 0
-        
-        while scanner.is_running() and not shutdown_event.is_set():
+
+        while scanner.is_running() and not shutdown_manager.is_shutdown_requested():
             await asyncio.sleep(1)
-            
+
             # Periodic health check
             current_time = asyncio.get_event_loop().time()
             if current_time - last_health_check > health_check_interval:
@@ -71,17 +73,18 @@ async def main() -> None:
                     redis_client.ensure_connected,
                     "Redis",
                     "scanner",
-                    lambda: redis_client.connected
+                    lambda: redis_client.connected,
                 )
-                
+
                 # Check event publisher connection
                 await check_and_log_reconnection(
                     event_publisher.ensure_connected,
                     "Event Publisher",
                     "scanner",
-                    lambda: event_publisher.connection is not None and not event_publisher.connection.is_closed
+                    lambda: event_publisher.connection is not None
+                    and not event_publisher.connection.is_closed,
                 )
-                
+
                 last_health_check = current_time
 
     except KeyboardInterrupt:
@@ -89,9 +92,7 @@ async def main() -> None:
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
     finally:
-        scanner.stop()
-        await scanner.stop_webhook_server()
-        await scanner.disconnect()
+        await shutdown_manager.execute_cleanup()
         logger.info("👋 Scanner service stopped")
 
 
