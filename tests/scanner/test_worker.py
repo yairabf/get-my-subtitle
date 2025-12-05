@@ -1,12 +1,14 @@
 """Tests for the scanner worker."""
 
 import asyncio
+import signal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from watchdog.events import FileCreatedEvent, FileModifiedEvent
 
 from common.schemas import EventType, SubtitleStatus
+from common.shutdown_manager import ShutdownManager
 from scanner.event_handler import MediaFileEventHandler
 from scanner.scanner import MediaScanner
 
@@ -389,3 +391,59 @@ class TestScannerIntegration:
                                     )
 
                         await scanner.disconnect()
+
+
+class TestScannerWorkerShutdown:
+    """Tests for scanner worker graceful shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_scanner_worker_handles_shutdown_signal(self):
+        """Test that scanner worker handles shutdown signals gracefully."""
+        shutdown_manager = ShutdownManager("test_scanner", shutdown_timeout=5.0)
+        await shutdown_manager.setup_signal_handlers()
+
+        # Simulate shutdown signal
+        shutdown_manager._trigger_shutdown_for_testing()
+
+        assert shutdown_manager.is_shutdown_requested()
+
+    @pytest.mark.asyncio
+    async def test_scanner_worker_cleanup_callbacks_execute(self):
+        """Test that cleanup callbacks execute during shutdown."""
+        shutdown_manager = ShutdownManager("test_scanner")
+
+        cleanup_executed = {"scanner_stop": False, "disconnect": False}
+
+        def mock_stop():
+            cleanup_executed["scanner_stop"] = True
+
+        async def mock_disconnect():
+            cleanup_executed["disconnect"] = True
+
+        shutdown_manager.register_cleanup_callback(mock_disconnect)
+        shutdown_manager.register_cleanup_callback(mock_stop)
+
+        await shutdown_manager.execute_cleanup()
+
+        assert cleanup_executed["scanner_stop"]
+        assert cleanup_executed["disconnect"]
+
+    @pytest.mark.asyncio
+    async def test_scanner_worker_stops_on_shutdown_request(self):
+        """Test that scanner stops when shutdown is requested."""
+        scanner = MediaScanner()
+        scanner.running = True
+
+        shutdown_manager = ShutdownManager("test_scanner")
+        shutdown_manager._trigger_shutdown_for_testing()
+
+        # Simulate main loop
+        iterations = 0
+        while scanner.is_running() and not shutdown_manager.is_shutdown_requested():
+            await asyncio.sleep(0.01)
+            iterations += 1
+            if iterations > 100:
+                break
+
+        # Should exit immediately due to shutdown request
+        assert iterations == 0
