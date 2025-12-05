@@ -41,7 +41,7 @@ async def check_and_log_reconnection(
         ...     lambda: redis_client.connected
         ... )
     """
-    context = f" in {worker_name}" if worker_name else ""
+    context = f" ({worker_name} worker)" if worker_name else ""
     
     try:
         # Check if connection was healthy before calling ensure_connected
@@ -61,9 +61,10 @@ async def check_and_log_reconnection(
         
         # If connection succeeded and it was disconnected before, log success
         if is_connected and not was_connected_before:
-            logger.info(f"✅ {connection_name} reconnection successful{context}")
+            logger.info(f"✅ {connection_name} reconnected successfully{context}!")
         elif not is_connected:
-            logger.warning(f"{connection_name} connection failed{context}")
+            logger.warning(f"⚠️ {connection_name} connection check failed{context}")
+        # Note: If was already connected and still connected, we don't log (normal case)
         
         return is_connected
         

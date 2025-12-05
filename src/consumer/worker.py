@@ -48,6 +48,12 @@ class EventConsumer:
         for attempt in range(max_retries):
             try:
                 self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+                
+                # Add reconnection callbacks
+                self.connection.reconnect_callbacks.add(
+                    lambda conn: logger.info("🔄 Consumer worker reconnected to RabbitMQ successfully!")
+                )
+                
                 self.channel = await self.connection.channel()
 
                 # Set QoS to process one message at a time

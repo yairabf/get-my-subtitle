@@ -36,6 +36,26 @@ class EventPublisher:
         if self._reconnect_lock is None:
             self._reconnect_lock = asyncio.Lock()
         return self._reconnect_lock
+    
+    async def _on_reconnect(self, connection: AbstractConnection) -> None:
+        """Callback when connection is re-established."""
+        logger.info("🔄 Event publisher reconnected to RabbitMQ successfully!")
+        # Re-declare channel and exchange after reconnection
+        try:
+            self.channel = await connection.channel()
+            self.exchange = await self.channel.declare_exchange(
+                self.exchange_name, ExchangeType.TOPIC, durable=True
+            )
+            logger.info(f"✅ Event publisher re-declared exchange: {self.exchange_name}")
+        except Exception as e:
+            logger.error(f"Failed to re-declare exchange after reconnection: {e}")
+    
+    async def _on_disconnect(self, connection: AbstractConnection, exc: Optional[Exception] = None) -> None:
+        """Callback when connection is lost."""
+        # Only log if there was an actual error during active connection
+        # Don't log during normal startup/shutdown
+        if exc and not isinstance(exc, (asyncio.CancelledError,)):
+            logger.warning(f"⚠️ Event publisher connection lost: {exc}")
 
     async def connect(self, max_retries: int = 10, retry_delay: float = 3.0) -> None:
         """Establish connection to RabbitMQ and declare topic exchange with retry logic."""
@@ -62,6 +82,11 @@ class EventPublisher:
                     f"[EVENT_PUBLISHER] Attempting to connect to {settings.rabbitmq_url}"
                 )
                 self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+                
+                # Add reconnection callbacks to log successful reconnections
+                self.connection.reconnect_callbacks.add(self._on_reconnect)
+                self.connection.close_callbacks.add(self._on_disconnect)
+                
                 print("[EVENT_PUBLISHER] Connection established, getting channel...")
                 self.channel = await self.connection.channel()
 

@@ -479,6 +479,11 @@ async def consume_translation_messages() -> None:
             # Connect to RabbitMQ
             logger.info("🔌 Connecting to RabbitMQ...")
             connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+            
+            # Add reconnection callbacks
+            connection.reconnect_callbacks.add(
+                lambda conn: logger.info("🔄 Translator worker reconnected to RabbitMQ successfully!")
+            )
 
             # Create channel
             channel = await connection.channel()
