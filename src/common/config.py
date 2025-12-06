@@ -178,6 +178,9 @@ class Settings(BaseSettings):
     subtitle_storage_path: str = Field(
         default="./storage/subtitles", env="SUBTITLE_STORAGE_PATH"
     )
+    download_base_url: str = Field(
+        default="https://example.com/subtitles", env="DOWNLOAD_BASE_URL"
+    )  # Base URL for generating download URLs for translated subtitles
 
     # Checkpoint Configuration
     checkpoint_enabled: bool = Field(

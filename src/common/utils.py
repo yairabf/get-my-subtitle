@@ -819,6 +819,31 @@ class LanguageUtils:
         return LanguageUtils.ISO_TO_LANGUAGE_NAME.get(normalized, iso_code)
 
 
+class URLUtils:
+    """URL generation utility functions."""
+
+    @staticmethod
+    def generate_download_url(request_id: UUID, target_language: str, base_url: str) -> str:
+        """
+        Generate download URL for translated subtitle file.
+
+        Args:
+            request_id: Unique identifier for the translation request
+            target_language: Target language code (e.g., 'en', 'es')
+            base_url: Base URL for download links (from settings)
+
+        Returns:
+            Full download URL string
+
+        Example:
+            >>> from uuid import uuid4
+            >>> request_id = uuid4()
+            >>> URLUtils.generate_download_url(request_id, 'es', 'https://example.com/subtitles')
+            'https://example.com/subtitles/{request_id}.es.srt'
+        """
+        return f"{base_url}/{request_id}.{target_language}.srt"
+
+
 class PathUtils:
     """Path manipulation utility functions."""
 

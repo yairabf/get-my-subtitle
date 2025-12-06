@@ -139,8 +139,23 @@ class CheckpointManager:
             TranslationCheckpoint object
 
         Raises:
+            ValueError: If completed_chunks contains invalid indices
             IOError: If checkpoint file cannot be written
         """
+        # Validate completed_chunks indices are within bounds
+        if completed_chunks:
+            max_chunk_idx = max(completed_chunks)
+            if max_chunk_idx >= total_chunks:
+                raise ValueError(
+                    f"Invalid chunk index {max_chunk_idx} for total_chunks {total_chunks}. "
+                    f"Chunk indices must be in range [0, {total_chunks - 1}]"
+                )
+            min_chunk_idx = min(completed_chunks)
+            if min_chunk_idx < 0:
+                raise ValueError(
+                    f"Invalid chunk index {min_chunk_idx}. Chunk indices must be non-negative"
+                )
+
         checkpoint_path = self.get_checkpoint_path(request_id, target_language)
 
         # Check if checkpoint exists to preserve created_at
