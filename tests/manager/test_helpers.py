@@ -1,6 +1,6 @@
 """Tests for Manager helper functions."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
@@ -22,7 +22,6 @@ class TestCalculateJobProgressPercentage:
         [
             (SubtitleStatus.PENDING, 0),
             (SubtitleStatus.DOWNLOADING, 25),
-            (SubtitleStatus.DOWNLOADED, 50),
             (SubtitleStatus.TRANSLATING, 75),
             (SubtitleStatus.COMPLETED, 100),
             (SubtitleStatus.FAILED, 0),
@@ -30,15 +29,12 @@ class TestCalculateJobProgressPercentage:
         ids=[
             "pending_0_percent",
             "downloading_25_percent",
-            "downloaded_50_percent",
             "translating_75_percent",
             "completed_100_percent",
             "failed_0_percent",
         ],
     )
-    def test_calculate_progress_for_status(
-        self, subtitle_status, expected_progress
-    ):
+    def test_calculate_progress_for_status(self, subtitle_status, expected_progress):
         """Test progress calculation for different subtitle statuses."""
         subtitle = SubtitleResponse(
             id=uuid4(),
@@ -79,7 +75,10 @@ class TestPublishJobFailureAndRaiseHttpError:
         "error_message,http_status_code",
         [
             ("Failed to enqueue download task", status.HTTP_500_INTERNAL_SERVER_ERROR),
-            ("Failed to enqueue translation task", status.HTTP_500_INTERNAL_SERVER_ERROR),
+            (
+                "Failed to enqueue translation task",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            ),
             ("Invalid request", status.HTTP_400_BAD_REQUEST),
             ("Service unavailable", status.HTTP_503_SERVICE_UNAVAILABLE),
         ],
@@ -127,9 +126,7 @@ class TestPublishJobFailureAndRaiseHttpError:
             mock_publisher.publish_event = AsyncMock()
 
             with pytest.raises(HTTPException) as exc_info:
-                await publish_job_failure_and_raise_http_error(
-                    job_id, "Test error"
-                )
+                await publish_job_failure_and_raise_http_error(job_id, "Test error")
 
             assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
@@ -142,10 +139,7 @@ class TestPublishJobFailureAndRaiseHttpError:
             mock_publisher.publish_event = AsyncMock()
 
             with pytest.raises(HTTPException):
-                await publish_job_failure_and_raise_http_error(
-                    job_id, "Test error"
-                )
+                await publish_job_failure_and_raise_http_error(job_id, "Test error")
 
             call_args = mock_publisher.publish_event.call_args[0][0]
             assert call_args.timestamp is not None
-

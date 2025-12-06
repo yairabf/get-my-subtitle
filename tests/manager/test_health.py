@@ -146,7 +146,9 @@ class TestCheckRedisConnectionHealth:
         with patch("manager.health.redis_client") as mock_redis:
             mock_redis.ensure_connected = AsyncMock(return_value=True)
             mock_redis.client = MagicMock()
-            mock_redis.client.ping = AsyncMock(side_effect=Exception("Connection error"))
+            mock_redis.client.ping = AsyncMock(
+                side_effect=Exception("Connection error")
+            )
 
             is_healthy, details = await check_redis_connection_health()
 
@@ -170,7 +172,9 @@ class TestCheckRedisConnectionHealth:
     async def test_handles_exception_during_health_check(self):
         """Test that function handles exceptions during health check."""
         with patch("manager.health.redis_client") as mock_redis:
-            mock_redis.ensure_connected = AsyncMock(side_effect=Exception("Unexpected error"))
+            mock_redis.ensure_connected = AsyncMock(
+                side_effect=Exception("Unexpected error")
+            )
 
             is_healthy, details = await check_redis_connection_health()
 
@@ -273,4 +277,3 @@ class TestCheckHealth:
             assert "event_consumer" in result["details"]
             assert "event_publisher" in result["details"]
             assert "redis" in result["details"]
-
