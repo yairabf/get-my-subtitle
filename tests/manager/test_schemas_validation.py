@@ -49,6 +49,123 @@ class TestSubtitleRequestCreateValidation:
         assert request.target_language == "es"
         assert request.preferred_sources == ["opensubtitles"]
 
+    @pytest.mark.parametrize(
+        "video_url,should_pass",
+        [
+            ("https://example.com/video.mp4", True),
+            ("http://example.com/video.mp4", True),
+            ("file:///path/to/video.mp4", True),
+            ("invalid-url", False),
+            ("", False),
+            ("   ", False),
+            ("ftp://example.com/video.mp4", False),
+        ],
+        ids=[
+            "https_valid",
+            "http_valid",
+            "file_valid",
+            "invalid_format",
+            "empty_string",
+            "whitespace_only",
+            "ftp_invalid",
+        ],
+    )
+    def test_video_url_validation(self, video_url, should_pass):
+        """Test video URL format validation."""
+        if should_pass:
+            request = SubtitleRequestCreate(
+                video_url=video_url,
+                video_title="Test Video",
+                language="en",
+            )
+            assert request.video_url == video_url.strip()
+        else:
+            with pytest.raises(ValidationError) as exc_info:
+                SubtitleRequestCreate(
+                    video_url=video_url,
+                    video_title="Test Video",
+                    language="en",
+                )
+            assert "video_url" in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "video_title,should_pass",
+        [
+            ("Test Video", True),
+            ("  Test Video  ", True),  # Should be stripped
+            ("", False),
+            ("   ", False),
+            (None, False),
+        ],
+        ids=[
+            "valid_title",
+            "title_with_whitespace",
+            "empty_string",
+            "whitespace_only",
+            "none",
+        ],
+    )
+    def test_video_title_validation(self, video_title, should_pass):
+        """Test video title non-empty validation."""
+        if should_pass:
+            request = SubtitleRequestCreate(
+                video_url="https://example.com/video.mp4",
+                video_title=video_title,
+                language="en",
+            )
+            assert request.video_title == video_title.strip() if video_title else None
+        else:
+            with pytest.raises(ValidationError) as exc_info:
+                SubtitleRequestCreate(
+                    video_url="https://example.com/video.mp4",
+                    video_title=video_title,
+                    language="en",
+                )
+            assert "video_title" in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "language,should_pass,expected_result",
+        [
+            ("en", True, "en"),
+            ("EN", True, "en"),  # Should be lowercased
+            ("es", True, "es"),
+            ("  en  ", True, "en"),  # Should be stripped and lowercased
+            ("", False, None),
+            ("   ", False, None),
+            ("eng", False, None),  # Too long
+            ("e", False, None),  # Too short
+            ("123", False, None),  # Invalid format
+        ],
+        ids=[
+            "valid_lowercase",
+            "valid_uppercase",
+            "valid_spanish",
+            "valid_with_whitespace",
+            "empty_string",
+            "whitespace_only",
+            "too_long",
+            "too_short",
+            "invalid_format",
+        ],
+    )
+    def test_language_code_validation(self, language, should_pass, expected_result):
+        """Test language code ISO 639-1 validation."""
+        if should_pass:
+            request = SubtitleRequestCreate(
+                video_url="https://example.com/video.mp4",
+                video_title="Test Video",
+                language=language,
+            )
+            assert request.language == expected_result
+        else:
+            with pytest.raises(ValidationError) as exc_info:
+                SubtitleRequestCreate(
+                    video_url="https://example.com/video.mp4",
+                    video_title="Test Video",
+                    language=language,
+                )
+            assert "language" in str(exc_info.value)
+
     def test_subtitle_request_create_missing_required_fields(self):
         """Test that missing required fields raise ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
@@ -302,15 +419,95 @@ class TestSubtitleTranslateRequestValidation:
         assert "source_language" in error_fields
         assert "target_language" in error_fields
 
-    def test_subtitle_translate_request_allows_empty_subtitle_path(self):
-        """Test empty subtitle_path allowed (no min_length)."""
-        request = SubtitleTranslateRequest(
-            subtitle_path="",
-            source_language="en",
-            target_language="es",
-        )
+    @pytest.mark.parametrize(
+        "subtitle_path,should_pass",
+        [
+            ("/path/to/subtitle.srt", True),
+            ("  /path/to/subtitle.srt  ", True),  # Should be stripped
+            ("", False),
+            ("   ", False),
+            (None, False),
+        ],
+        ids=[
+            "valid_path",
+            "path_with_whitespace",
+            "empty_string",
+            "whitespace_only",
+            "none",
+        ],
+    )
+    def test_subtitle_path_validation(self, subtitle_path, should_pass):
+        """Test subtitle path non-empty validation."""
+        if should_pass:
+            request = SubtitleTranslateRequest(
+                subtitle_path=subtitle_path,
+                source_language="en",
+                target_language="es",
+            )
+            assert (
+                request.subtitle_path == subtitle_path.strip()
+                if subtitle_path
+                else None
+            )
+        else:
+            with pytest.raises(ValidationError) as exc_info:
+                SubtitleTranslateRequest(
+                    subtitle_path=subtitle_path,
+                    source_language="en",
+                    target_language="es",
+                )
+            assert "subtitle_path" in str(exc_info.value)
 
-        assert request.subtitle_path == ""
+    @pytest.mark.parametrize(
+        "source_language,target_language,should_pass",
+        [
+            ("en", "es", True),
+            ("EN", "ES", True),  # Should be lowercased
+            ("  en  ", "  es  ", True),  # Should be stripped and lowercased
+            ("", "es", False),
+            ("en", "", False),
+            ("eng", "es", False),  # Too long
+            ("en", "esp", False),  # Too long
+            ("e", "es", False),  # Too short
+            ("en", "e", False),  # Too short
+        ],
+        ids=[
+            "both_valid",
+            "both_uppercase",
+            "both_with_whitespace",
+            "source_empty",
+            "target_empty",
+            "source_too_long",
+            "target_too_long",
+            "source_too_short",
+            "target_too_short",
+        ],
+    )
+    def test_language_codes_validation(
+        self, source_language, target_language, should_pass
+    ):
+        """Test source and target language code ISO 639-1 validation."""
+        if should_pass:
+            request = SubtitleTranslateRequest(
+                subtitle_path="/path/to/subtitle.srt",
+                source_language=source_language,
+                target_language=target_language,
+            )
+            assert request.source_language == source_language.lower().strip()
+            assert request.target_language == target_language.lower().strip()
+        else:
+            with pytest.raises(ValidationError) as exc_info:
+                SubtitleTranslateRequest(
+                    subtitle_path="/path/to/subtitle.srt",
+                    source_language=source_language,
+                    target_language=target_language,
+                )
+            # Should have validation error for language fields
+            errors = exc_info.value.errors()
+            error_fields = {error["loc"][0] for error in errors}
+            assert (
+                "source_language" in error_fields or "target_language" in error_fields
+            )
 
 
 # ============================================================================

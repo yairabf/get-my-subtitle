@@ -67,7 +67,8 @@ class RedisJobClient:
                         settings.redis_reconnect_max_delay,
                     )
                     logger.warning(
-                        f"Failed to connect to Redis (attempt {attempt + 1}/{settings.redis_reconnect_max_retries}): {e}. "
+                        f"Failed to connect to Redis "
+                        f"(attempt {attempt + 1}/{settings.redis_reconnect_max_retries}): {e}. "
                         f"Retrying in {delay}s..."
                     )
                     await asyncio.sleep(delay)

@@ -124,7 +124,8 @@ class TestSubtitleEventConsumer:
             AsyncMock(side_effect=Exception("Connection failed")),
         ):
             consumer = SubtitleEventConsumer()
-            await consumer.connect()
+            # Use minimal retries for faster test execution
+            await consumer.connect(max_retries=1, retry_delay=0.01)
 
             # Should not raise exception, but log warning
             assert consumer.connection is None
@@ -335,20 +336,34 @@ class TestSubtitleEventConsumer:
     @pytest.mark.asyncio
     async def test_start_consuming_mock_mode(self):
         """Test that start_consuming handles mock mode gracefully."""
-        consumer = SubtitleEventConsumer()
-        # Don't connect, so consumer stays in mock mode
+        with patch(
+            "manager.event_consumer.aio_pika.connect_robust",
+            AsyncMock(side_effect=Exception("Connection failed")),
+        ), patch(
+            "manager.event_consumer.settings.rabbitmq_reconnect_initial_delay",
+            0.01,  # Use minimal delay for faster test execution
+        ), patch.object(
+            SubtitleEventConsumer,
+            "connect",
+            new_callable=AsyncMock,
+        ) as mock_connect:
+            # Make connect fail immediately without retries
+            mock_connect.return_value = None
 
-        # Should not raise exception
-        task = asyncio.create_task(consumer.start_consuming())
+            consumer = SubtitleEventConsumer()
+            # Don't connect, so consumer stays in mock mode
 
-        # Give it a moment
-        await asyncio.sleep(0.1)
+            # Should not raise exception
+            task = asyncio.create_task(consumer.start_consuming())
 
-        # Stop consuming
-        consumer.stop()
-        await task
+            # Give it a moment
+            await asyncio.sleep(0.1)
 
-        # Should complete without errors
+            # Stop consuming
+            consumer.stop()
+            await task
+
+            # Should complete without errors
 
     @pytest.mark.asyncio
     async def test_handle_auto_translate_flag(

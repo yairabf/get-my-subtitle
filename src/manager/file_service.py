@@ -76,7 +76,7 @@ def save_subtitle_file(job_id: UUID, content: str, language: str) -> str:
 
 def read_subtitle_file(job_id: UUID, language: str) -> str:
     """
-    Read subtitle content from a file.
+    Read subtitle content from storage.
 
     Args:
         job_id: Unique identifier for the job
@@ -86,20 +86,35 @@ def read_subtitle_file(job_id: UUID, language: str) -> str:
         Subtitle file content as string
 
     Raises:
-        FileNotFoundError: If the subtitle file doesn't exist
+        FileNotFoundError: If the subtitle file doesn't exist for the given job_id and language
+        IOError: If the file exists but cannot be read
 
     Example:
         >>> job_id = UUID('123e4567-e89b-12d3-a456-426614174000')
-        >>> read_subtitle_file(job_id, 'en')
+        >>> content = read_subtitle_file(job_id, 'en')
         '1\\n00:00:01,000 --> 00:00:04,000\\nHello world\\n'
     """
     file_path = get_subtitle_file_path(job_id, language)
 
     if not file_path.exists():
-        logger.error(f"Subtitle file not found: {file_path}")
-        raise FileNotFoundError(f"Subtitle file not found: {file_path}")
+        error_message = (
+            f"Subtitle file not found for job {job_id} with language '{language}'. "
+            f"Expected path: {file_path}. "
+            f"The file may not have been downloaded yet, or the job may have failed."
+        )
+        logger.error(error_message)
+        raise FileNotFoundError(error_message)
 
-    content = file_path.read_text(encoding="utf-8")
-
-    logger.debug(f"Read subtitle file: {file_path}")
-    return content
+    try:
+        content = file_path.read_text(encoding="utf-8")
+        logger.debug(
+            f"Successfully read subtitle file: {file_path} ({len(content)} bytes)"
+        )
+        return content
+    except Exception as e:
+        error_message = (
+            f"Failed to read subtitle file for job {job_id} with language '{language}'. "
+            f"Path: {file_path}. Error: {e}"
+        )
+        logger.error(error_message, exc_info=True)
+        raise IOError(error_message) from e

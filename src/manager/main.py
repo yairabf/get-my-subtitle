@@ -1,22 +1,25 @@
 """FastAPI application for the subtitle management system."""
 
-import asyncio
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from redis import asyncio as redis
 
 from common.config import settings
-from common.event_publisher import event_publisher
 from common.logging_config import setup_service_logging
 from common.redis_client import redis_client
-from common.schemas import EventType, SubtitleEvent, SubtitleStatus
-from common.utils import DateTimeUtils, StatusProgressCalculator
+from common.schemas import SubtitleStatus
 from manager.event_consumer import event_consumer
 from manager.health import check_health
+from manager.helpers import (
+    calculate_job_progress_percentage,
+    initialize_all_connections_on_startup,
+    publish_job_failure_and_raise_http_error,
+    shutdown_all_connections,
+    start_event_consumer_if_ready,
+)
 from manager.orchestrator import orchestrator
 from manager.schemas import (
     HealthResponse,
@@ -44,127 +47,15 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting subtitle management API...")
+    await initialize_all_connections_on_startup()
 
-    # Quick connection attempts during startup (don't block for too long)
-    # Background reconnection will continue via health checks and ensure_connected
-    logger.info("Attempting quick connections to dependencies...")
-
-    # Try Redis with a simple single attempt (don't wait for full retry logic)
-    try:
-        # Just try to create connection without retries
-        redis_client.client = await asyncio.wait_for(
-            redis.from_url(
-                settings.redis_url,
-                encoding="utf-8",
-                decode_responses=True,
-                max_connections=10,
-            ),
-            timeout=3.0,
-        )
-        # Quick ping test
-        await asyncio.wait_for(redis_client.client.ping(), timeout=2.0)
-        redis_client.connected = True
-        logger.info("✅ Redis connected successfully")
-    except (asyncio.TimeoutError, Exception) as e:
-        logger.warning(f"Redis not available during startup: {e}")
-        logger.info(
-            "Service will start anyway - connections will be established via background health checks"
-        )
-        redis_client.connected = False
-
-    # Try Event Publisher with fewer retries (max 3 attempts, 2 second delays)
-    logger.info("Connecting event publisher...")
-    try:
-        await asyncio.wait_for(
-            event_publisher.connect(max_retries=3, retry_delay=2.0), timeout=15.0
-        )
-        logger.info("✅ Event publisher connected successfully")
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Event publisher connection timed out during startup (will retry in background)"
-        )
-    except Exception as e:
-        logger.warning(
-            f"Event publisher connection failed: {e} (will retry in background)"
-        )
-
-    # Try Orchestrator with fewer retries
-    try:
-        await asyncio.wait_for(
-            orchestrator.connect(max_retries=3, retry_delay=2.0), timeout=15.0
-        )
-        logger.info("✅ Orchestrator connected successfully")
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Orchestrator connection timed out during startup (will retry in background)"
-        )
-    except Exception as e:
-        logger.warning(
-            f"Orchestrator connection failed: {e} (will retry in background)"
-        )
-
-    # Try Event Consumer with fewer retries
-    logger.info("Starting event consumer for SUBTITLE_REQUESTED events...")
-    try:
-        await asyncio.wait_for(
-            event_consumer.connect(max_retries=3, retry_delay=2.0), timeout=15.0
-        )
-        logger.info("✅ Event consumer connected successfully")
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Event consumer connection timed out during startup (will retry in background)"
-        )
-    except Exception as e:
-        logger.warning(
-            f"Event consumer connection failed: {e} (will retry in background)"
-        )
-
-    # Verify consumer is connected before starting
-    if event_consumer.queue is None or event_consumer.channel is None:
-        logger.warning(
-            "Event consumer not properly connected yet, will retry connection via health checks"
-        )
-        logger.info("Consumer will start when RabbitMQ connection is established")
-    else:
-        logger.info("Event consumer connected successfully, starting consumption...")
-        consumer_task = asyncio.create_task(event_consumer.start_consuming())
-
-        # Add error handler to catch task exceptions
-        def handle_task_exception(task):
-            try:
-                task.result()  # This will raise if task failed
-            except Exception as e:
-                logger.error(f"Event consumer task failed: {e}", exc_info=True)
-
-        consumer_task.add_done_callback(handle_task_exception)
-        logger.info(f"Event consumer task started: {consumer_task}")
-
+    consumer_task = await start_event_consumer_if_ready()
     logger.info("API startup complete")
 
     yield
 
     # Shutdown
-    logger.info("Shutting down subtitle management API...")
-
-    # Stop event consumer
-    if consumer_task:
-        logger.info("Stopping event consumer...")
-        event_consumer.stop()
-        try:
-            await asyncio.wait_for(consumer_task, timeout=5.0)
-        except asyncio.TimeoutError:
-            logger.warning("Event consumer task did not stop gracefully, cancelling...")
-            consumer_task.cancel()
-            try:
-                await consumer_task
-            except asyncio.CancelledError:
-                pass
-
-    await event_consumer.disconnect()
-    await orchestrator.disconnect()
-    await event_publisher.disconnect()
-    await redis_client.disconnect()
-    logger.info("API shutdown complete")
+    await shutdown_all_connections(consumer_task)
 
 
 # Create FastAPI application
@@ -175,13 +66,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add CORS middleware
+# Configure CORS based on environment
+# Parse comma-separated origins from config
+allowed_origins = (
+    [origin.strip() for origin in settings.cors_allowed_origins.split(",")]
+    if settings.cors_allowed_origins
+    else ["http://localhost:3000"]  # Safe default for development
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],  # Explicit methods only
+    allow_headers=["Content-Type", "Authorization"],  # Explicit headers only
 )
 
 
@@ -339,10 +237,11 @@ async def get_queue_status():
     response_model=SubtitleResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def request_subtitle_download(request: SubtitleRequestCreate):
+async def enqueue_subtitle_download_job(request: SubtitleRequestCreate):
     """
-    Request subtitle download for a video.
+    Create and enqueue a new subtitle download job.
 
+    Returns the created job with PENDING status.
     """
     try:
         # Create subtitle response
@@ -363,26 +262,16 @@ async def request_subtitle_download(request: SubtitleRequestCreate):
         )
 
         if not success:
-            # Publish failure event - Consumer will update status
-            failure_event = SubtitleEvent(
-                event_type=EventType.JOB_FAILED,
-                job_id=subtitle_response.id,
-                timestamp=DateTimeUtils.get_current_utc_datetime(),
-                source="manager",
-                payload={"error_message": "Failed to enqueue download task"},
-            )
-            await event_publisher.publish_event(failure_event)
-            # Set status in response object for API response (not saved to Redis)
-            subtitle_response.status = SubtitleStatus.FAILED
-            subtitle_response.error_message = "Failed to enqueue download task"
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to enqueue download task",
+            await publish_job_failure_and_raise_http_error(
+                subtitle_response.id,
+                "Failed to enqueue download task",
             )
 
-        logger.info(f"Subtitle download request created: {subtitle_response.id}")
+        logger.info(f"Subtitle download job created: {subtitle_response.id}")
         return subtitle_response
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing subtitle download request: {e}")
         raise HTTPException(
@@ -443,12 +332,14 @@ async def test_queue_message():
 
 
 @app.post("/subtitles/translate", response_model=SubtitleResponse)
-async def translate_subtitle_file(request: SubtitleTranslateRequest):
+async def enqueue_subtitle_translation_job(request: SubtitleTranslateRequest):
     """
-    Enqueue a subtitle file for translation.
+    Create and enqueue a new subtitle translation job.
 
     The translator worker will read the file from the provided path
     and send its content to OpenAI API for translation.
+
+    Returns the created job with PENDING status.
     """
     try:
         # Create a new job for the translation
@@ -464,7 +355,7 @@ async def translate_subtitle_file(request: SubtitleTranslateRequest):
         await redis_client.save_job(subtitle_response)
 
         logger.info(
-            f"Translation request for file: {request.subtitle_path} -> {request.target_language}"
+            f"Translation job for file: {request.subtitle_path} -> {request.target_language}"
         )
 
         # Enqueue translation task - the worker will read the file and send to OpenAI
@@ -476,24 +367,12 @@ async def translate_subtitle_file(request: SubtitleTranslateRequest):
         )
 
         if not success:
-            # Publish failure event - Consumer will update status
-            failure_event = SubtitleEvent(
-                event_type=EventType.JOB_FAILED,
-                job_id=subtitle_response.id,
-                timestamp=DateTimeUtils.get_current_utc_datetime(),
-                source="manager",
-                payload={"error_message": "Failed to enqueue translation task"},
-            )
-            await event_publisher.publish_event(failure_event)
-            # Set status in response object for API response (not saved to Redis)
-            subtitle_response.status = SubtitleStatus.FAILED
-            subtitle_response.error_message = "Failed to enqueue translation task"
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to enqueue translation task",
+            await publish_job_failure_and_raise_http_error(
+                subtitle_response.id,
+                "Failed to enqueue translation task",
             )
 
-        logger.info(f"Translation request created: {subtitle_response.id}")
+        logger.info(f"Translation job created: {subtitle_response.id}")
         return subtitle_response
 
     except HTTPException:
@@ -516,11 +395,7 @@ async def get_job_status(job_id: UUID):
             status_code=status.HTTP_404_NOT_FOUND, detail="Subtitle request not found"
         )
 
-    # Calculate progress based on status using utility function
-    progress_mapping = StatusProgressCalculator.get_subtitle_status_progress_mapping()
-    progress = StatusProgressCalculator.calculate_progress_for_status(
-        subtitle.status, progress_mapping
-    )
+    progress = calculate_job_progress_percentage(subtitle)
 
     return SubtitleStatusResponse(
         id=subtitle.id,
@@ -531,8 +406,13 @@ async def get_job_status(job_id: UUID):
 
 
 @app.post("/webhooks/jellyfin", response_model=WebhookAcknowledgement)
-async def handle_jellyfin_webhook(payload: JellyfinWebhookPayload):
-    """Handle webhook notifications from Jellyfin."""
+async def process_jellyfin_media_event(payload: JellyfinWebhookPayload):
+    """
+    Process Jellyfin webhook event and create subtitle download job.
+
+    Only processes library.item.added and library.item.updated events
+    for Movie and Episode items.
+    """
     try:
         logger.info(f"Received Jellyfin webhook: {payload.event} - {payload.item_name}")
 
@@ -560,6 +440,10 @@ async def handle_jellyfin_webhook(payload: JellyfinWebhookPayload):
             return WebhookAcknowledgement(
                 status="error", message="No video URL or path provided"
             )
+
+        # Convert plain file paths to file:// URLs if needed
+        if video_url and not video_url.startswith(("http://", "https://", "file://")):
+            video_url = f"file://{video_url}"
 
         # Create subtitle request with default settings
         subtitle_request = SubtitleRequestCreate(
@@ -594,6 +478,12 @@ async def handle_jellyfin_webhook(payload: JellyfinWebhookPayload):
 
         if not success:
             # Publish failure event - Consumer will update status
+            # Note: We can't use publish_job_failure_and_raise_http_error here
+            # because we need to return a WebhookAcknowledgement, not raise HTTPException
+            from common.event_publisher import event_publisher
+            from common.schemas import EventType, SubtitleEvent
+            from common.utils import DateTimeUtils
+
             failure_event = SubtitleEvent(
                 event_type=EventType.JOB_FAILED,
                 job_id=subtitle_response.id,
@@ -602,7 +492,6 @@ async def handle_jellyfin_webhook(payload: JellyfinWebhookPayload):
                 payload={"error_message": "Failed to enqueue download task"},
             )
             await event_publisher.publish_event(failure_event)
-            # Note: Status will be updated by Consumer, not directly here
             return WebhookAcknowledgement(
                 status="error",
                 job_id=subtitle_response.id,

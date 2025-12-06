@@ -7,13 +7,7 @@ from uuid import uuid4
 import aio_pika
 import pytest
 
-from common.schemas import (
-    DownloadTask,
-    EventType,
-    SubtitleRequest,
-    SubtitleStatus,
-    TranslationTask,
-)
+from common.schemas import DownloadTask, EventType, TranslationTask
 from manager.orchestrator import SubtitleOrchestrator
 
 
@@ -129,7 +123,8 @@ class TestOrchestratorConnection:
             side_effect=Exception("Connection failed"),
         ):
             # Should not raise exception
-            await orchestrator.connect()
+            # Use minimal retries for faster test execution
+            await orchestrator.connect(max_retries=1, retry_delay=0.01)
 
             # Should be in mock mode
             assert orchestrator.connection is None
@@ -728,7 +723,8 @@ class TestOrchestratorErrorHandling:
             with patch("manager.orchestrator.event_publisher") as mock_publisher:
                 mock_publisher.connect = AsyncMock()
 
-                await orchestrator.connect()
+                # Use minimal retries for faster test execution
+                await orchestrator.connect(max_retries=1, retry_delay=0.01)
                 status = await orchestrator.get_queue_status()
 
                 # Should return zeros on error

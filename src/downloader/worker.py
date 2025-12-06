@@ -17,13 +17,13 @@ from common.connection_utils import check_and_log_reconnection  # noqa: E402
 from common.event_publisher import event_publisher  # noqa: E402
 from common.logging_config import setup_service_logging  # noqa: E402
 from common.redis_client import redis_client  # noqa: E402
-from common.shutdown_manager import ShutdownManager  # noqa: E402
 from common.schemas import (  # noqa: E402
     EventType,
     SubtitleEvent,
     SubtitleStatus,
     TranslationTask,
 )
+from common.shutdown_manager import ShutdownManager  # noqa: E402
 from common.utils import DateTimeUtils, LanguageUtils, PathUtils  # noqa: E402
 from downloader.opensubtitles_client import (  # noqa: E402
     OpenSubtitlesAPIError,

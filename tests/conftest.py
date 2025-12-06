@@ -83,13 +83,13 @@ def mock_rabbitmq_connection():
     mock_connection = AsyncMock(spec=aio_pika.abc.AbstractConnection)
     mock_connection.is_closed = False
     mock_connection.close = AsyncMock()
-    
+
     # Add callback collections for reconnection handling
     mock_connection.reconnect_callbacks = MagicMock()
     mock_connection.reconnect_callbacks.add = MagicMock()
     mock_connection.close_callbacks = MagicMock()
     mock_connection.close_callbacks.add = MagicMock()
-    
+
     return mock_connection
 
 
