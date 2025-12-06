@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting subtitle management API...")
     await initialize_all_connections_on_startup()
-    
+
     consumer_task = await start_event_consumer_if_ready()
     logger.info("API startup complete")
 
@@ -240,7 +240,7 @@ async def get_queue_status():
 async def enqueue_subtitle_download_job(request: SubtitleRequestCreate):
     """
     Create and enqueue a new subtitle download job.
-    
+
     Returns the created job with PENDING status.
     """
     try:
@@ -335,10 +335,10 @@ async def test_queue_message():
 async def enqueue_subtitle_translation_job(request: SubtitleTranslateRequest):
     """
     Create and enqueue a new subtitle translation job.
-    
+
     The translator worker will read the file from the provided path
     and send its content to OpenAI API for translation.
-    
+
     Returns the created job with PENDING status.
     """
     try:
@@ -409,7 +409,7 @@ async def get_job_status(job_id: UUID):
 async def process_jellyfin_media_event(payload: JellyfinWebhookPayload):
     """
     Process Jellyfin webhook event and create subtitle download job.
-    
+
     Only processes library.item.added and library.item.updated events
     for Movie and Episode items.
     """
@@ -440,6 +440,10 @@ async def process_jellyfin_media_event(payload: JellyfinWebhookPayload):
             return WebhookAcknowledgement(
                 status="error", message="No video URL or path provided"
             )
+
+        # Convert plain file paths to file:// URLs if needed
+        if video_url and not video_url.startswith(("http://", "https://", "file://")):
+            video_url = f"file://{video_url}"
 
         # Create subtitle request with default settings
         subtitle_request = SubtitleRequestCreate(
@@ -479,7 +483,7 @@ async def process_jellyfin_media_event(payload: JellyfinWebhookPayload):
             from common.event_publisher import event_publisher
             from common.schemas import EventType, SubtitleEvent
             from common.utils import DateTimeUtils
-            
+
             failure_event = SubtitleEvent(
                 event_type=EventType.JOB_FAILED,
                 job_id=subtitle_response.id,
