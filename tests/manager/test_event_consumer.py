@@ -349,7 +349,7 @@ class TestSubtitleEventConsumer:
         ) as mock_connect:
             # Make connect fail immediately without retries
             mock_connect.return_value = None
-            
+
             consumer = SubtitleEventConsumer()
             # Don't connect, so consumer stays in mock mode
 

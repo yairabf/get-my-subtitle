@@ -179,10 +179,11 @@ class TestSubtitleEndpoints:
         with patch("manager.main.redis_client") as mock_redis:
             # Mock ensure_connected to prevent reconnection retries (165s delay!)
             mock_redis.ensure_connected = AsyncMock(return_value=True)
+
             # Create an async function that raises the exception
             async def raise_exception(*args, **kwargs):
                 raise exception_type(exception_message)
-            
+
             mock_redis.get_job = raise_exception
 
             job_id = uuid4()
@@ -237,10 +238,11 @@ class TestSubtitleEndpoints:
         with patch("manager.main.redis_client") as mock_redis:
             # Mock ensure_connected to prevent reconnection retries (165s delay!)
             mock_redis.ensure_connected = AsyncMock(return_value=True)
+
             # Create an async function that raises the exception
             async def raise_exception(*args, **kwargs):
                 raise exception_type(exception_message)
-            
+
             mock_redis.list_jobs = raise_exception
 
             # FastAPI may catch exceptions and return HTTP 500, or let them propagate
@@ -348,11 +350,11 @@ class TestJobEventHistory:
             # Mock ensure_connected to prevent reconnection retries (165s delay!)
             mock_redis.ensure_connected = AsyncMock(return_value=True)
             mock_redis.get_job = AsyncMock(return_value=sample_job)
-            
+
             # Create an async function that raises the exception
             async def raise_exception(*args, **kwargs):
                 raise exception_type(exception_message)
-            
+
             mock_redis.get_job_events = raise_exception
 
             # FastAPI may catch exceptions and return HTTP 500, or let them propagate
@@ -407,7 +409,9 @@ class TestSubtitleDownloadRequest:
         """Test subtitle download request when enqueue fails."""
         with patch("manager.main.redis_client") as mock_redis, patch(
             "manager.main.orchestrator"
-        ) as mock_orchestrator, patch("manager.helpers.event_publisher") as mock_event_publisher:
+        ) as mock_orchestrator, patch(
+            "manager.helpers.event_publisher"
+        ) as mock_event_publisher:
 
             mock_redis.ensure_connected = AsyncMock(return_value=True)
             mock_redis.save_job = AsyncMock(return_value=True)
@@ -636,7 +640,9 @@ class TestSubtitleTranslateEndpoint:
         """Test translation request when enqueue fails."""
         with patch("manager.main.redis_client") as mock_redis, patch(
             "manager.main.orchestrator"
-        ) as mock_orchestrator, patch("manager.helpers.event_publisher") as mock_event_publisher:
+        ) as mock_orchestrator, patch(
+            "manager.helpers.event_publisher"
+        ) as mock_event_publisher:
 
             mock_redis.ensure_connected = AsyncMock(return_value=True)
             mock_redis.save_job = AsyncMock(return_value=True)
@@ -807,10 +813,11 @@ class TestSubtitleStatusEndpoint:
         with patch("manager.main.redis_client") as mock_redis:
             # Mock ensure_connected to prevent reconnection retries (165s delay!)
             mock_redis.ensure_connected = AsyncMock(return_value=True)
+
             # Create an async function that raises the exception
             async def raise_exception(*args, **kwargs):
                 raise exception_type(exception_message)
-            
+
             mock_redis.get_job = raise_exception
 
             job_id = uuid4()
@@ -846,7 +853,9 @@ class TestJellyfinWebhookEndpoint:
         """Test webhook for library item added event."""
         with patch("manager.main.redis_client") as mock_redis, patch(
             "manager.main.orchestrator"
-        ) as mock_orchestrator, patch("manager.main.settings", new_callable=MagicMock) as mock_settings:
+        ) as mock_orchestrator, patch(
+            "manager.main.settings", new_callable=MagicMock
+        ) as mock_settings:
 
             mock_redis.ensure_connected = AsyncMock(return_value=True)
             mock_redis.save_job = AsyncMock(return_value=True)
@@ -924,7 +933,9 @@ class TestJellyfinWebhookEndpoint:
         """Test webhook when enqueue fails."""
         with patch("manager.main.redis_client") as mock_redis, patch(
             "manager.main.orchestrator"
-        ) as mock_orchestrator, patch("manager.main.settings", new_callable=MagicMock) as mock_settings, patch(
+        ) as mock_orchestrator, patch(
+            "manager.main.settings", new_callable=MagicMock
+        ) as mock_settings, patch(
             "common.event_publisher.event_publisher"
         ) as mock_event_publisher:
 
@@ -956,7 +967,9 @@ class TestJellyfinWebhookEndpoint:
         """Test webhook with auto-translate disabled."""
         with patch("manager.main.redis_client") as mock_redis, patch(
             "manager.main.orchestrator"
-        ) as mock_orchestrator, patch("manager.main.settings", new_callable=MagicMock) as mock_settings:
+        ) as mock_orchestrator, patch(
+            "manager.main.settings", new_callable=MagicMock
+        ) as mock_settings:
 
             mock_redis.ensure_connected = AsyncMock(return_value=True)
             mock_redis.save_job = AsyncMock(return_value=True)
@@ -984,7 +997,9 @@ class TestJellyfinWebhookEndpoint:
         """Test webhook with Episode item type."""
         with patch("manager.main.redis_client") as mock_redis, patch(
             "manager.main.orchestrator"
-        ) as mock_orchestrator, patch("manager.main.settings", new_callable=MagicMock) as mock_settings:
+        ) as mock_orchestrator, patch(
+            "manager.main.settings", new_callable=MagicMock
+        ) as mock_settings:
 
             mock_redis.ensure_connected = AsyncMock(return_value=True)
             mock_redis.save_job = AsyncMock(return_value=True)
@@ -1014,7 +1029,9 @@ class TestJellyfinWebhookEndpoint:
         """Test webhook uses item_path when video_url is missing."""
         with patch("manager.main.redis_client") as mock_redis, patch(
             "manager.main.orchestrator"
-        ) as mock_orchestrator, patch("manager.main.settings", new_callable=MagicMock) as mock_settings:
+        ) as mock_orchestrator, patch(
+            "manager.main.settings", new_callable=MagicMock
+        ) as mock_settings:
 
             mock_redis.ensure_connected = AsyncMock(return_value=True)
             mock_redis.save_job = AsyncMock(return_value=True)
@@ -1054,7 +1071,9 @@ class TestJellyfinWebhookEndpoint:
         """Test webhook handling of different event types."""
         with patch("manager.main.redis_client") as mock_redis, patch(
             "manager.main.orchestrator"
-        ) as mock_orchestrator, patch("manager.main.settings", new_callable=MagicMock) as mock_settings:
+        ) as mock_orchestrator, patch(
+            "manager.main.settings", new_callable=MagicMock
+        ) as mock_settings:
 
             mock_redis.ensure_connected = AsyncMock(return_value=True)
             mock_redis.save_job = AsyncMock(return_value=True)
@@ -1093,7 +1112,9 @@ class TestJellyfinWebhookEndpoint:
         """Test webhook handling of different item types."""
         with patch("manager.main.redis_client") as mock_redis, patch(
             "manager.main.orchestrator"
-        ) as mock_orchestrator, patch("manager.main.settings", new_callable=MagicMock) as mock_settings:
+        ) as mock_orchestrator, patch(
+            "manager.main.settings", new_callable=MagicMock
+        ) as mock_settings:
 
             mock_redis.ensure_connected = AsyncMock(return_value=True)
             mock_redis.save_job = AsyncMock(return_value=True)
@@ -1133,7 +1154,9 @@ class TestJellyfinWebhookEndpoint:
         """Test webhook when components raise various exceptions."""
         with patch("manager.main.redis_client") as mock_redis, patch(
             "manager.main.orchestrator"
-        ) as mock_orchestrator, patch("manager.main.settings", new_callable=MagicMock) as mock_settings:
+        ) as mock_orchestrator, patch(
+            "manager.main.settings", new_callable=MagicMock
+        ) as mock_settings:
 
             mock_settings.subtitle_desired_language = "en"
             mock_settings.subtitle_fallback_language = "es"
