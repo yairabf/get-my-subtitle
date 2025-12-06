@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -12,6 +13,23 @@ from common.shutdown_manager import ShutdownManager
 from common.subtitle_parser import SRTParser, SubtitleSegment
 from translator.translation_service import SubtitleTranslator
 from translator.worker import process_translation_message
+
+
+@contextmanager
+def patch_translator_dependencies():
+    """Context manager to patch all translator dependencies (Redis, EventPublisher)."""
+    with patch("common.redis_client.redis_client") as mock_redis, \
+         patch("common.event_publisher.event_publisher") as mock_pub, \
+         patch("translator.error_handler.event_publisher", mock_pub), \
+         patch("translator.event_helpers.event_publisher", mock_pub), \
+         patch("translator.event_helpers.redis_client", mock_redis), \
+         patch("translator.worker.event_publisher", mock_pub), \
+         patch("translator.worker.redis_client", mock_redis):
+        mock_redis.update_phase = AsyncMock(return_value=True)
+        mock_pub.publish_event = AsyncMock(return_value=True)
+        mock_pub.connect = AsyncMock(return_value=True)
+        mock_pub.ensure_connected = AsyncMock(return_value=True)
+        yield mock_redis, mock_pub
 
 
 class TestSubtitleTranslator:
@@ -172,15 +190,33 @@ class TestTranslationMessageProcessing:
     """Test translation message processing."""
 
     @pytest.mark.asyncio
-    async def test_process_translation_message_success(self):
+    async def test_process_translation_message_success(self, tmp_path):
         """Test successful message processing."""
         request_id = uuid4()
+
+        # Create a real subtitle file
+        subtitle_file = tmp_path / "test.srt"
+        subtitle_file.write_text(
+            """1
+00:00:01,000 --> 00:00:04,000
+Subtitle 1
+
+2
+00:00:05,000 --> 00:00:08,000
+Subtitle 2
+
+3
+00:00:09,000 --> 00:00:12,000
+Subtitle 3
+""",
+            encoding="utf-8",
+        )
 
         mock_message = MagicMock()
         mock_message.body = json.dumps(
             {
                 "request_id": str(request_id),
-                "subtitle_file_path": "/path/to/subtitle.srt",
+                "subtitle_file_path": str(subtitle_file),
                 "source_language": "en",
                 "target_language": "es",
             }
@@ -190,9 +226,20 @@ class TestTranslationMessageProcessing:
         mock_translator.translate_batch = AsyncMock(
             return_value=["Traducido 1", "Traducido 2", "Traducido 3"]
         )
+        mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
 
-        with patch("translator.worker.redis_client") as mock_redis:
-            mock_redis.update_phase = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub), \
+             patch("translator.worker.settings") as mock_settings, \
+             patch("translator.translation_orchestrator.settings", mock_settings):
+            # Mock settings to disable checkpoint and configure translation
+            mock_settings.checkpoint_enabled = False
+            mock_settings.translation_max_tokens_per_chunk = 8000
+            mock_settings.translation_max_segments_per_chunk = 100
+            mock_settings.openai_model = "gpt-4o-mini"
+            mock_settings.translation_token_safety_margin = 0.8
+            mock_settings.subtitle_storage_path = str(tmp_path)
+            mock_settings.download_base_url = None
+            mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
             await process_translation_message(mock_message, mock_translator)
 
@@ -207,7 +254,7 @@ class TestTranslationMessageProcessing:
 
         mock_translator = MagicMock()
 
-        with patch("translator.worker.redis_client") as mock_redis:
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
             mock_redis.update_job_status = AsyncMock(return_value=True)
 
             # Should not raise exception
@@ -230,15 +277,25 @@ class TestTranslationMessageProcessing:
         await process_translation_message(mock_message, mock_translator)
 
     @pytest.mark.asyncio
-    async def test_process_translation_message_translation_error(self):
+    async def test_process_translation_message_translation_error(self, tmp_path):
         """Test handling translation errors."""
         request_id = uuid4()
+
+        # Create a real subtitle file to avoid FileNotFoundError
+        subtitle_file = tmp_path / "test.srt"
+        subtitle_file.write_text(
+            """1
+00:00:01,000 --> 00:00:04,000
+Hello world
+""",
+            encoding="utf-8",
+        )
 
         mock_message = MagicMock()
         mock_message.body = json.dumps(
             {
                 "request_id": str(request_id),
-                "subtitle_file_path": "/path/to/subtitle.srt",
+                "subtitle_file_path": str(subtitle_file),
                 "source_language": "en",
                 "target_language": "es",
             }
@@ -246,12 +303,18 @@ class TestTranslationMessageProcessing:
 
         mock_translator = MagicMock()
         mock_translator.translate_batch = AsyncMock(side_effect=Exception("API Error"))
+        mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
 
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub), \
+             patch("translator.worker.settings") as mock_settings, \
+             patch("translator.translation_orchestrator.settings", mock_settings):
+            # Mock settings to avoid checkpoint logic and configure translation
+            mock_settings.checkpoint_enabled = False
+            mock_settings.translation_max_tokens_per_chunk = 8000
+            mock_settings.translation_max_segments_per_chunk = 100
+            mock_settings.openai_model = "gpt-4o-mini"
+            mock_settings.translation_token_safety_margin = 0.8
+            mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
             await process_translation_message(mock_message, mock_translator)
 
@@ -681,13 +744,12 @@ Goodbye!
         mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
+        monkeypatch.setattr("translator.event_helpers.settings", mock_settings)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings)
+        monkeypatch.setattr("common.config.settings", mock_settings)
 
         # Mock Redis and event publisher
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
 
             # Mock message
             mock_message = MagicMock()
@@ -738,6 +800,9 @@ Goodbye!
         mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
+        monkeypatch.setattr("translator.event_helpers.settings", mock_settings)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings)
+        monkeypatch.setattr("common.config.settings", mock_settings)
         monkeypatch.setattr(
             "translator.checkpoint_manager.settings",
             mock_settings,
@@ -767,11 +832,7 @@ Goodbye!
         )
 
         # Mock Redis and event publisher
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
 
             # Mock message
             mock_message = MagicMock()
@@ -812,6 +873,9 @@ Goodbye!
         mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
+        monkeypatch.setattr("translator.event_helpers.settings", mock_settings)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings)
+        monkeypatch.setattr("common.config.settings", mock_settings)
         monkeypatch.setattr(
             "translator.checkpoint_manager.settings",
             mock_settings,
@@ -824,11 +888,7 @@ Goodbye!
         checkpoint_path = checkpoint_manager.get_checkpoint_path(request_id, "es")
 
         # Mock Redis and event publisher
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
 
             # Mock message
             mock_message = MagicMock()
@@ -868,13 +928,12 @@ Goodbye!
         mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
+        monkeypatch.setattr("translator.event_helpers.settings", mock_settings)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings)
+        monkeypatch.setattr("common.config.settings", mock_settings)
 
         # Mock Redis and event publisher
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
 
             # Mock message
             mock_message = MagicMock()
@@ -919,6 +978,9 @@ Goodbye!
         mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
+        monkeypatch.setattr("translator.event_helpers.settings", mock_settings)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings)
+        monkeypatch.setattr("common.config.settings", mock_settings)
         monkeypatch.setattr(
             "translator.checkpoint_manager.settings",
             mock_settings,
@@ -951,11 +1013,7 @@ Goodbye!
         )
 
         # Mock Redis and event publisher
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
 
             # Mock message with different source language
             mock_message = MagicMock()
@@ -1021,16 +1079,16 @@ How are you?
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.download_base_url = None
         mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
+        monkeypatch.setattr("translator.event_helpers.settings", mock_settings)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings)
+        monkeypatch.setattr("common.config.settings", mock_settings)
 
         # Mock Redis and event publisher
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
 
             # Mock message
             mock_message = MagicMock()
@@ -1086,16 +1144,16 @@ How are you?
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.download_base_url = None
         mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
+        monkeypatch.setattr("translator.event_helpers.settings", mock_settings)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings)
+        monkeypatch.setattr("common.config.settings", mock_settings)
 
         # Mock Redis and event publisher
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
 
             # Mock message
             mock_message = MagicMock()
@@ -1152,16 +1210,16 @@ How are you?
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.download_base_url = None
         mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
+        monkeypatch.setattr("translator.event_helpers.settings", mock_settings)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings)
+        monkeypatch.setattr("common.config.settings", mock_settings)
 
         # Mock Redis and event publisher
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
 
             # Mock message
             mock_message = MagicMock()
@@ -1230,6 +1288,9 @@ How are you?
         mock_settings.translation_token_safety_margin = 0.8
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
+        monkeypatch.setattr("translator.event_helpers.settings", mock_settings)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings)
+        monkeypatch.setattr("common.config.settings", mock_settings)
 
         # Track event order
         event_order = []
@@ -1239,10 +1300,7 @@ How are you?
             return True
 
         # Mock Redis and event publisher
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
             mock_pub.publish_event = AsyncMock(side_effect=track_event_order)
 
             # Mock message
@@ -1321,9 +1379,13 @@ Hello world
         mock_settings.translation_max_segments_per_chunk = 100
         mock_settings.openai_model = "gpt-5-nano"
         mock_settings.translation_token_safety_margin = 0.8
+        mock_settings.download_base_url = None
         mock_settings.get_translation_parallel_requests = MagicMock(return_value=3)
 
         monkeypatch.setattr("translator.worker.settings", mock_settings)
+        monkeypatch.setattr("translator.event_helpers.settings", mock_settings)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings)
+        monkeypatch.setattr("common.config.settings", mock_settings)
 
         # Mock translator
         mock_translator = MagicMock()
@@ -1331,11 +1393,7 @@ Hello world
         mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
 
         # Mock Redis and event publisher
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
 
             # Mock message
             mock_message = MagicMock()
@@ -1474,11 +1532,8 @@ class TestParallelTranslationProcessing:
         mock_translator.translate_batch = AsyncMock(side_effect=mock_translate_batch)
         mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
 
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub), \
+             patch("translator.translation_orchestrator.settings", mock_settings_parallel):
 
             mock_message = MagicMock()
             mock_message.body = json.dumps(
@@ -1541,11 +1596,8 @@ class TestParallelTranslationProcessing:
         mock_translator.translate_batch = AsyncMock(side_effect=mock_translate_batch)
         mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
 
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub), \
+             patch("translator.translation_orchestrator.settings", mock_settings_parallel):
 
             mock_message = MagicMock()
             mock_message.body = json.dumps(
@@ -1591,11 +1643,9 @@ class TestParallelTranslationProcessing:
         mock_translator.translate_batch = AsyncMock(side_effect=mock_translate_batch)
         mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
 
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub), \
+             patch("translator.translation_orchestrator.settings", mock_settings_parallel):
+            mock_settings_parallel.subtitle_storage_path = str(tmp_path)
 
             mock_message = MagicMock()
             mock_message.body = json.dumps(
@@ -1639,12 +1689,11 @@ class TestParallelTranslationProcessing:
         mock_translator.translate_batch = AsyncMock(
             side_effect=lambda texts, sl, tl: [f"Translated {text}" for text in texts]
         )
+        mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
 
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub), \
+             patch("translator.translation_orchestrator.settings", mock_settings_parallel), \
+             patch("translator.checkpoint_manager.settings", mock_settings_parallel):
 
             mock_message = MagicMock()
             mock_message.body = json.dumps(
@@ -1689,7 +1738,11 @@ class TestParallelTranslationProcessing:
 
         request_id = uuid4()
         mock_settings_parallel.subtitle_storage_path = str(tmp_path)
+        
+        # Apply monkeypatch BEFORE creating CheckpointManager
         monkeypatch.setattr("translator.worker.settings", mock_settings_parallel)
+        monkeypatch.setattr("translator.checkpoint_manager.settings", mock_settings_parallel)
+        monkeypatch.setattr("translator.translation_orchestrator.settings", mock_settings_parallel)
 
         # Create a checkpoint with first 2 chunks completed
         checkpoint_manager = CheckpointManager()
@@ -1737,11 +1790,7 @@ class TestParallelTranslationProcessing:
         mock_translator.translate_batch = AsyncMock(side_effect=mock_translate_batch)
         mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
 
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub):
 
             mock_message = MagicMock()
             mock_message.body = json.dumps(
@@ -1785,11 +1834,8 @@ class TestParallelTranslationProcessing:
         mock_translator.translate_batch = AsyncMock(side_effect=mock_translate_batch)
         mock_translator.get_last_parsed_segment_numbers = MagicMock(return_value=None)
 
-        with patch("translator.worker.redis_client") as mock_redis, patch(
-            "translator.worker.event_publisher"
-        ) as mock_pub:
-            mock_redis.update_phase = AsyncMock(return_value=True)
-            mock_pub.publish_event = AsyncMock(return_value=True)
+        with patch_translator_dependencies() as (mock_redis, mock_pub), \
+             patch("translator.translation_orchestrator.settings", mock_settings_parallel):
 
             mock_message = MagicMock()
             mock_message.body = json.dumps(
