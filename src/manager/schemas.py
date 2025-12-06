@@ -3,7 +3,7 @@
 from typing import Dict, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from common.schemas import HealthResponse, SubtitleRequest, SubtitleResponse
 
@@ -11,7 +11,68 @@ from common.schemas import HealthResponse, SubtitleRequest, SubtitleResponse
 class SubtitleRequestCreate(SubtitleRequest):
     """Schema for creating a new subtitle request."""
 
-    pass
+    @field_validator("video_url")
+    @classmethod
+    def validate_video_url_format(cls, v: str) -> str:
+        """
+        Validate video URL is properly formatted and non-empty.
+        
+        Args:
+            v: Video URL string to validate
+            
+        Returns:
+            Stripped video URL string
+            
+        Raises:
+            ValueError: If URL is empty or invalid format
+        """
+        if not v or not v.strip():
+            raise ValueError("video_url must be a non-empty string")
+        if not v.startswith(("http://", "https://", "file://")):
+            raise ValueError(
+                "video_url must start with http://, https://, or file://"
+            )
+        return v.strip()
+
+    @field_validator("video_title")
+    @classmethod
+    def validate_video_title_non_empty(cls, v: str) -> str:
+        """
+        Validate video title is non-empty.
+        
+        Args:
+            v: Video title string to validate
+            
+        Returns:
+            Stripped video title string
+            
+        Raises:
+            ValueError: If title is empty
+        """
+        if not v or not v.strip():
+            raise ValueError("video_title must be a non-empty string")
+        return v.strip()
+
+    @field_validator("language")
+    @classmethod
+    def validate_language_code(cls, v: str) -> str:
+        """
+        Validate language is a valid ISO code.
+        
+        Args:
+            v: Language code string to validate
+            
+        Returns:
+            Lowercased and stripped language code
+            
+        Raises:
+            ValueError: If language code is invalid
+        """
+        if not v or not v.strip():
+            raise ValueError("language must be a non-empty string")
+        if len(v.strip()) != 2:
+            raise ValueError("language must be a 2-character ISO 639-1 code")
+        return v.lower().strip()
 
 
 class SubtitleRequestUpdate(BaseModel):
@@ -56,6 +117,46 @@ class SubtitleTranslateRequest(BaseModel):
     video_title: Optional[str] = Field(
         None, description="Optional video title for reference"
     )
+
+    @field_validator("subtitle_path")
+    @classmethod
+    def validate_subtitle_path_non_empty(cls, v: str) -> str:
+        """
+        Validate subtitle file path is non-empty.
+        
+        Args:
+            v: File path string to validate
+            
+        Returns:
+            Stripped file path string
+            
+        Raises:
+            ValueError: If path is empty
+        """
+        if not v or not v.strip():
+            raise ValueError("subtitle_path must be a non-empty string")
+        return v.strip()
+
+    @field_validator("source_language", "target_language")
+    @classmethod
+    def validate_language_code(cls, v: str) -> str:
+        """
+        Validate language is a valid ISO code.
+        
+        Args:
+            v: Language code string to validate
+            
+        Returns:
+            Lowercased and stripped language code
+            
+        Raises:
+            ValueError: If language code is invalid
+        """
+        if not v or not v.strip():
+            raise ValueError("language must be a non-empty string")
+        if len(v.strip()) != 2:
+            raise ValueError("language must be a 2-character ISO 639-1 code")
+        return v.lower().strip()
 
     class Config:
         json_schema_extra = {
