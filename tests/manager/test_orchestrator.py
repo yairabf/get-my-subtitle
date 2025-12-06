@@ -7,11 +7,7 @@ from uuid import uuid4
 import aio_pika
 import pytest
 
-from common.schemas import (
-    DownloadTask,
-    EventType,
-    TranslationTask,
-)
+from common.schemas import DownloadTask, EventType, TranslationTask
 from manager.orchestrator import SubtitleOrchestrator
 
 
