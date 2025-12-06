@@ -80,4 +80,3 @@ async def save_translated_file(
     logger.info(f"   File size: {output_path.stat().st_size} bytes")
 
     return output_path
-

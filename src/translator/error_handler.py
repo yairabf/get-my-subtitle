@@ -12,7 +12,9 @@ from common.utils import DateTimeUtils
 logger = logging.getLogger(__name__)
 
 
-async def handle_translation_error(request_id: Optional[UUID], error: Exception) -> None:
+async def handle_translation_error(
+    request_id: Optional[UUID], error: Exception
+) -> None:
     """
     Handle translation errors by publishing JOB_FAILED event.
 
@@ -34,7 +36,8 @@ async def handle_translation_error(request_id: Optional[UUID], error: Exception)
         error_message = f"Failed to parse message: {error_message}"
     else:
         logger.error(
-            f"❌ Unexpected error processing translation: {error_message}", exc_info=True
+            f"❌ Unexpected error processing translation: {error_message}",
+            exc_info=True,
         )
         error_message = f"Translation error: {error_message}"
 
@@ -48,4 +51,3 @@ async def handle_translation_error(request_id: Optional[UUID], error: Exception)
             payload={"error_message": error_message},
         )
         await event_publisher.publish_event(event)
-

@@ -1,12 +1,9 @@
-# Senior Staff Engineer Code Review Prompt (Latest Changes Only)
+# Senior Staff Engineer Code Review Prompt 
 
 Act as a **Senior Staff Software Engineer** performing a high-quality, thorough, and principled review of the code.  
 You must review **only the latest modifications**, including:
 
-- Uncommitted changes  
-- Staged changes  
-- Commits that have not yet been pushed  
-- Any diffs present in the working branch  
+
 
 Your review must include detailed, actionable, staff-level feedback with focus on:
 
