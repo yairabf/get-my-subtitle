@@ -16,22 +16,20 @@ class SubtitleRequestCreate(SubtitleRequest):
     def validate_video_url_format(cls, v: str) -> str:
         """
         Validate video URL is properly formatted and non-empty.
-        
+
         Args:
             v: Video URL string to validate
-            
+
         Returns:
             Stripped video URL string
-            
+
         Raises:
             ValueError: If URL is empty or invalid format
         """
         if not v or not v.strip():
             raise ValueError("video_url must be a non-empty string")
         if not v.startswith(("http://", "https://", "file://")):
-            raise ValueError(
-                "video_url must start with http://, https://, or file://"
-            )
+            raise ValueError("video_url must start with http://, https://, or file://")
         return v.strip()
 
     @field_validator("video_title")
@@ -39,13 +37,13 @@ class SubtitleRequestCreate(SubtitleRequest):
     def validate_video_title_non_empty(cls, v: str) -> str:
         """
         Validate video title is non-empty.
-        
+
         Args:
             v: Video title string to validate
-            
+
         Returns:
             Stripped video title string
-            
+
         Raises:
             ValueError: If title is empty
         """
@@ -58,13 +56,13 @@ class SubtitleRequestCreate(SubtitleRequest):
     def validate_language_code(cls, v: str) -> str:
         """
         Validate language is a valid ISO code.
-        
+
         Args:
             v: Language code string to validate
-            
+
         Returns:
             Lowercased and stripped language code
-            
+
         Raises:
             ValueError: If language code is invalid
         """
@@ -123,13 +121,13 @@ class SubtitleTranslateRequest(BaseModel):
     def validate_subtitle_path_non_empty(cls, v: str) -> str:
         """
         Validate subtitle file path is non-empty.
-        
+
         Args:
             v: File path string to validate
-            
+
         Returns:
             Stripped file path string
-            
+
         Raises:
             ValueError: If path is empty
         """
@@ -142,13 +140,13 @@ class SubtitleTranslateRequest(BaseModel):
     def validate_language_code(cls, v: str) -> str:
         """
         Validate language is a valid ISO code.
-        
+
         Args:
             v: Language code string to validate
-            
+
         Returns:
             Lowercased and stripped language code
-            
+
         Raises:
             ValueError: If language code is invalid
         """

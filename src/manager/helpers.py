@@ -11,7 +11,7 @@ from redis import asyncio as redis
 from common.config import settings
 from common.event_publisher import event_publisher
 from common.redis_client import redis_client
-from common.schemas import EventType, SubtitleEvent, SubtitleStatus
+from common.schemas import EventType, SubtitleEvent
 from common.utils import DateTimeUtils, StatusProgressCalculator
 from manager.event_consumer import event_consumer
 from manager.orchestrator import orchestrator
@@ -27,15 +27,15 @@ async def publish_job_failure_and_raise_http_error(
 ) -> None:
     """
     Publish a JOB_FAILED event and raise an HTTPException.
-    
+
     This is a pure function that publishes an event and raises an exception.
     It has no side effects beyond event publication and exception raising.
-    
+
     Args:
         job_id: ID of the failed job
         error_message: Human-readable error message
         http_status_code: HTTP status code to return (defaults to 500)
-        
+
     Raises:
         HTTPException: Always raises with the provided status code and message
     """
@@ -47,7 +47,7 @@ async def publish_job_failure_and_raise_http_error(
         payload={"error_message": error_message},
     )
     await event_publisher.publish_event(failure_event)
-    
+
     raise HTTPException(
         status_code=http_status_code,
         detail=error_message,
@@ -57,12 +57,12 @@ async def publish_job_failure_and_raise_http_error(
 def calculate_job_progress_percentage(subtitle: SubtitleResponse) -> int:
     """
     Calculate progress percentage for a subtitle job based on its current status.
-    
+
     Returns a value between 0-100 representing completion percentage.
-    
+
     Args:
         subtitle: SubtitleResponse object with current status
-        
+
     Returns:
         Progress percentage as integer (0-100)
     """
@@ -75,10 +75,10 @@ def calculate_job_progress_percentage(subtitle: SubtitleResponse) -> int:
 async def attempt_redis_connection_on_startup() -> bool:
     """
     Attempt to connect to Redis during application startup.
-    
+
     Uses a quick timeout (3s) to avoid blocking startup.
     Background health checks will continue attempting connection.
-    
+
     Returns:
         True if connection successful, False otherwise
     """
@@ -99,7 +99,8 @@ async def attempt_redis_connection_on_startup() -> bool:
     except (asyncio.TimeoutError, Exception) as e:
         logger.warning(f"Redis not available during startup: {e}")
         logger.info(
-            "Service will start anyway - connections will be established via background health checks"
+            "Service will start anyway - connections will be established via "
+            "background health checks"
         )
         redis_client.connected = False
         return False
@@ -108,9 +109,9 @@ async def attempt_redis_connection_on_startup() -> bool:
 async def attempt_event_publisher_connection_on_startup() -> bool:
     """
     Attempt to connect event publisher during application startup.
-    
+
     Uses reduced retries (3 max, 2s delays) to avoid blocking startup.
-    
+
     Returns:
         True if connection successful, False otherwise
     """
@@ -136,9 +137,9 @@ async def attempt_event_publisher_connection_on_startup() -> bool:
 async def attempt_orchestrator_connection_on_startup() -> bool:
     """
     Attempt to connect orchestrator during application startup.
-    
+
     Uses reduced retries (3 max, 2s delays) to avoid blocking startup.
-    
+
     Returns:
         True if connection successful, False otherwise
     """
@@ -163,9 +164,9 @@ async def attempt_orchestrator_connection_on_startup() -> bool:
 async def attempt_event_consumer_connection_on_startup() -> bool:
     """
     Attempt to connect event consumer during application startup.
-    
+
     Uses reduced retries (3 max, 2s delays) to avoid blocking startup.
-    
+
     Returns:
         True if connection successful, False otherwise
     """
@@ -191,12 +192,12 @@ async def attempt_event_consumer_connection_on_startup() -> bool:
 async def initialize_all_connections_on_startup() -> None:
     """
     Initialize all external connections during application startup.
-    
+
     Uses quick connection attempts that don't block startup indefinitely.
     Background reconnection continues via health checks.
     """
     logger.info("Attempting quick connections to dependencies...")
-    
+
     await attempt_redis_connection_on_startup()
     await attempt_event_publisher_connection_on_startup()
     await attempt_orchestrator_connection_on_startup()
@@ -206,7 +207,7 @@ async def initialize_all_connections_on_startup() -> None:
 async def start_event_consumer_if_ready() -> Optional[asyncio.Task]:
     """
     Start event consumer task if connection is ready.
-    
+
     Returns:
         asyncio.Task if consumer started, None otherwise
     """
@@ -236,7 +237,7 @@ async def start_event_consumer_if_ready() -> Optional[asyncio.Task]:
 async def shutdown_all_connections(consumer_task: Optional[asyncio.Task]) -> None:
     """
     Gracefully shutdown all connections and stop background tasks.
-    
+
     Args:
         consumer_task: Optional event consumer task to stop
     """
@@ -249,9 +250,7 @@ async def shutdown_all_connections(consumer_task: Optional[asyncio.Task]) -> Non
         try:
             await asyncio.wait_for(consumer_task, timeout=5.0)
         except asyncio.TimeoutError:
-            logger.warning(
-                "Event consumer task did not stop gracefully, cancelling..."
-            )
+            logger.warning("Event consumer task did not stop gracefully, cancelling...")
             consumer_task.cancel()
             try:
                 await consumer_task
@@ -263,4 +262,3 @@ async def shutdown_all_connections(consumer_task: Optional[asyncio.Task]) -> Non
     await event_publisher.disconnect()
     await redis_client.disconnect()
     logger.info("API shutdown complete")
-

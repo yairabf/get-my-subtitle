@@ -76,12 +76,12 @@ class Settings(BaseSettings):
     # API Configuration
     api_host: str = Field(default="0.0.0.0", env="API_HOST")
     api_port: int = Field(default=8000, env="API_PORT")
-    
+
     # CORS Configuration
     cors_allowed_origins: str = Field(
         default="http://localhost:3000",
         env="CORS_ALLOWED_ORIGINS",
-        description="Comma-separated list of allowed CORS origins"
+        description="Comma-separated list of allowed CORS origins",
     )
 
     # Logging

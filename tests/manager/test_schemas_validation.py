@@ -97,7 +97,13 @@ class TestSubtitleRequestCreateValidation:
             ("   ", False),
             (None, False),
         ],
-        ids=["valid_title", "title_with_whitespace", "empty_string", "whitespace_only", "none"],
+        ids=[
+            "valid_title",
+            "title_with_whitespace",
+            "empty_string",
+            "whitespace_only",
+            "none",
+        ],
     )
     def test_video_title_validation(self, video_title, should_pass):
         """Test video title non-empty validation."""
@@ -438,7 +444,11 @@ class TestSubtitleTranslateRequestValidation:
                 source_language="en",
                 target_language="es",
             )
-            assert request.subtitle_path == subtitle_path.strip() if subtitle_path else None
+            assert (
+                request.subtitle_path == subtitle_path.strip()
+                if subtitle_path
+                else None
+            )
         else:
             with pytest.raises(ValidationError) as exc_info:
                 SubtitleTranslateRequest(
@@ -473,7 +483,9 @@ class TestSubtitleTranslateRequestValidation:
             "target_too_short",
         ],
     )
-    def test_language_codes_validation(self, source_language, target_language, should_pass):
+    def test_language_codes_validation(
+        self, source_language, target_language, should_pass
+    ):
         """Test source and target language code ISO 639-1 validation."""
         if should_pass:
             request = SubtitleTranslateRequest(
@@ -493,7 +505,9 @@ class TestSubtitleTranslateRequestValidation:
             # Should have validation error for language fields
             errors = exc_info.value.errors()
             error_fields = {error["loc"][0] for error in errors}
-            assert "source_language" in error_fields or "target_language" in error_fields
+            assert (
+                "source_language" in error_fields or "target_language" in error_fields
+            )
 
 
 # ============================================================================

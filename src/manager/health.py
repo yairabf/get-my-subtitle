@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 async def check_orchestrator_health() -> Dict[str, Any]:
     """
     Check orchestrator connection health.
-    
+
     Returns dict with connection status and details.
     """
     orchestrator_healthy = await orchestrator.is_healthy()
@@ -34,7 +34,7 @@ async def check_orchestrator_health() -> Dict[str, Any]:
 async def check_event_consumer_health() -> Dict[str, Any]:
     """
     Check event consumer health and consumption status.
-    
+
     Returns dict with connection and consumption status.
     """
     event_consumer_healthy = await event_consumer.is_healthy()
@@ -57,7 +57,7 @@ async def check_event_consumer_health() -> Dict[str, Any]:
 async def check_event_publisher_health() -> Dict[str, Any]:
     """
     Check event publisher connection health.
-    
+
     Returns dict with connection status and details.
     """
     event_publisher_healthy = await event_publisher.is_healthy()
@@ -77,7 +77,7 @@ async def check_event_publisher_health() -> Dict[str, Any]:
 async def check_redis_connection_health() -> Tuple[bool, Dict[str, Any]]:
     """
     Check Redis connection and ping responsiveness.
-    
+
     Returns tuple of (is_healthy, details_dict).
     """
     try:
@@ -101,9 +101,9 @@ async def check_redis_connection_health() -> Tuple[bool, Dict[str, Any]]:
 async def check_health() -> Dict[str, Any]:
     """
     Perform comprehensive health check of Manager service.
-    
+
     Checks all external dependencies and returns aggregated status.
-    
+
     Returns:
         Dictionary with overall status and individual component details
     """
