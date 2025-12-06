@@ -119,9 +119,8 @@ async def translate_segments_with_checkpoint(
     )
 
     # If checkpoint exists, validate total chunks match
-    if (
-        checkpoint_state.checkpoint
-        and checkpoint_state.checkpoint.total_chunks != len(chunks)
+    if checkpoint_state.checkpoint and checkpoint_state.checkpoint.total_chunks != len(
+        chunks
     ):
         logger.warning(
             f"⚠️  Checkpoint total_chunks ({checkpoint_state.checkpoint.total_chunks}) doesn't match "
@@ -266,9 +265,7 @@ async def translate_segments_with_checkpoint(
                 f"💾 Saved checkpoint: {len(all_completed_chunks)}/{len(chunks)} chunks completed"
             )
         except Exception as e:
-            logger.warning(
-                f"⚠️  Failed to save checkpoint after parallel batch: {e}"
-            )
+            logger.warning(f"⚠️  Failed to save checkpoint after parallel batch: {e}")
             # Continue translation even if checkpoint save fails
 
     # Merge and renumber translated segments
@@ -279,4 +276,3 @@ async def translate_segments_with_checkpoint(
     )
 
     return merged_segments
-

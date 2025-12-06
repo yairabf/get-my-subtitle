@@ -35,4 +35,3 @@ class CheckpointState:
         self.checkpoint = checkpoint
         self.all_translated_segments = all_translated_segments
         self.start_chunk_idx = start_chunk_idx
-

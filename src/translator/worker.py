@@ -109,9 +109,7 @@ async def process_translation_message(
         logger.info(f"✅ Translation completed in {duration_seconds:.2f} seconds")
 
         # Finalize translation (update status and publish events)
-        await finalize_translation(
-            request_id, output_path, task_data, duration_seconds
-        )
+        await finalize_translation(request_id, output_path, task_data, duration_seconds)
 
         logger.info("✅ Translation completed successfully!")
 

@@ -823,7 +823,9 @@ class URLUtils:
     """URL generation utility functions."""
 
     @staticmethod
-    def generate_download_url(request_id: UUID, target_language: str, base_url: str) -> str:
+    def generate_download_url(
+        request_id: UUID, target_language: str, base_url: str
+    ) -> str:
         """
         Generate download URL for translated subtitle file.
 
