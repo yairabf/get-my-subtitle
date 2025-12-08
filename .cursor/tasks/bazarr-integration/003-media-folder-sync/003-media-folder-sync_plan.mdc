@@ -1,0 +1,250 @@
+# 003 - Media Folder Synchronization
+
+**Epic:** Bazarr Integration  
+**Created:** December 8, 2025  
+**Status:** Not Started  
+**Priority:** P2 (Medium)
+
+## Overview
+
+Automatically place translated subtitle files next to media files (in the same directory where Bazarr saved the original subtitle). This enhances user experience by ensuring media players automatically detect both original and translated subtitles.
+
+- **Brief description**: Copy translated subtitle files to media folder alongside original
+- **Problem it solves**: Translated subtitles are in storage directory; users want them next to media files
+- **User story**: As a user, when I open a video in my media player (Jellyfin/Plex), I want to see both the original and translated subtitle options available, without needing to manually download and place files.
+
+## Prerequisites
+
+- [ ] Task 001 (Bazarr Webhook Handler) completed
+- [ ] Translated subtitles working correctly
+- [ ] File system access verified
+
+## Architecture
+
+### Components Affected
+- `src/consumer/worker.py` - Add media folder copy logic
+- `src/common/file_utils.py` - NEW: File copy utilities
+
+### New Files to Create
+- `src/common/file_utils.py` - File operations utilities
+- `tests/common/test_file_utils.py` - Unit tests for file operations
+- `tests/consumer/test_media_folder_sync.py` - Integration tests
+
+### Files to Modify
+- `src/consumer/worker.py` - Add SUBTITLE_TRANSLATED event handler enhancement
+- `src/manager/main.py` - Store original file path in job metadata
+
+## Implementation Steps
+
+### Phase 1: Design (2 days)
+
+1. **Metadata Storage Strategy**
+   - Store original Bazarr subtitle path in Redis job metadata
+   - Store media file path in job metadata
+   - Design metadata structure
+
+2. **File Naming Convention**
+   - Original: `/media/video.mkv` → `/media/video.en.srt` (Bazarr)
+   - Translated: `/media/video.mkv` → `/media/video.he.srt` (Our service)
+   - Ensure no conflicts
+
+### Phase 2: TDD Setup (1 day)
+
+3. **Create Test Files**
+   - `tests/common/test_file_utils.py`
+   - `tests/consumer/test_media_folder_sync.py`
+
+4. **Write Test Cases**
+   - Test file path resolution
+   - Test file copy operation
+   - Test permission handling
+   - Test file conflict resolution
+   - Test cleanup on failure
+
+### Phase 3: Implementation (3 days)
+
+5. **Update Webhook Handler** (`src/manager/main.py`)
+   ```python
+   # Store metadata when creating job from Bazarr webhook
+   job_metadata = {
+       "original_subtitle_path": payload.subtitle_path,
+       "media_file_path": payload.media_path,
+       "source": "bazarr-webhook"
+   }
+   subtitle_response.metadata = job_metadata
+   ```
+
+6. **Implement File Utils** (`src/common/file_utils.py`)
+   ```python
+   async def copy_to_media_folder(
+       translated_file: Path,
+       original_subtitle_path: str,
+       target_language: str
+   ) -> Path:
+       """Copy translated subtitle to media folder."""
+       # Determine output path based on original
+       # /media/video.en.srt → /media/video.he.srt
+       # Copy file
+       # Verify success
+       return output_path
+   ```
+
+7. **Enhance Consumer Worker** (`src/consumer/worker.py`)
+   ```python
+   async def handle_subtitle_translated(self, event: SubtitleEvent):
+       # Existing: Update Redis status
+       await redis_client.update_status(...)
+       
+       # NEW: Check if this was from Bazarr
+       job = await redis_client.get_job(event.job_id)
+       if job.metadata.get("source") == "bazarr-webhook":
+           original_path = job.metadata["original_subtitle_path"]
+           translated_path = event.payload["output_path"]
+           target_lang = job.target_language
+           
+           # Copy to media folder
+           media_path = await copy_to_media_folder(
+               translated_path,
+               original_path,
+               target_lang
+           )
+           
+           logger.info(f"Copied translated subtitle to media folder: {media_path}")
+   ```
+
+### Phase 4: Testing & Documentation (2 days)
+
+8. **Testing**
+   - Unit tests for file operations
+   - Integration tests with real file system
+   - Permission testing
+   - Error scenario testing
+
+9. **Documentation**
+   - Update README
+   - Add troubleshooting guide for file permissions
+   - Document volume mount requirements
+
+## Configuration
+
+### Environment Variables
+
+```env
+# Media Folder Sync
+BAZARR_COPY_TO_MEDIA_FOLDER=true        # Enable/disable auto-copy
+BAZARR_MEDIA_FOLDER_PERMISSIONS=644     # File permissions for copied subtitles
+```
+
+### Docker Volume Mounts
+
+Ensure service has write access to media folders:
+
+```yaml
+services:
+  consumer:
+    volumes:
+      - /path/to/media:/media         # Must match Bazarr's media path
+      - ./storage:/storage             # Standard storage
+```
+
+## Testing Strategy
+
+### Unit Tests Required
+- [ ] Path resolution logic
+- [ ] File copy operation
+- [ ] Permission validation
+- [ ] Conflict handling (file already exists)
+- [ ] Cleanup on error
+
+### Integration Tests Required
+- [ ] Full workflow: Webhook → Translation → Media folder copy
+- [ ] Verify both files exist side-by-side
+- [ ] Test with different media types (movie/series)
+- [ ] Test permission denied scenarios
+
+### Manual Testing Steps
+1. Configure Bazarr and our service
+2. Trigger subtitle download via Bazarr
+3. Wait for translation to complete
+4. Check media folder:
+   - `video.en.srt` (from Bazarr) ✓
+   - `video.he.srt` (from our service) ✓
+5. Open video in media player
+6. Verify both subtitle tracks available
+
+## Success Criteria
+
+### Functional Requirements
+- [ ] Translated subtitle copied to media folder
+- [ ] File naming follows convention (video.{lang}.srt)
+- [ ] No conflicts with existing files
+- [ ] Proper error handling for permission issues
+- [ ] Both subtitles visible in media players
+- [ ] All tests pass
+
+### Non-Functional Requirements
+- [ ] File copy operation < 1 second
+- [ ] No impact on translation performance
+- [ ] Proper logging of copy operations
+- [ ] Graceful degradation on permission errors
+- [ ] No file corruption
+
+### Acceptance Criteria
+- [ ] Manual testing successful
+- [ ] Documentation complete
+- [ ] User can see both subtitles in media player
+- [ ] No breaking changes
+
+## Security Considerations
+
+### File Permissions
+- Validate write access before attempting copy
+- Set appropriate file permissions (644 recommended)
+- Don't expose internal paths in errors
+
+### Path Validation
+- Prevent path traversal attacks
+- Validate media folder paths
+- Ensure files written to expected directories
+
+## Troubleshooting
+
+### Permission Denied
+**Symptom:** Log shows "Permission denied" when copying file
+
+**Solutions:**
+1. Check Docker volume mount permissions
+2. Verify service user has write access to media folder
+3. Check file ownership
+4. Adjust `BAZARR_MEDIA_FOLDER_PERMISSIONS` setting
+
+### File Not Found
+**Symptom:** Cannot find original subtitle path
+
+**Solutions:**
+1. Verify Bazarr and service share same volume mount
+2. Check metadata storage in Redis
+3. Verify paths are absolute, not relative
+
+### Subtitle Not Appearing in Media Player
+**Symptom:** File copied successfully but not detected by player
+
+**Solutions:**
+1. Verify file naming convention matches player expectations
+2. Check file encoding (should be UTF-8)
+3. Refresh media library in player
+4. Check player subtitle language settings
+
+## Notes
+
+This task enhances UX but is not critical for functionality. Translation still works even without media folder sync; users can download via API.
+
+**Optional Enhancement:**
+- Add configuration for custom naming patterns
+- Support for multiple target languages
+- Automatic cleanup of old subtitles
+
+**Trade-offs:**
+- Pro: Better UX, automatic availability in players
+- Con: Requires file system access, additional disk space
+- Decision: Make it optional (configurable)

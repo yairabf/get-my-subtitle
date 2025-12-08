@@ -1,0 +1,556 @@
+# 001 - Bazarr Webhook Handler
+
+**Epic:** Bazarr Integration  
+**Created:** December 8, 2025  
+**Status:** Planning
+
+## Overview
+
+Implement webhook endpoint that receives Bazarr subtitle download notifications and triggers automatic translation to the user's desired language. This integration enables users to leverage Bazarr's 20+ subtitle provider aggregation while adding AI-powered translation capabilities.
+
+- **Brief description**: Create Manager webhook endpoint that normalizes Bazarr events into standard translation workflow
+- **Problem it solves**: Users want subtitles in Hebrew but most providers only offer English/Spanish. Bazarr downloads English/Spanish subtitles, our system automatically translates them to Hebrew.
+- **User story**: As a user with Hebrew as my primary language, when Bazarr downloads a subtitle in English or Spanish (because Hebrew isn't available), I want the system to automatically translate it to Hebrew, so I can watch media in my preferred language without manual intervention.
+
+## Architecture
+
+### Core Principle: Source-Agnostic Workers
+
+**Manager acts as Adapter Layer:**
+- Receives Bazarr-specific webhook payload
+- Normalizes to standard SubtitleResponse format
+- Publishes standard SUBTITLE_TRANSLATE_REQUESTED event
+- Enqueues standard TranslationTask
+
+**Translation Worker remains agnostic:**
+- Doesn't know subtitle came from Bazarr
+- Processes standard translation tasks
+- Same behavior for all sources (Bazarr, OpenSubtitles, Direct Upload, etc.)
+
+### Components Affected
+- `src/manager/main.py` - Add `/webhooks/bazarr` endpoint
+- `src/manager/schemas.py` - Add `BazarrWebhookPayload` schema
+- `src/common/config.py` - Add Bazarr configuration settings
+- `src/consumer/worker.py` - OPTIONAL: Add media folder copy logic
+
+### New Files to Create
+- `tests/manager/test_bazarr_webhook.py` - Comprehensive unit tests (TDD - CREATE FIRST)
+- Documentation files:
+  - `.cursor/tasks/bazarr-integration/001-bazarr-webhook-handler/001-bazarr-webhook-handler_plan.mdc` (this file)
+  - `src/manager/BAZARR_INTEGRATION.md` - Technical documentation
+
+### Files to Modify
+- `src/manager/main.py` - Add webhook endpoint (lines ~410-520)
+- `src/manager/schemas.py` - Add schema (lines ~230-280)
+- `src/common/config.py` - Add settings (lines ~210-225)
+- `.env` - Add configuration variables
+- `README.md` - Update with Bazarr integration section
+- `docker-compose.yml` - OPTIONAL: Add Bazarr service for development
+
+### Dependencies Required
+- **No new Python dependencies** - Uses existing infrastructure
+- **External dependency**: Bazarr (deployed separately or via Docker)
+  - Docker image: `lscr.io/linuxserver/bazarr:latest`
+  - Configuration: Webhook URL pointing to our service
+
+## Implementation Steps
+
+### Phase 1: Test-Driven Development Setup (TDD Required)
+
+**Before writing any code, create test file first:**
+
+1. **Create Test File Structure**
+   ```bash
+   touch tests/manager/test_bazarr_webhook.py
+   ```
+
+2. **Write Comprehensive Test Cases** (FIRST - Before Implementation)
+   - Test webhook payload validation
+   - Test Hebrew subtitle skips translation
+   - Test English/Spanish triggers translation
+   - Test job creation in Redis
+   - Test event publishing
+   - Test task enqueueing
+   - Test error handling scenarios
+   - Test webhook secret validation (optional)
+
+3. **Run Tests - Should FAIL** (Expected)
+   ```bash
+   pytest tests/manager/test_bazarr_webhook.py -v
+   # Should fail because implementation doesn't exist yet
+   ```
+
+### Phase 2: Schema Implementation
+
+4. **Define BazarrWebhookPayload Schema** (`src/manager/schemas.py`)
+   - Required fields: event_type, media_path, subtitle_path, language
+   - Optional fields: provider, score, imdb_id, series/movie metadata
+   - Add JSON schema example
+   - Add to `__all__` export
+
+5. **Add Configuration Settings** (`src/common/config.py`)
+   - `bazarr_enabled: bool` - Enable/disable integration
+   - `bazarr_webhook_secret: Optional[str]` - Webhook authentication
+   - `bazarr_save_original: bool` - Keep original subtitle after translation
+
+6. **Update Environment Template** (`.env`)
+   - Add Bazarr configuration section
+   - Document each setting with examples
+
+7. **Run Schema Tests**
+   ```bash
+   pytest tests/manager/test_bazarr_webhook.py::TestBazarrWebhookPayload -v
+   # Should pass after schema implementation
+   ```
+
+### Phase 3: Webhook Endpoint Implementation
+
+8. **Implement Webhook Endpoint** (`src/manager/main.py`)
+   
+   **Endpoint Logic Flow:**
+   ```
+   1. Receive Bazarr webhook (POST /webhooks/bazarr)
+   2. Validate payload (BazarrWebhookPayload)
+   3. Check if translation needed (language != desired_language)
+   4. If Hebrew → Skip (already desired language)
+   5. If EN/ES → Continue to translation
+   6. Create SubtitleResponse (standard format)
+   7. Save job to Redis
+   8. Read subtitle from Bazarr path
+   9. Save to standard storage
+   10. Publish SUBTITLE_TRANSLATE_REQUESTED event (standard)
+   11. Enqueue TranslationTask (standard)
+   12. Return WebhookAcknowledgement
+   ```
+
+   **Key Implementation Details:**
+   - Use existing `redis_client.save_job()` - standard format
+   - Use existing `event_publisher.publish_event()` - standard format
+   - Use existing `orchestrator.enqueue_translation_task()` - standard format
+   - Use existing `save_subtitle_file()` from file_service
+   - Add source="bazarr-webhook" in event (only place mentioning Bazarr)
+
+9. **Run Endpoint Tests**
+   ```bash
+   pytest tests/manager/test_bazarr_webhook.py::TestBazarrWebhookEndpoint -v
+   # Should pass after endpoint implementation
+   ```
+
+### Phase 4: Integration & End-to-End Testing
+
+10. **Integration Tests**
+    - Test with real Bazarr instance (Docker)
+    - Configure Bazarr to send webhooks
+    - Verify full workflow: Bazarr → Webhook → Translation → File saved
+
+11. **End-to-End Test Scenario**
+    ```
+    1. Start Bazarr + Your services (Docker Compose)
+    2. Configure Bazarr language profile: Hebrew > English > Spanish
+    3. Add test media file to Bazarr library
+    4. Bazarr downloads English subtitle (Hebrew not available)
+    5. Bazarr sends webhook to your service
+    6. Verify job created in Redis
+    7. Verify SUBTITLE_TRANSLATE_REQUESTED event published
+    8. Verify translation task in RabbitMQ queue
+    9. Translation Worker picks up task
+    10. Verify Hebrew subtitle file created
+    11. Verify both EN and HE subtitles exist
+    ```
+
+12. **Run All Tests**
+    ```bash
+    make test-unit          # Unit tests should pass
+    make test-integration   # Integration tests should pass
+    ```
+
+### Phase 5: Documentation & Cleanup
+
+13. **Update Documentation**
+    - README.md - Add Bazarr integration section
+    - BAZARR_INTEGRATION.md - Technical guide
+    - Configuration examples
+    - Troubleshooting guide
+
+14. **Create Summary Document**
+    - `001-bazarr-webhook-handler_summary.mdc`
+    - Document implementation vs. plan deviations
+    - Record lessons learned
+    - Note any technical debt
+
+## API Changes
+
+### New Endpoint
+
+```http
+POST /webhooks/bazarr
+Content-Type: application/json
+X-Bazarr-Secret: optional-webhook-secret
+
+# Request Body (Bazarr webhook format)
+{
+  "event_type": "subtitle_downloaded",
+  "media_type": "series",
+  "media_title": "Breaking Bad - S05E14",
+  "media_path": "/media/tv/Breaking Bad/Season 05/Breaking.Bad.S05E14.mkv",
+  "series_id": 123,
+  "episode_number": 14,
+  "season_number": 5,
+  "subtitle_path": "/media/tv/Breaking Bad/Season 05/Breaking.Bad.S05E14.en.srt",
+  "language": "en",
+  "provider": "opensubtitles",
+  "score": 0.92,
+  "imdb_id": "tt0959621"
+}
+
+# Response (Standard WebhookAcknowledgement)
+{
+  "status": "success",
+  "message": "Translation job created: en → he",
+  "job_id": "123e4567-e89b-12d3-a456-426614174000"
+}
+```
+
+### Request Schema: BazarrWebhookPayload
+
+```python
+class BazarrWebhookPayload(BaseModel):
+    """Payload from Bazarr webhook for subtitle download events."""
+    
+    event_type: str = Field(..., description="Event type (e.g., 'subtitle_downloaded')")
+    
+    # Media information
+    media_type: str = Field(..., description="'movie' or 'series'")
+    media_title: str = Field(..., description="Title of the movie/series")
+    media_path: str = Field(..., description="Full path to media file")
+    
+    # For series
+    series_id: Optional[int] = Field(None, description="Sonarr series ID")
+    episode_number: Optional[int] = Field(None, description="Episode number")
+    season_number: Optional[int] = Field(None, description="Season number")
+    
+    # For movies
+    movie_id: Optional[int] = Field(None, description="Radarr movie ID")
+    
+    # Subtitle information
+    subtitle_path: str = Field(..., description="Full path to downloaded subtitle file")
+    language: str = Field(..., description="ISO 639-1 language code (e.g., 'en', 'es')")
+    provider: str = Field(..., description="Subtitle provider used")
+    score: Optional[float] = Field(None, description="Bazarr quality score")
+    
+    # Optional metadata
+    imdb_id: Optional[str] = Field(None, description="IMDB ID")
+```
+
+### Response Schema: WebhookAcknowledgement (Existing)
+
+Already defined in `src/manager/schemas.py` - reuse existing schema.
+
+## Testing Strategy
+
+### Unit Tests Required (CREATE FIRST - TDD)
+
+**File: `tests/manager/test_bazarr_webhook.py`**
+
+#### Schema Validation Tests
+```python
+class TestBazarrWebhookPayload:
+    def test_valid_series_payload(self):
+        """Valid series payload should pass validation."""
+        
+    def test_valid_movie_payload(self):
+        """Valid movie payload should pass validation."""
+        
+    def test_missing_required_fields_raises_error(self):
+        """Missing required fields should raise ValidationError."""
+        
+    def test_invalid_language_code_format(self):
+        """Invalid language code should be handled gracefully."""
+```
+
+#### Webhook Endpoint Tests
+```python
+class TestBazarrWebhookEndpoint:
+    @patch("manager.main.redis_client.save_job")
+    @patch("manager.main.event_publisher.publish_event")
+    @patch("manager.main.orchestrator.enqueue_translation_task")
+    async def test_english_subtitle_triggers_translation(
+        self, mock_enqueue, mock_publish, mock_save_job, client
+    ):
+        """English subtitle should trigger translation to Hebrew."""
+        # Test that endpoint creates job, publishes event, enqueues task
+        
+    async def test_hebrew_subtitle_skips_translation(self, client):
+        """Hebrew subtitle should not trigger translation."""
+        # Test that endpoint returns 'skipped' status
+        
+    async def test_spanish_subtitle_triggers_translation(self, client):
+        """Spanish subtitle should trigger translation to Hebrew."""
+        
+    async def test_invalid_payload_returns_422(self, client):
+        """Invalid payload should return 422 Unprocessable Entity."""
+        
+    async def test_file_read_error_returns_500(self, client):
+        """Error reading subtitle file should return 500."""
+        
+    async def test_redis_error_returns_500(self, client):
+        """Redis error should return 500."""
+        
+    async def test_rabbitmq_error_returns_500(self, client):
+        """RabbitMQ error should return 500."""
+```
+
+#### Event Normalization Tests
+```python
+class TestBazarrEventNormalization:
+    async def test_bazarr_event_normalized_to_standard_format(self):
+        """Bazarr webhook should publish standard SUBTITLE_TRANSLATE_REQUESTED event."""
+        # Verify event_type, job_id, source, payload structure
+        
+    async def test_bazarr_task_normalized_to_standard_format(self):
+        """Bazarr webhook should enqueue standard TranslationTask."""
+        # Verify request_id, subtitle_file_path, source_language, target_language
+        
+    async def test_source_field_identifies_bazarr_origin(self):
+        """Event source should be 'bazarr-webhook'."""
+```
+
+### Integration Tests Required
+
+**File: `tests/integration/test_bazarr_integration.py`**
+
+```python
+class TestBazarrIntegration:
+    async def test_full_workflow_english_to_hebrew(self):
+        """Test complete workflow: Webhook → Event → Task → Translation."""
+        # 1. Send Bazarr webhook
+        # 2. Verify job in Redis
+        # 3. Verify event in RabbitMQ
+        # 4. Verify task in translation queue
+        # 5. Simulate translation completion
+        # 6. Verify Hebrew subtitle file exists
+        
+    async def test_multiple_languages_processed_correctly(self):
+        """Test Spanish and English both trigger translation."""
+        
+    async def test_concurrent_webhook_requests(self):
+        """Test handling multiple webhooks simultaneously."""
+```
+
+### Manual Testing Steps
+
+#### Setup Phase
+1. **Deploy Bazarr via Docker**
+   ```bash
+   docker run -d \
+     --name=bazarr \
+     -p 6767:6767 \
+     -v /path/to/config:/config \
+     -v /path/to/media:/media \
+     lscr.io/linuxserver/bazarr:latest
+   ```
+
+2. **Configure Bazarr**
+   - Access UI: http://localhost:6767
+   - Settings > Languages
+     - Add Hebrew (Primary - Cutoff)
+     - Add English (Secondary)
+     - Add Spanish (Tertiary)
+   - Settings > Notifications > Webhook
+     - URL: http://your-service:8000/webhooks/bazarr
+     - Events: On Movie/Series Subtitle Download
+     - Test webhook delivery
+
+3. **Configure Your Service**
+   ```env
+   SUBTITLE_DESIRED_LANGUAGE=he
+   BAZARR_ENABLED=true
+   BAZARR_WEBHOOK_SECRET=your-secret-token
+   ```
+
+#### Test Scenarios
+
+**Test 1: Hebrew Subtitle (Skip Translation)**
+```
+1. Add media file with Hebrew subtitle available
+2. Bazarr downloads Hebrew subtitle
+3. Bazarr sends webhook (language=he)
+4. Verify webhook response: status=skipped
+5. Verify no translation job created
+```
+
+**Test 2: English Subtitle (Trigger Translation)**
+```
+1. Add media file with only English subtitle available
+2. Bazarr downloads English subtitle
+3. Bazarr sends webhook (language=en)
+4. Verify webhook response: status=success, job_id present
+5. Check Redis: job exists with status=TRANSLATE_QUEUED
+6. Check logs: SUBTITLE_TRANSLATE_REQUESTED event published
+7. Check RabbitMQ: task in subtitle.translation queue
+8. Wait for translation to complete
+9. Verify Hebrew subtitle file created
+10. Verify both EN and HE files exist
+```
+
+**Test 3: Spanish Subtitle (Trigger Translation)**
+```
+1. Add media file with only Spanish subtitle available
+2. Bazarr downloads Spanish subtitle
+3. Verify translation workflow (same as Test 2)
+```
+
+**Test 4: Error Handling**
+```
+1. Send webhook with invalid payload
+2. Verify 422 Unprocessable Entity response
+3. Send webhook with non-existent subtitle file
+4. Verify 500 error and job marked as failed
+5. Stop Redis, send webhook
+6. Verify 500 error and proper logging
+```
+
+## Success Criteria
+
+### Functional Requirements
+- [ ] All unit tests pass (90%+ coverage)
+- [ ] All integration tests pass
+- [ ] Webhook endpoint validates Bazarr payload correctly
+- [ ] Hebrew subtitles skip translation (no unnecessary work)
+- [ ] English/Spanish subtitles trigger translation to Hebrew
+- [ ] Job created in Redis with standard format
+- [ ] SUBTITLE_TRANSLATE_REQUESTED event published (standard format)
+- [ ] TranslationTask enqueued (standard format)
+- [ ] Translation Worker processes task (agnostic to source)
+- [ ] Translated subtitle file saved correctly
+- [ ] Error handling covers all failure scenarios
+
+### Non-Functional Requirements
+- [ ] Webhook response time < 200ms (excluding translation)
+- [ ] Translation Worker remains source-agnostic (no Bazarr knowledge)
+- [ ] All events follow standard format (consistency)
+- [ ] Proper logging at INFO level for success, ERROR for failures
+- [ ] No secrets logged (webhook secret, API keys)
+- [ ] Documentation complete and accurate
+
+### Acceptance Criteria
+- [ ] Code review approved
+- [ ] TDD followed (tests written first)
+- [ ] Manual testing completed successfully
+- [ ] Documentation updated (README, technical docs)
+- [ ] No critical bugs remaining
+- [ ] No breaking changes to existing workflows
+- [ ] Performance benchmarks met
+
+## Configuration
+
+### Environment Variables
+
+Add to `.env`:
+
+```env
+# =============================================================================
+# Bazarr Integration
+# =============================================================================
+# Enable Bazarr webhook integration for automatic translation
+BAZARR_ENABLED=true
+
+# Optional: Webhook secret for security (set same value in Bazarr)
+# Leave empty to disable webhook authentication
+BAZARR_WEBHOOK_SECRET=your-secret-token-here
+
+# Keep original subtitle after translating (both files saved)
+BAZARR_SAVE_ORIGINAL=true
+
+# Subtitle Language Configuration (ALREADY EXISTS - just highlighting)
+SUBTITLE_DESIRED_LANGUAGE=he              # Primary: Hebrew
+SUBTITLE_FALLBACK_LANGUAGE=en             # Secondary: English
+```
+
+### Bazarr Configuration
+
+In Bazarr UI (http://localhost:6767):
+
+```yaml
+# Settings > Languages
+Language Profile:
+  Name: Hebrew-EN-ES
+  Languages:
+    - Hebrew (he) [Primary - Cutoff]
+    - English (en) [Secondary]
+    - Spanish (es) [Tertiary]
+
+# Settings > Notifications > Webhook
+Webhook:
+  URL: http://get-my-subtitle-manager:8000/webhooks/bazarr
+  Events:
+    - On Movie Subtitle Download: ✓
+    - On Series Subtitle Download: ✓
+  Headers:
+    X-Bazarr-Secret: your-secret-token-here
+```
+
+## Security Considerations
+
+### Authentication
+- **Webhook Secret**: Optional but recommended
+  - Validate X-Bazarr-Secret header
+  - Use constant-time comparison to prevent timing attacks
+  - Reject invalid/missing secrets with 401 Unauthorized
+
+### File Access
+- **Path Validation**: Validate subtitle_path from webhook
+  - Prevent path traversal attacks
+  - Ensure file is within expected directories
+  - Check file exists before reading
+
+### Logging
+- **Never Log Secrets**: 
+  - Don't log BAZARR_WEBHOOK_SECRET
+  - Don't log full webhook payload if it contains sensitive data
+  - Log job IDs, not full file paths
+
+### Error Messages
+- **Generic Errors**: Don't expose internal paths or secrets in error responses
+- **Rate Limiting**: Consider rate limiting webhook endpoint
+
+## Notes
+
+### Design Decisions
+
+**Why Manager handles normalization?**
+- ✅ Single Responsibility: Manager = input adapter, Workers = processing
+- ✅ Source Agnostic Workers: Easier to test and maintain
+- ✅ Consistent Events: All sources use same event format
+- ✅ Easy to Add Sources: New sources only affect Manager, not workers
+
+**Why not modify Translation Worker?**
+- ❌ Violates separation of concerns
+- ❌ Makes worker aware of different sources
+- ❌ Harder to test (need to mock different inputs)
+- ❌ Breaks existing workflows if worker changes
+
+**Why standard storage instead of direct media folder?**
+- ✅ Consistent with existing architecture
+- ✅ Translation Worker doesn't need to know about media folders
+- ✅ Can add media folder copy as separate enhancement
+- ✅ Works for all sources, not just Bazarr
+
+### Trade-offs
+
+**File Duplication:**
+- Subtitle exists in Bazarr location + our storage
+- Trade-off: Disk space for consistency
+- Mitigation: Optional cleanup after translation
+
+**Webhook vs Polling:**
+- Chosen: Webhooks (real-time)
+- Alternative: Poll Bazarr API (simpler but slower)
+- Decision: Webhooks for better UX
+
+### Questions for Stakeholders
+
+1. Should we automatically copy translated subtitle to media folder, or let users download via API?
+2. Should we keep the original subtitle after translation, or delete it?
+3. Do users want both original and translated subtitles available in their media player?
+4. Should webhook secret be required or optional?

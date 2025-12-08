@@ -1,0 +1,215 @@
+# 002 - Bazarr Client Provider
+
+**Epic:** Bazarr Integration  
+**Created:** December 8, 2025  
+**Status:** Not Started  
+**Priority:** P1 (High)
+
+## Overview
+
+Create a Bazarr API client that enables the Downloader service to use Bazarr as an additional subtitle provider alongside OpenSubtitles. This expands subtitle availability by accessing 20+ subtitle providers through Bazarr's aggregation.
+
+- **Brief description**: Implement BazarrClient class for searching and downloading subtitles via Bazarr API
+- **Problem it solves**: OpenSubtitles alone may not have all subtitles; Bazarr aggregates 20+ providers for better coverage
+- **User story**: As a user, I want the system to search for subtitles across as many providers as possible, so I have the best chance of finding subtitles for my media.
+
+## Prerequisites
+
+- [ ] Task 001 (Bazarr Webhook Handler) completed
+- [ ] Bazarr deployed and accessible
+- [ ] Bazarr API documentation reviewed
+
+## Architecture
+
+### Components Affected
+- `src/downloader/worker.py` - Add Bazarr provider option
+- `src/downloader/bazarr_client.py` - NEW: Bazarr API client
+- `src/downloader/provider_manager.py` - NEW: Provider selection logic
+- `src/common/config.py` - Add Bazarr API configuration
+
+### New Files to Create
+- `src/downloader/bazarr_client.py` - Bazarr API client implementation
+- `src/downloader/provider_manager.py` - Provider priority and fallback logic
+- `tests/downloader/test_bazarr_client.py` - Comprehensive unit tests (TDD)
+- `tests/downloader/test_provider_manager.py` - Provider selection tests
+
+### Files to Modify
+- `src/downloader/worker.py` - Integrate provider manager
+- `src/common/config.py` - Add Bazarr URL, API key settings
+- `.env` - Add Bazarr API configuration
+
+## Implementation Steps
+
+### Phase 1: Research & Design (3 days)
+
+1. **Study Bazarr API**
+   - Review Bazarr API documentation
+   - Test API endpoints manually (Postman/curl)
+   - Document authentication mechanism
+   - Understand search parameters
+   - Understand download endpoints
+
+2. **Design Provider Abstraction**
+   - Define ProviderInterface
+   - Design provider priority configuration
+   - Design fallback logic
+   - Plan quality scoring integration
+
+### Phase 2: TDD Setup (2 days)
+
+3. **Create Test Files**
+   - `tests/downloader/test_bazarr_client.py`
+   - `tests/downloader/test_provider_manager.py`
+
+4. **Write Test Cases** (Before Implementation)
+   - Test Bazarr authentication
+   - Test subtitle search
+   - Test subtitle download
+   - Test provider fallback logic
+   - Test error handling
+
+### Phase 3: Implementation (1 week)
+
+5. **Implement BazarrClient**
+   ```python
+   class BazarrClient:
+       async def search_subtitles(
+           self,
+           video_path: str,
+           language: str,
+           media_type: str = "movie"
+       ) -> List[SubtitleResult]:
+           """Search for subtitles via Bazarr API."""
+           
+       async def download_subtitle(
+           self,
+           subtitle_id: str,
+           output_path: Path
+       ) -> Path:
+           """Download subtitle via Bazarr API."""
+   ```
+
+6. **Implement ProviderManager**
+   ```python
+   class ProviderManager:
+       def __init__(self):
+           self.providers = {
+               'opensubtitles': opensubtitles_client,
+               'bazarr': bazarr_client
+           }
+           
+       async def search_with_fallback(
+           self,
+           video_info: dict,
+           priority: List[str]
+       ) -> SubtitleResult:
+           """Search providers in priority order."""
+   ```
+
+7. **Integrate with Downloader Worker**
+   - Replace direct OpenSubtitles calls
+   - Use ProviderManager for all searches
+   - Configure provider priority from settings
+
+### Phase 4: Testing & Documentation (3 days)
+
+8. **Testing**
+   - Run unit tests
+   - Integration tests with real Bazarr
+   - Manual testing
+
+9. **Documentation**
+   - Update README
+   - Add BAZARR_PROVIDER.md guide
+   - Configuration examples
+
+## API Changes
+
+### New Configuration
+
+```env
+# Bazarr API Integration
+BAZARR_URL=http://localhost:6767
+BAZARR_API_KEY=your-bazarr-api-key
+
+# Provider Priority (comma-separated)
+SUBTITLE_PROVIDER_PRIORITY=opensubtitles,bazarr
+```
+
+### Bazarr API Endpoints
+
+```http
+# Search for movie subtitles
+GET /api/subtitles/search
+Params:
+  - path: /media/movies/Movie.mkv
+  - language: en
+  - type: movie
+Headers:
+  X-API-KEY: your-api-key
+
+# Download subtitle
+POST /api/subtitles/download
+Body:
+  {
+    "path": "/media/movies/Movie.mkv",
+    "language": "en",
+    "subtitle_id": "123",
+    "provider": "opensubtitles"
+  }
+```
+
+## Testing Strategy
+
+### Unit Tests Required
+- [ ] BazarrClient authentication
+- [ ] BazarrClient search functionality
+- [ ] BazarrClient download functionality
+- [ ] ProviderManager priority selection
+- [ ] ProviderManager fallback logic
+- [ ] Error handling for each provider
+- [ ] Network error handling
+
+### Integration Tests Required
+- [ ] Full workflow with Bazarr
+- [ ] Provider fallback on failure
+- [ ] Quality scoring comparison
+
+### Manual Testing Steps
+1. Configure both OpenSubtitles and Bazarr
+2. Request subtitle for test video
+3. Verify OpenSubtitles searched first
+4. Simulate OpenSubtitles failure
+5. Verify Bazarr fallback works
+6. Compare subtitle quality scores
+
+## Success Criteria
+
+### Functional Requirements
+- [ ] BazarrClient can authenticate with Bazarr API
+- [ ] BazarrClient can search for subtitles
+- [ ] BazarrClient can download subtitles
+- [ ] ProviderManager respects priority configuration
+- [ ] Automatic fallback on provider failure
+- [ ] Quality scoring influences selection
+- [ ] All tests pass
+
+### Non-Functional Requirements
+- [ ] Provider abstraction clean and extensible
+- [ ] No breaking changes to existing flows
+- [ ] Response time < 10 seconds
+- [ ] Proper error handling
+- [ ] Comprehensive logging
+
+## Notes
+
+This task builds on Task 001 by adding Bazarr as a subtitle source, not just a translation trigger.
+
+**Dependencies:**
+- Task 001 must be complete
+- Bazarr API must be stable and documented
+
+**Future Enhancements:**
+- Add more providers (e.g., direct integration with Subscene)
+- Implement caching for search results
+- Add analytics for provider success rates
