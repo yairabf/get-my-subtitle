@@ -51,3 +51,5 @@ async def handle_translation_error(
             payload={"error_message": error_message},
         )
         await event_publisher.publish_event(event)
+
+
