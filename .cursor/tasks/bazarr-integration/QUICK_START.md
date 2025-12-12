@@ -318,3 +318,5 @@ docker-compose logs -f translator
 
 **Ready to start?** → Begin with Step 1: Deploy Bazarr! 🎬
 
+
+

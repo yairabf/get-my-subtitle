@@ -297,3 +297,5 @@ A: Yes! Manager normalizes all sources. Workers stay the same.
 **Maintainer:** Development Team  
 **Epic Status:** Planning Phase
 
+
+
