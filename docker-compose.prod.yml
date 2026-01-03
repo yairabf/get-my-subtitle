@@ -1,0 +1,162 @@
+version: "3.8"
+
+# Production docker-compose using published images from GitHub Container Registry (GHCR).
+# Intended for use with Watchtower (or manual pull + restart) so users can get updates
+# without building locally.
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      # Bind to localhost by default to avoid exposing RabbitMQ on your network.
+      # If you intentionally want LAN access, change 127.0.0.1 to 0.0.0.0 or remove the host IP.
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  redis:
+    image: redis:latest
+    ports:
+      # Bind to localhost by default to avoid exposing Redis on your network.
+      # If you intentionally want LAN access, change 127.0.0.1 to 0.0.0.0 or remove the host IP.
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  manager:
+    image: ghcr.io/yairabramovitch/get-my-subtitle-manager:latest
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/startup"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  downloader:
+    image: ghcr.io/yairabramovitch/get-my-subtitle-downloader:latest
+    volumes:
+      - ${SCANNER_MEDIA_PATH:-/media}:/media:rw
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; import sys; r = redis.Redis(host='redis', port=6379); r.ping(); sys.exit(0)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  translator:
+    image: ghcr.io/yairabramovitch/get-my-subtitle-translator:latest
+    volumes:
+      - ./storage:/app/storage
+      - ${SCANNER_MEDIA_PATH:-/media}:/media:rw
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; import sys; r = redis.Redis(host='redis', port=6379); r.ping(); sys.exit(0)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  consumer:
+    image: ghcr.io/yairabramovitch/get-my-subtitle-consumer:latest
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; import sys; r = redis.Redis(host='redis', port=6379); r.ping(); sys.exit(0)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  scanner:
+    image: ghcr.io/yairabramovitch/get-my-subtitle-scanner:latest
+    ports:
+      - "8001:8001"
+    volumes:
+      - ${SCANNER_MEDIA_PATH:-/media}:/media:ro
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+volumes:
+  rabbitmq_data:
+  redis_data:
+
+
