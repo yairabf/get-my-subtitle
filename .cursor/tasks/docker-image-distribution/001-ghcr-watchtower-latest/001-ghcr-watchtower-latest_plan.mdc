@@ -1,0 +1,176 @@
+# 001 - GHCR + Watchtower - Latest Images from `main`
+
+**Epic:** Docker Image Distribution
+**Created:** 2026-01-03
+**Status:** Planning
+
+## Overview
+This task adds a **release/distribution path for Docker images** so users can run this project in “production mode” by pulling pre-built images and keeping them updated automatically with tools like **Watchtower**.
+
+### User story
+- As a self-hosting user, I want to run `get-my-subtitle` using **published images** (instead of local `build:`) so that:
+  - I can update the stack by simply pulling new images, or
+  - I can use Watchtower to **auto-pull and restart** containers when new images are available.
+
+### Initial scope (phase 1)
+- Publish **`latest`** images on every push to **`main`**.
+- Provide a production `docker-compose` file that uses the published images.
+
+### Later scope (phase 2)
+- When a Git tag like `v1.2.3` is created, publish versioned tags (`1.2.3`, `1.2`, `1`).
+- Optionally publish a `main` tag (in addition to `latest`) for users who prefer explicitness.
+
+## Architecture
+
+### Current state (what exists today)
+- `docker-compose.yml` builds services locally via:
+  - `./src/manager/Dockerfile`
+  - `./src/downloader/Dockerfile`
+  - `./src/translator/Dockerfile`
+  - `./src/scanner/Dockerfile`
+  - `./src/consumer/Dockerfile`
+- GitHub Actions CI currently **validates Docker builds** but does **not** publish images (`.github/workflows/ci.yml` uses `docker/build-push-action@v5` with `push: false`).
+
+### Target state (what we will add)
+1. **GitHub Actions publish workflow**
+   - Builds and pushes images to a registry (recommended: **GitHub Container Registry / GHCR**).
+   - Ensures `latest` is published from `main`.
+   - Optional: semver tags on `v*.*.*` tags.
+
+2. **Production compose file**
+   - Uses `image:` instead of `build:`.
+   - Removes development-only bind mounts (`./src/...:/app/...`) and uses persistent volumes only where needed.
+
+3. **Documentation**
+   - Explains how to run with published images.
+   - Explains Watchtower setup and registry auth (for private images).
+
+### Registry choice
+**Default recommendation: GHCR (`ghcr.io`)**
+- Pros: no extra credentials needed for publishing (uses `GITHUB_TOKEN`), works well with GitHub repos, simple permissions model.
+- Cons: for **private repos**, end users need a token to pull images unless packages are public.
+
+Alternative: Docker Hub (later)
+- Pros: familiar for homelab users.
+- Cons: requires Docker Hub credentials/secrets and rate limit considerations.
+
+## Implementation Steps
+
+### Step 0 — Decisions / inputs (must confirm before rollout)
+- **Registry namespace**: `ghcr.io/<owner>/<image>` (e.g., `ghcr.io/yairabramovitch/get-my-subtitle-manager`)
+- **Visibility**:
+  - Public repo: packages can be made public for anonymous pulls, ideal for Watchtower.
+  - Private repo: users must authenticate to pull (documented below).
+- **Tagging rules** (recommended):
+  - `latest` for `main`
+  - semver tags (`1.2.3`, `1.2`, `1`) for Git tags like `v1.2.3`
+- **Multi-arch**:
+  - Recommended: `linux/amd64` and `linux/arm64` (common for homelab + Raspberry Pi).
+
+### Step 1 — Add Docker publish workflow (new)
+Create `.github/workflows/docker-publish.yml` that:
+- Triggers on:
+  - `push` to `main` (publish `latest`)
+  - `push` tag `v*.*.*` (publish semver tags)
+- Uses:
+  - `docker/setup-buildx-action`
+  - `docker/login-action` to `ghcr.io` with `${{ secrets.GITHUB_TOKEN }}`
+  - `docker/metadata-action` to generate tags and labels
+  - `docker/build-push-action` with `push: true`
+- Runs as a matrix over services:
+  - `manager`, `downloader`, `translator`, `scanner`, `consumer`
+- Permissions:
+  - `packages: write` (required to publish to GHCR)
+  - `contents: read`
+
+**Tagging recommendation (phase 1 + 2):**
+- For `main`: publish `:latest`
+- For `vX.Y.Z`: publish `:X.Y.Z`, `:X.Y`, `:X`
+
+### Step 2 — Add production compose file (new)
+Create `docker-compose.prod.yml` that:
+- Uses published images:
+  - `ghcr.io/<owner>/get-my-subtitle-manager:latest`, etc.
+- Keeps infra images as-is:
+  - `rabbitmq:3-management`
+  - `redis:latest` (or pin to `redis:7` for stability)
+- Uses `restart: unless-stopped` for app services
+
+**Volume strategy (production)**
+- **Media path** (host mount):
+  - `${SCANNER_MEDIA_PATH:-/media}:/media` (ro/ rw depending on service)
+- **Storage path** (host mount or named volume):
+  - `./storage:/app/storage` (or a configurable absolute host path)
+- **Infra persistence** (recommended):
+  - RabbitMQ and Redis should have named volumes in prod to avoid losing state on restart.
+
+**Important**: `docker-compose.yml` remains dev-friendly (local bind mounts + build). `docker-compose.prod.yml` is for “pull + run”.
+
+### Step 3 — Document Watchtower usage
+Update `README.md` (or add `docs/PRODUCTION.md`) with:
+- How to run:
+  - `docker compose -f docker-compose.prod.yml pull`
+  - `docker compose -f docker-compose.prod.yml up -d`
+- How to run Watchtower:
+  - Either watch specific containers, or enable label-based updates.
+- How updates behave:
+  - Watchtower updates containers when the **same tag** (e.g., `latest`) points to a newer digest.
+
+**Watchtower best practices**
+- Use `--interval 300` (or `--schedule`)
+- Use `--cleanup` to remove old images
+- Consider `--rolling-restart` (safer for multi-container stacks)
+- Optionally use `--label-enable` and label only the app services
+
+### Step 4 — Make packages pullable (release hygiene)
+- Ensure GHCR packages are **public** if the project is intended for broad usage.
+- Confirm image naming is stable and documented.
+
+### Step 5 — Validation checklist (manual)
+- From a clean machine:
+  - `docker login ghcr.io` (only if private)
+  - `docker compose -f docker-compose.prod.yml pull`
+  - `docker compose -f docker-compose.prod.yml up -d`
+  - Confirm health endpoints:
+    - `GET http://localhost:8000/health`
+    - `GET http://localhost:8001/health`
+- Confirm Watchtower updates:
+  - Push to `main`, verify GHCR digest changes, watchtower logs show pull + restart.
+
+## API Changes (if applicable)
+None.
+
+## Testing Strategy
+This feature is infrastructure + packaging focused.
+
+### CI checks
+- Add a publish workflow but keep `ci.yml` Docker build validation as-is.
+- Publish workflow should run only on `main` and tags to avoid publishing on PRs.
+
+### Manual test plan (recommended)
+- Verify images exist in GHCR for each service:
+  - `get-my-subtitle-manager`
+  - `get-my-subtitle-downloader`
+  - `get-my-subtitle-translator`
+  - `get-my-subtitle-scanner`
+  - `get-my-subtitle-consumer`
+- Verify `docker-compose.prod.yml` boots and all healthchecks pass.
+- Verify Watchtower updates when `latest` changes.
+
+## Security / Operations Notes
+- **Principle of least privilege**: publish workflow uses `packages: write` only.
+- **Private repo caveat**: pulling from GHCR requires a token with `read:packages`.
+- Avoid embedding any secrets in images; continue using `.env` runtime injection.
+- Consider pinning base images and infra versions for reproducibility.
+
+## Success Criteria
+- `main` push produces updated images in GHCR tagged `latest` for all services.
+- Users can run the stack using `docker-compose.prod.yml` without building locally.
+- Watchtower can update the running containers when new `latest` images are published.
+
+## Open Questions / Follow-ups
+- Do we want `latest` to track `main` (recommended) or only tagged releases?
+- Should `redis:latest` be pinned to a major version (`redis:7`) for stability?
+- Do we want a single “monorepo image” or keep one image per service (current approach; recommended)?
+- Should we add image signing (cosign) later for supply chain hardening?
+
