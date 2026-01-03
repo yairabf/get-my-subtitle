@@ -206,17 +206,17 @@ The system uses an event-driven architecture where:
    
    **Full stack (all services including translator):**
    ```bash
-   docker-compose up --build -d
+   docker compose up --build -d
    ```
    
    **Without translator service (download-only):**
    ```bash
-   docker-compose up --build -d manager downloader consumer scanner
+   docker compose up --build -d manager downloader consumer scanner
    ```
    
    Or comment out the `translator:` section in `docker-compose.yml` and run:
    ```bash
-   docker-compose up --build -d
+   docker compose up --build -d
    ```
 
 5. **Verify installation:**
@@ -231,6 +231,46 @@ The system uses an event-driven architecture where:
    - Alternative Docs (ReDoc): http://localhost:8000/redoc
    - RabbitMQ Management UI: http://localhost:15672 (guest/guest)
    - Scanner Webhook Endpoint: http://localhost:8001
+
+### Running with Published Docker Images (GHCR + Watchtower)
+
+This project publishes Docker images to **GitHub Container Registry (GHCR)** so you can run without building locally and optionally keep containers updated automatically with **Watchtower**.
+
+#### Production compose (pull + run)
+
+Use the production compose file:
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Published images (latest from `main`):
+- `ghcr.io/yairabramovitch/get-my-subtitle-manager:latest`
+- `ghcr.io/yairabramovitch/get-my-subtitle-downloader:latest`
+- `ghcr.io/yairabramovitch/get-my-subtitle-translator:latest`
+- `ghcr.io/yairabramovitch/get-my-subtitle-scanner:latest`
+- `ghcr.io/yairabramovitch/get-my-subtitle-consumer:latest`
+
+Note: In `docker-compose.prod.yml`, Redis and RabbitMQ ports are bound to `127.0.0.1` by default to avoid exposing them on your network. If you run this on a remote server and want the RabbitMQ UI, use SSH port forwarding (or intentionally change the bind address).
+
+#### Automatic updates with Watchtower
+
+`docker-compose.prod.yml` labels the app services with `com.centurylinklabs.watchtower.enable=true`. Start Watchtower with label-based updates:
+
+```bash
+docker run -d \
+  --name watchtower \
+  --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  containrrr/watchtower \
+  --label-enable \
+  --interval 300 \
+  --cleanup
+```
+
+How updates work:
+- When a new `:latest` image is pushed to GHCR, Watchtower will pull it and restart the affected containers.
 
 ### Monitoring & Utilities
 
@@ -305,10 +345,10 @@ cp .example.env .env
 # Edit .env with your configuration
 
 # Start services
-docker-compose up -d
+docker compose up -d
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Monitor system health
 ./monitor-workers.sh --once
