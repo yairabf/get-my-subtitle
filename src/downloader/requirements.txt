@@ -3,3 +3,4 @@ redis==5.2.0
 pydantic[dotenv]==2.10.4
 pydantic-settings==2.6.1
 requests==2.31.0
+ffsubsync==0.4.31
