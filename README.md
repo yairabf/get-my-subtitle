@@ -64,6 +64,7 @@ A microservices-based subtitle management system that automatically fetches, tra
   - Hash-based matching for exact file identification
   - Query-based fallback search by title
   - Automatic language preference handling
+  - Optional audio-based subtitle sync using `ffsubsync` (fixes common offset/drift issues)
 - **AI-Powered Translation**: Translates subtitles using OpenAI models:
   - Supports GPT-4o-mini (recommended), GPT-4o, GPT-4, and other OpenAI models
   - **Parallel Processing**: Processes 3-6 translation chunks simultaneously (5-10x speedup)
@@ -200,6 +201,15 @@ The system uses an event-driven architecture where:
    RABBITMQ_RECONNECT_MAX_RETRIES=10            # Maximum reconnection attempts
    RABBITMQ_RECONNECT_INITIAL_DELAY=3.0         # Initial reconnection delay in seconds
    RABBITMQ_RECONNECT_MAX_DELAY=30.0            # Maximum reconnection delay in seconds
+
+   # Optional: Subtitle sync (ffsubsync)
+   # Notes:
+   # - Requires the Downloader container to be able to read the video file path (typically under /media)
+   # - Adds extra processing time (often 20-30s), but can fix offset/drift for mismatched releases
+   # - When enabled, the downloader can keep an original copy as *.unsynced.srt
+   SUBTITLE_SYNC_ENABLED=false
+   SUBTITLE_SYNC_TIMEOUT_SECONDS=120
+   SUBTITLE_SYNC_KEEP_UNSYNCED_COPY=true
    ```
 
 4. **Start services:**

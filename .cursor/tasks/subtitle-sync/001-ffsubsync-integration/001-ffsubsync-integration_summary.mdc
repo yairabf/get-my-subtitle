@@ -1,0 +1,40 @@
+# 001 - ffsubsync-integration - Implementation Summary
+
+**Epic:** subtitle-sync  
+**Completed:** 2026-01-04  
+**Status:** Completed  
+
+## What Was Implemented
+- Added an **optional** subtitle/audio alignment step using `ffsubsync`, gated by environment variables.
+- Integrated syncing into the Downloader for:
+  - the **primary subtitle download** flow (publishes `subtitle.ready` with the final subtitle path)
+  - the **fallback-download-before-translate** flow (ensures the translator uses the synced subtitle as input when sync succeeds)
+- Implemented safe, best-effort behavior:
+  - On sync success, the original subtitle can be preserved as `*.unsynced.srt`.
+  - On sync failure/timeout, the Downloader **rolls back** and continues using the original subtitle (no hard failure).
+
+## Files Modified / Added
+- Modified:
+  - `src/common/config.py` (added `SUBTITLE_SYNC_*` settings)
+  - `env.template` (documented `SUBTITLE_SYNC_*` variables)
+  - `src/downloader/Dockerfile` (installed `ffmpeg`)
+  - `src/downloader/requirements.txt` (added `ffsubsync==0.4.31`)
+  - `src/downloader/worker.py` (sync helpers + integration into both flows)
+  - `README.md` (documented feature + env vars)
+  - `src/downloader/README.md` (documented feature + env vars)
+- Added:
+  - `tests/downloader/test_subtitle_sync.py` (parameterized unit tests with mocked `ffsubsync`)
+
+## Deviations from Plan
+- None (implementation followed the plan as written).
+
+## Testing Results
+- Ran downloader test suite via venv Python:
+  - `python -m pytest tests/downloader`
+  - Result: **70 passed**
+
+## Lessons Learned
+- Feature flags should default to **safe-off** and use `getattr(..., default)` to remain robust under mocked settings in tests.
+
+## Next Steps
+- Optional: add `SUBTITLE_SYNC_*` documentation to `docs/CONFIGURATION.md` if you want the configuration guide to be fully comprehensive.

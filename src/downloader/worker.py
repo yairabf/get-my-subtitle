@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 from uuid import UUID
 
 import aio_pika
@@ -43,6 +44,168 @@ BUSY_WAIT_SLEEP = 0.1  # Sleep duration to reduce CPU usage during empty queue
 
 # Global OpenSubtitles client instance
 opensubtitles_client = OpenSubtitlesClient()
+
+
+def _get_unsynced_subtitle_path(final_subtitle_path: Path) -> Path:
+    """
+    Build a sibling path for preserving the original downloaded subtitle.
+
+    Example:
+        /media/Movie.en.srt -> /media/Movie.en.unsynced.srt
+    """
+    return final_subtitle_path.with_name(
+        f"{final_subtitle_path.stem}.unsynced{final_subtitle_path.suffix}"
+    )
+
+
+def _get_local_video_path(video_url: Optional[str]) -> Optional[Path]:
+    """Return a local readable file path for the video_url, else None."""
+    if not video_url:
+        return None
+
+    try:
+        video_path = Path(video_url)
+    except Exception:
+        return None
+
+    if not video_path.exists() or not video_path.is_file():
+        return None
+
+    return video_path
+
+
+async def _run_ffsubsync(
+    *,
+    video_path: Path,
+    input_subtitle_path: Path,
+    output_subtitle_path: Path,
+    timeout_seconds: int,
+) -> Tuple[int, str, str]:
+    """
+    Run ffsubsync via its CLI entrypoint.
+
+    Returns:
+        (return_code, stdout, stderr)
+
+    Raises:
+        TimeoutError: if the process exceeds timeout_seconds
+        RuntimeError: if ffsubsync exits non-zero
+    """
+    process = await asyncio.create_subprocess_exec(
+        "ffsubsync",
+        str(video_path),
+        "-i",
+        str(input_subtitle_path),
+        "-o",
+        str(output_subtitle_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            process.communicate(),
+            timeout=max(1, int(timeout_seconds)),
+        )
+    except asyncio.TimeoutError as e:
+        try:
+            process.kill()
+        finally:
+            await process.wait()
+        raise TimeoutError(
+            f"ffsubsync timed out after {timeout_seconds}s"
+        ) from e
+
+    stdout = (stdout_bytes or b"").decode(errors="replace")
+    stderr = (stderr_bytes or b"").decode(errors="replace")
+    return_code = int(process.returncode or 0)
+
+    if return_code != 0:
+        raise RuntimeError(f"ffsubsync failed with exit code {return_code}: {stderr}")
+
+    return return_code, stdout, stderr
+
+
+async def sync_subtitle_to_audio_if_enabled(
+    *,
+    video_url: Optional[str],
+    downloaded_subtitle_path: Path,
+) -> Tuple[Path, Dict[str, Any]]:
+    """
+    Best-effort subtitle sync.
+
+    Behavior:
+    - If disabled or video_url isn't a local readable file: do nothing.
+    - If enabled:
+      - Move downloaded subtitle to *.unsynced.srt
+      - Run ffsubsync to generate the synced subtitle at the original path
+      - On failure/timeout: rollback to the original subtitle and continue
+    """
+    subtitle_sync_enabled = bool(getattr(settings, "subtitle_sync_enabled", False))
+    if not subtitle_sync_enabled:
+        return downloaded_subtitle_path, {"sync_applied": False}
+
+    video_path = _get_local_video_path(video_url)
+    if not video_path:
+        return downloaded_subtitle_path, {
+            "sync_applied": False,
+            "sync_error": "video_url is not a local readable file path",
+        }
+
+    unsynced_path = _get_unsynced_subtitle_path(downloaded_subtitle_path)
+
+    # Always preserve the original by moving it to *.unsynced.srt first.
+    # If sync succeeds and keep-copy is false, we'll delete it afterwards.
+    try:
+        downloaded_subtitle_path.replace(unsynced_path)
+
+        timeout_seconds = int(getattr(settings, "subtitle_sync_timeout_seconds", 120))
+        await _run_ffsubsync(
+            video_path=video_path,
+            input_subtitle_path=unsynced_path,
+            output_subtitle_path=downloaded_subtitle_path,
+            timeout_seconds=timeout_seconds,
+        )
+
+        unsynced_path_str: Optional[str] = str(unsynced_path)
+        keep_unsynced_copy = bool(
+            getattr(settings, "subtitle_sync_keep_unsynced_copy", True)
+        )
+        if not keep_unsynced_copy:
+            try:
+                unsynced_path.unlink(missing_ok=True)
+                unsynced_path_str = None
+            except Exception:
+                # Keeping a stale unsynced file is safe; ignore deletion failures.
+                pass
+
+        return downloaded_subtitle_path, {
+            "sync_applied": True,
+            "unsynced_subtitle_path": unsynced_path_str,
+        }
+
+    except Exception as e:
+        logger.warning(
+            f"⚠️  Subtitle sync failed, using original subtitle: {e}",
+            exc_info=True,
+        )
+
+        # Roll back best-effort:
+        # - remove partially written output, if any
+        # - restore the original from *.unsynced.srt
+        try:
+            if downloaded_subtitle_path.exists():
+                downloaded_subtitle_path.unlink()
+        except Exception:
+            pass
+
+        try:
+            if unsynced_path.exists():
+                unsynced_path.replace(downloaded_subtitle_path)
+        except Exception:
+            pass
+
+        return downloaded_subtitle_path, {"sync_applied": False, "sync_error": str(e)}
 
 
 async def process_message(
@@ -195,6 +358,10 @@ async def process_message(
                     )
 
                     if request_id:
+                        subtitle_path, sync_metadata = await sync_subtitle_to_audio_if_enabled(
+                            video_url=video_url,
+                            downloaded_subtitle_path=subtitle_path,
+                        )
                         # Subtitle downloaded successfully - publish SUBTITLE_READY event
                         event = SubtitleEvent(
                             event_type=EventType.SUBTITLE_READY,
@@ -206,6 +373,7 @@ async def process_message(
                                 "language": language,
                                 "download_url": f"file://{subtitle_path}",
                                 "source": "opensubtitles",
+                                **sync_metadata,
                             },
                         )
                         await event_publisher.publish_event(event)
@@ -344,6 +512,11 @@ async def process_message(
                                     )
                                 )
 
+                                subtitle_path, sync_metadata = await sync_subtitle_to_audio_if_enabled(
+                                    video_url=video_url,
+                                    downloaded_subtitle_path=subtitle_path,
+                                )
+
                                 logger.info(
                                     f"✅ Downloaded fallback subtitle in '{iso_language_code}' to: {subtitle_path}"
                                 )
@@ -429,6 +602,7 @@ async def process_message(
                                             "source_language": iso_language_code,
                                             "target_language": target_language_iso,
                                             "reason": "subtitle_not_found_in_target_language",
+                                            **sync_metadata,
                                         },
                                     )
                                     await event_publisher.publish_event(event)

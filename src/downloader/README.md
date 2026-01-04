@@ -74,6 +74,12 @@ REDIS_URL=redis://localhost:6379
 # File Storage
 SUBTITLE_STORAGE_PATH=./storage/subtitles
 
+# Subtitle Sync (ffsubsync) - Optional
+# Requires Downloader access to the local video path (typically mounted under /media).
+SUBTITLE_SYNC_ENABLED=false
+SUBTITLE_SYNC_TIMEOUT_SECONDS=120
+SUBTITLE_SYNC_KEEP_UNSYNCED_COPY=true
+
 # Logging
 LOG_LEVEL=INFO
 ```

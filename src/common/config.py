@@ -201,6 +201,17 @@ class Settings(BaseSettings):
         default="en", env="SUBTITLE_FALLBACK_LANGUAGE"
     )  # Fallback when desired isn't found (then translated to desired)
 
+    # Subtitle Sync (ffsubsync)
+    subtitle_sync_enabled: bool = Field(
+        default=False, env="SUBTITLE_SYNC_ENABLED"
+    )  # Enable/disable ffsubsync post-processing
+    subtitle_sync_timeout_seconds: int = Field(
+        default=120, env="SUBTITLE_SYNC_TIMEOUT_SECONDS"
+    )  # Max seconds to allow sync to run per file
+    subtitle_sync_keep_unsynced_copy: bool = Field(
+        default=True, env="SUBTITLE_SYNC_KEEP_UNSYNCED_COPY"
+    )  # Keep {name}.unsynced.srt alongside the synced output
+
     # Jellyfin Integration
     jellyfin_auto_translate: bool = Field(default=True, env="JELLYFIN_AUTO_TRANSLATE")
 
