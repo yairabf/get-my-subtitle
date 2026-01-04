@@ -1,0 +1,113 @@
+# 001 - ffsubsync-integration
+   
+**Epic:** subtitle-sync  
+**Created:** 2026-01-04  
+**Status:** Planning  
+   
+## Overview
+- Add an **optional**, **safe-by-default** post-processing step to automatically sync downloaded subtitles to the video’s audio using `ffsubsync`.
+- The feature must be **gated by an environment variable** and must **not break** existing flows if syncing fails (fallback to original subtitle).
+   
+## Architecture
+### Components affected
+- **Downloader worker**: after subtitle download, optionally run `ffsubsync` and publish the final path.
+- **Translator pipeline**: ensure fallback-download-before-translate path uses the **synced** subtitle as the translation input (when enabled).
+   
+### New files to create
+- None expected (implementation can live in `downloader` as small helpers).
+   
+### Files to modify
+- `src/common/config.py`
+  - Add settings for sync feature flag and operational parameters.
+- `env.template`
+  - Document new env vars with defaults.
+- `src/downloader/Dockerfile`
+  - Install `ffmpeg` (required by `ffsubsync`) in the downloader image.
+- `src/downloader/requirements.txt`
+  - Add `ffsubsync` dependency.
+- `src/downloader/worker.py`
+  - Invoke `ffsubsync` after subtitle download when enabled.
+  - Apply same logic to the fallback subtitle download path (before enqueuing translation).
+  - Publish events referencing the **synced** subtitle path (when syncing succeeds).
+- `README.md`
+  - Document feature, prerequisites, config, and behavior.
+- (Optional) `src/downloader/README.md`
+  - Mirror the downloader-specific configuration and troubleshooting notes.
+   
+### Dependencies required
+- **System package**: `ffmpeg` in downloader container.
+- **Python package**: `ffsubsync` (invoked via CLI or Python module).
+   
+## Implementation Steps
+1. **Add configuration**
+   - Add env vars to `Settings`:
+     - `SUBTITLE_SYNC_ENABLED` (default `false`)
+     - `SUBTITLE_SYNC_TIMEOUT_SECONDS` (default e.g. `120`)
+     - `SUBTITLE_SYNC_KEEP_UNSYNCED_COPY` (default `true`)
+   - Add the same variables to `env.template`.
+   
+2. **Add downloader runtime deps**
+   - Update downloader Dockerfile to `apt-get install ffmpeg`.
+   - Add `ffsubsync` to `src/downloader/requirements.txt`.
+   
+3. **Implement sync helper in downloader**
+   - Add small, readable helper(s) in `src/downloader/worker.py` (or a new local module if it stays cleaner) to:
+     - Validate the video path is a readable local file.
+     - Run `ffsubsync` with a timeout.
+     - Use safe file handling:
+       - Rename original download to `*.unsynced.srt` (if keeping)
+       - Write synced output to the standard `*.{lang}.srt`
+     - On failure/timeout:
+       - Restore original subtitle as the standard `*.{lang}.srt`
+       - Continue pipeline without failing the job
+   
+4. **Apply sync in both relevant downloader paths**
+   - **Primary download path**: after `download_subtitle(...)`, run sync (if enabled), then publish `subtitle.ready` with final `subtitle_path`.
+   - **Fallback-download-before-translate path**: after downloading the fallback subtitle, run sync (if enabled), then enqueue `TranslationTask.subtitle_file_path` pointing to the synced subtitle.
+   
+5. **Add observability**
+   - Add fields to the event payload (non-breaking) such as:
+     - `sync_applied: bool`
+     - `unsynced_subtitle_path: Optional[str]`
+     - `sync_error: Optional[str]` (only when sync attempted and failed)
+   - Add clear log lines for:
+     - “sync enabled/disabled”
+     - “sync succeeded”
+     - “sync failed, using original subtitle”
+   
+6. **Tests (TDD)**
+   - Add unit tests that mock the `ffsubsync` invocation (do not run real ffmpeg in CI).
+   - Parameterize cases:
+     - feature flag off → no invocation, original path unchanged
+     - success → final path is standard `*.{lang}.srt`, optional `.unsynced.srt` exists
+     - failure/timeout → rollback to original `*.{lang}.srt`, pipeline continues
+     - missing/unreadable video path → skip sync, original used
+   - Verify behavior for both:
+     - primary download flow
+     - fallback-download-before-translate flow (translation input path)
+   
+7. **Documentation**
+   - Update `README.md` to include:
+     - what subtitle sync does and when it helps (offset/drift)
+     - prerequisites: local `/media/...` video path visible to downloader container
+     - env vars and defaults
+     - output naming (`*.unsynced.srt` when enabled and keep-copy is true)
+     - troubleshooting: sync takes time; failures fall back to original subtitle
+   
+## API Changes (if applicable)
+- No API changes required.
+- Event payloads may include **additional optional fields**; existing consumers should ignore unknown keys.
+   
+## Testing Strategy
+- **Unit tests** with mocks for process execution (`subprocess.run` or equivalent).
+- **Optional integration test** (manual/local): run downloader with sync enabled against a known sample video + intentionally out-of-sync subtitle and verify improved alignment.
+   
+## Success Criteria
+- When `SUBTITLE_SYNC_ENABLED=false`:
+  - Behavior is unchanged (no extra runtime deps required at execution time beyond normal image build).
+- When `SUBTITLE_SYNC_ENABLED=true` and video path is valid:
+  - Downloader attempts `ffsubsync` and produces a synced subtitle at the standard output path.
+  - On sync failure, the original subtitle remains available and the job continues (no hard failure).
+- For fallback-download-before-translate:
+  - Translation uses the synced subtitle as input when sync succeeds.
+- README documents the feature and configuration clearly.
