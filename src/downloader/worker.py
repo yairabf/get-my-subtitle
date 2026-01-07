@@ -25,7 +25,12 @@ from common.schemas import (  # noqa: E402
     TranslationTask,
 )
 from common.shutdown_manager import ShutdownManager  # noqa: E402
-from common.utils import DateTimeUtils, LanguageUtils, PathUtils  # noqa: E402
+from common.utils import (  # noqa: E402
+    DateTimeUtils,
+    LanguageUtils,
+    PathUtils,
+    normalize_video_title_for_search,
+)
 from downloader.opensubtitles_client import (  # noqa: E402
     OpenSubtitlesAPIError,
     OpenSubtitlesAuthenticationError,
@@ -220,6 +225,56 @@ def _build_opensubtitles_language_filters(
     expanded = LanguageUtils.iso_to_opensubtitles_codes(language_code)
     return expanded or None
 
+async def _search_subtitles_with_fallbacks(
+    *,
+    video_title: Optional[str],
+    imdb_id: Optional[str],
+    languages: Optional[list[str]],
+) -> list[dict[str, Any]]:
+    """
+    Search OpenSubtitles using multiple metadata strategies (in order):
+    1) full title query
+    2) imdb-only (when imdb_id is present)
+    3) normalized title query
+
+    Returns the first non-empty result set.
+    """
+    normalized_query = normalize_video_title_for_search(video_title or "")
+
+    attempts: list[tuple[str, Optional[str], Optional[str]]] = [
+        ("full_title", None, video_title),
+    ]
+    if imdb_id:
+        attempts.append(("imdb_only", imdb_id, None))
+    if normalized_query and normalized_query != (video_title or ""):
+        attempts.append(("normalized_title", None, normalized_query))
+
+    for attempt_name, attempt_imdb_id, attempt_query in attempts:
+        if not attempt_imdb_id and not attempt_query:
+            continue
+
+        logger.info(
+            "🔍 OpenSubtitles metadata search attempt=%s imdb_id=%s query=%s languages=%s",
+            attempt_name,
+            attempt_imdb_id,
+            attempt_query,
+            languages,
+        )
+
+        results = await opensubtitles_client.search_subtitles(
+            imdb_id=attempt_imdb_id,
+            query=attempt_query,
+            languages=languages,
+        )
+        if results:
+            logger.info(
+                "✅ OpenSubtitles metadata search succeeded (attempt=%s): %d result(s)",
+                attempt_name,
+                len(results),
+            )
+            return results
+
+    return []
 
 async def process_message(
     message: AbstractIncomingMessage, channel: aio_pika.abc.AbstractChannel
@@ -316,9 +371,9 @@ async def process_message(
                 logger.info(
                     f"🔍 Searching by metadata: title={video_title}, imdb_id={imdb_id}"
                 )
-                search_results = await opensubtitles_client.search_subtitles(
+                search_results = await _search_subtitles_with_fallbacks(
+                    video_title=video_title,
                     imdb_id=imdb_id,
-                    query=video_title,
                     languages=_build_opensubtitles_language_filters(language),
                 )
 
@@ -437,14 +492,12 @@ async def process_message(
                             logger.info(
                                 f"🔍 Searching by metadata for fallback language: {fallback_language}"
                             )
-                            fallback_search_results = (
-                                await opensubtitles_client.search_subtitles(
-                                    imdb_id=imdb_id,
-                                    query=video_title,
-                                    languages=_build_opensubtitles_language_filters(
-                                        fallback_language
-                                    ),
-                                )
+                            fallback_search_results = await _search_subtitles_with_fallbacks(
+                                video_title=video_title,
+                                imdb_id=imdb_id,
+                                languages=_build_opensubtitles_language_filters(
+                                    fallback_language
+                                ),
                             )
 
                         # Step 2: If still no results, search for ANY language

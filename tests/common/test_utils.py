@@ -14,6 +14,7 @@ from common.utils import (
     StatusProgressCalculator,
     StringUtils,
     ValidationUtils,
+    normalize_video_title_for_search,
 )
 
 
@@ -642,3 +643,20 @@ class TestLanguageUtils:
     def test_iso_to_opensubtitles_codes(self, iso_code, expected):
         """Test expansion from ISO codes to OpenSubtitles language codes."""
         assert LanguageUtils.iso_to_opensubtitles_codes(iso_code) == expected
+
+
+class TestTitleNormalization:
+    """Test title normalization for external subtitle search queries."""
+
+    @pytest.mark.parametrize(
+        "raw_title,expected",
+        [
+            (
+                "Spartacus.House.of.Ashur.S01E02.FORSAKEN.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb",
+                "Spartacus House of Ashur S01E02",
+            ),
+            ("", ""),
+        ],
+    )
+    def test_normalize_video_title_for_search(self, raw_title, expected):
+        assert normalize_video_title_for_search(raw_title) == expected

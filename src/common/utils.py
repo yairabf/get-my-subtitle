@@ -1,6 +1,7 @@
 """Utility functions for common operations across the application."""
 
 import logging
+import re
 import struct
 from datetime import datetime, timezone
 from enum import Enum
@@ -68,6 +69,79 @@ class StringUtils:
             Lowercase text, or empty string if input is None
         """
         return text.lower() if text else ""
+
+
+def normalize_video_title_for_search(video_title: str) -> str:
+    """
+    Normalize a noisy release-style title into a query string that is more likely to match
+    OpenSubtitles searches.
+
+    Primary use case: TV episode filenames that include release tags, codecs, and groups.
+
+    Strategy:
+    - Replace common separators (., _) with spaces
+    - If a SxxEyy token exists, keep only the text up to (and including) that token
+      (show name + season/episode is usually sufficient for subtitle search)
+    - Otherwise, remove common release tokens and collapse whitespace
+
+    Example:
+        >>> normalize_video_title_for_search(
+        ...   "Spartacus.House.of.Ashur.S01E02.FORSAKEN.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb"
+        ... )
+        'Spartacus House of Ashur S01E02'
+    """
+    if not video_title:
+        return ""
+
+    text = str(video_title)
+    text = re.sub(r"[._]+", " ", text)
+    text = re.sub(r"[-]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Prefer extracting show name + season/episode token when present.
+    episode_match = re.search(r"\bS\d{1,2}E\d{1,2}\b", text, flags=re.IGNORECASE)
+    if episode_match:
+        return text[: episode_match.end()].strip()
+
+    # Fallback: remove common release tokens for movies/specials.
+    tokens_to_drop = {
+        "web",
+        "webrip",
+        "webdl",
+        "bluray",
+        "bdrip",
+        "hdrip",
+        "amzn",
+        "nf",
+        "h264",
+        "x264",
+        "x265",
+        "hevc",
+        "aac",
+        "dts",
+        "atmos",
+        "proper",
+        "repack",
+        "hdr",
+        "dv",
+    }
+
+    words = []
+    for word in text.split():
+        normalized_word = word.lower()
+        if normalized_word in tokens_to_drop:
+            continue
+        if re.fullmatch(r"\d{3,4}p", normalized_word):  # 720p, 1080p, 2160p
+            continue
+        if re.fullmatch(r"ddp\d(?:\.\d)?", normalized_word):  # ddp5.1
+            continue
+        if re.fullmatch(r"\d(?:\.\d)?", normalized_word):  # stray audio channel fragments
+            continue
+        if re.fullmatch(r"h\.?264", normalized_word):
+            continue
+        words.append(word)
+
+    return " ".join(words).strip()
 
 
 class JobIdUtils:
