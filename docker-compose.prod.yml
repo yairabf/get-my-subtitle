@@ -5,6 +5,14 @@ version: "3.8"
 # without building locally.
 
 services:
+  # GitHub Container Registry owner/user or org.
+  # Override via environment variable when pulling from your fork:
+  #   GHCR_OWNER=yairabf docker compose -f docker-compose.prod.yml pull
+  # Defaults to this repository owner.
+  #
+  # Note: docker-compose does not support referencing service-level env vars inside `image:`,
+  # so this must be an environment variable in your shell or `.env`.
+
   rabbitmq:
     image: rabbitmq:3-management
     ports:
@@ -43,7 +51,7 @@ services:
     restart: unless-stopped
 
   manager:
-    image: ghcr.io/yairabramovitch/get-my-subtitle-manager:latest
+    image: ghcr.io/${GHCR_OWNER:-yairabf}/get-my-subtitle-manager:latest
     ports:
       - "8000:8000"
     env_file:
@@ -67,7 +75,7 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
   downloader:
-    image: ghcr.io/yairabramovitch/get-my-subtitle-downloader:latest
+    image: ghcr.io/${GHCR_OWNER:-yairabf}/get-my-subtitle-downloader:latest
     volumes:
       - ${SCANNER_MEDIA_PATH:-/media}:/media:rw
     env_file:
@@ -89,7 +97,7 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
   translator:
-    image: ghcr.io/yairabramovitch/get-my-subtitle-translator:latest
+    image: ghcr.io/${GHCR_OWNER:-yairabf}/get-my-subtitle-translator:latest
     volumes:
       - ./storage:/app/storage
       - ${SCANNER_MEDIA_PATH:-/media}:/media:rw
@@ -112,7 +120,7 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
   consumer:
-    image: ghcr.io/yairabramovitch/get-my-subtitle-consumer:latest
+    image: ghcr.io/${GHCR_OWNER:-yairabf}/get-my-subtitle-consumer:latest
     env_file:
       - .env
     environment:
@@ -132,7 +140,7 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
   scanner:
-    image: ghcr.io/yairabramovitch/get-my-subtitle-scanner:latest
+    image: ghcr.io/${GHCR_OWNER:-yairabf}/get-my-subtitle-scanner:latest
     ports:
       - "8001:8001"
     volumes:
