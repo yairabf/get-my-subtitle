@@ -825,16 +825,23 @@ class LanguageUtils:
         """
         Expand an ISO 639-1 code to the set of OpenSubtitles language codes that may match.
 
-        The OpenSubtitles XML-RPC API commonly uses 3-letter language codes (e.g. 'heb').
-        The rest of this system often uses ISO 639-1 2-letter codes (e.g. 'he'). To improve
-        match rates, return a de-duplicated list that includes both forms when known.
+        The OpenSubtitles XML-RPC API historically uses 3-letter language codes (e.g. 'heb'),
+        while parts of this codebase pass ISO 639-1 2-letter codes (e.g. 'he'). In practice
+        either may work depending on API behavior; to improve match rates we send both when
+        a mapping is known.
 
         Behavior:
         - If iso_code is falsy (None/empty): returns []
         - If iso_code is already 3 letters: returns [iso_code.lower()]
         - If iso_code is 2 letters:
-          - return matching OpenSubtitles codes first (e.g. ['heb'])
-          - then include the ISO code last (e.g. ['heb', 'he'])
+          - returns a de-duplicated list of matching OpenSubtitles codes first (e.g. ['heb'])
+          - then includes the ISO code itself last for backward compatibility (e.g. ['heb', 'he'])
+
+        Example:
+            >>> LanguageUtils.iso_to_opensubtitles_codes("he")
+            ['heb', 'he']
+            >>> LanguageUtils.iso_to_opensubtitles_codes("en")
+            ['eng', 'en']
         """
         if not iso_code:
             return []
@@ -846,12 +853,15 @@ class LanguageUtils:
         if len(normalized) != 2:
             return [normalized]
 
+        # Invert OPENTITLES_TO_ISO (3-letter -> 2-letter) to find all OpenSubtitles codes
+        # that map to the requested ISO code.
         opensubtitles_codes = [
             os_code
             for os_code, mapped_iso in LanguageUtils.OPENTITLES_TO_ISO.items()
             if mapped_iso == normalized
         ]
 
+        # De-duplicate while preserving order.
         result: list[str] = []
         seen: set[str] = set()
         for code in opensubtitles_codes + [normalized]:

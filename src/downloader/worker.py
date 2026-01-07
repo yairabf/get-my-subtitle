@@ -213,11 +213,23 @@ async def sync_subtitle_to_audio_if_enabled(
         return downloaded_subtitle_path, {"sync_applied": False, "sync_error": str(e)}
 
 
+def _build_opensubtitles_language_filters(
+    language_code: Optional[str],
+) -> Optional[list[str]]:
+    """
+    Build the language filter list to send to OpenSubtitles.
+
+    We expand ISO codes to include known OpenSubtitles 3-letter codes (e.g. he -> heb + he)
+    to increase match rates.
+    """
+    expanded = LanguageUtils.iso_to_opensubtitles_codes(language_code)
+    return expanded or None
+
 async def _search_subtitles_with_fallbacks(
     *,
     video_title: Optional[str],
     imdb_id: Optional[str],
-    language_code: Optional[str],
+    languages: Optional[list[str]],
 ) -> list[dict[str, Any]]:
     """
     Search OpenSubtitles using multiple metadata strategies (in order):
@@ -227,7 +239,6 @@ async def _search_subtitles_with_fallbacks(
 
     Returns the first non-empty result set.
     """
-    languages = LanguageUtils.iso_to_opensubtitles_codes(language_code) or None
     normalized_query = normalize_video_title_for_search(video_title or "")
 
     attempts: list[tuple[str, Optional[str], Optional[str]]] = [
@@ -345,7 +356,7 @@ async def process_message(
                 search_results = await opensubtitles_client.search_subtitles_by_hash(
                     movie_hash=movie_hash,
                     file_size=file_size,
-                    languages=LanguageUtils.iso_to_opensubtitles_codes(language) or None,
+                    languages=_build_opensubtitles_language_filters(language),
                 )
 
                 if search_results:
@@ -363,7 +374,7 @@ async def process_message(
                 search_results = await _search_subtitles_with_fallbacks(
                     video_title=video_title,
                     imdb_id=imdb_id,
-                    language_code=language,
+                    languages=_build_opensubtitles_language_filters(language),
                 )
 
             if search_results:
@@ -470,10 +481,9 @@ async def process_message(
                                 await opensubtitles_client.search_subtitles_by_hash(
                                     movie_hash=movie_hash,
                                     file_size=file_size,
-                                    languages=LanguageUtils.iso_to_opensubtitles_codes(
+                                    languages=_build_opensubtitles_language_filters(
                                         fallback_language
-                                    )
-                                    or None,
+                                    ),
                                 )
                             )
 
@@ -485,7 +495,9 @@ async def process_message(
                             fallback_search_results = await _search_subtitles_with_fallbacks(
                                 video_title=video_title,
                                 imdb_id=imdb_id,
-                                language_code=fallback_language,
+                                languages=_build_opensubtitles_language_filters(
+                                    fallback_language
+                                ),
                             )
 
                         # Step 2: If still no results, search for ANY language
