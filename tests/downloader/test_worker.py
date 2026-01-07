@@ -223,6 +223,88 @@ class TestSubtitleMissingEventPublishing:
                 Path(video_file).unlink(missing_ok=True)
                 (Path(video_file).parent / "test.en.srt").unlink(missing_ok=True)
 
+
+class TestOpenSubtitlesSearchFallbackOrdering:
+    """Test metadata search fallback ordering after hash search fails."""
+
+    @pytest.mark.asyncio
+    async def test_metadata_search_tries_full_title_then_imdb_then_stops_on_success(
+        self, tmp_path: Path
+    ):
+        """
+        Ensure we try metadata searches in order:
+        1) full title query
+        2) imdb-only (if provided)
+        3) normalized title (only if still not found)
+        """
+        request_id = uuid4()
+        imdb_id = "1234567"
+        video_title = (
+            "Spartacus House of Ashur S01E02 FORSAKEN 1080p AMZN WEB DL DDP5 1 H 264 NTb"
+        )
+
+        # Local file so PathUtils can produce an output_path
+        video_path = tmp_path / "Spartacus.House.of.Ashur.S01E02.mkv"
+        video_path.write_bytes(b"\x00")
+
+        mock_message = MagicMock()
+        mock_message.body = json.dumps(
+            {
+                "request_id": str(request_id),
+                "video_url": str(video_path),
+                "video_title": video_title,
+                "imdb_id": imdb_id,
+                "language": "he",
+            }
+        ).encode()
+        mock_message.routing_key = "subtitle.download"
+        mock_message.exchange = ""
+        mock_message.message_id = "test-message-id"
+        mock_message.timestamp = None
+
+        mock_channel = MagicMock()
+        mock_channel.default_exchange = MagicMock()
+        mock_channel.default_exchange.publish = AsyncMock()
+
+        with patch("downloader.worker.redis_client") as mock_redis:
+            mock_redis.update_phase = AsyncMock(return_value=True)
+
+            # The local file is tiny (<128KB), so hash calculation will naturally return None,
+            # causing the worker to skip hash search and proceed to metadata fallbacks.
+            with patch("downloader.worker.opensubtitles_client") as mock_client:
+                mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
+                mock_client.search_subtitles = AsyncMock(
+                    side_effect=[
+                        [],  # full_title
+                        [{"IDSubtitleFile": "999"}],  # imdb_only success
+                    ]
+                )
+                mock_client.download_subtitle = AsyncMock(
+                    return_value=tmp_path / "out.he.srt"
+                )
+
+                with patch("downloader.worker.event_publisher") as mock_publisher:
+                    mock_publisher.publish_event = AsyncMock()
+
+                    with patch(
+                        "downloader.worker.sync_subtitle_to_audio_if_enabled",
+                        new=AsyncMock(return_value=(tmp_path / "out.he.srt", {})),
+                    ):
+                        await process_message(mock_message, mock_channel)
+
+                # Two metadata calls: full_title then imdb_only
+                assert mock_client.search_subtitles.call_count == 2
+                first_kwargs = mock_client.search_subtitles.call_args_list[0].kwargs
+                second_kwargs = mock_client.search_subtitles.call_args_list[1].kwargs
+
+                assert first_kwargs["imdb_id"] is None
+                assert first_kwargs["query"] == video_title
+                assert first_kwargs["languages"] == ["heb", "he"]
+
+                assert second_kwargs["imdb_id"] == imdb_id
+                assert second_kwargs["query"] is None
+                assert second_kwargs["languages"] == ["heb", "he"]
+
     @pytest.mark.asyncio
     async def test_subtitle_missing_event_contains_correct_payload(self):
         """Test that SUBTITLE_MISSING event contains all required payload fields."""
