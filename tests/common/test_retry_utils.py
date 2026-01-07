@@ -149,6 +149,19 @@ class TestIsTransientError:
         # Assert
         assert result is False
 
+    def test_identifies_opensubtitles_auth_wrapping_request_sent_as_transient(self):
+        """Should retry when OpenSubtitles auth wraps a transient HTTP state error."""
+        import http.client
+
+        from downloader.opensubtitles_client import OpenSubtitlesAuthenticationError
+
+        try:
+            raise OpenSubtitlesAuthenticationError("XML-RPC authentication error") from (
+                http.client.CannotSendRequest("Request-sent")
+            )
+        except OpenSubtitlesAuthenticationError as e:
+            assert is_transient_error(e) is True
+
     def test_identifies_generic_api_error_with_status_503_as_transient(self):
         """Should identify 503 errors as transient."""
         # Arrange

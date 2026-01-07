@@ -2,6 +2,7 @@
 
 import asyncio
 import functools
+import http.client
 import logging
 import random
 from typing import Any, Callable, TypeVar
@@ -173,6 +174,10 @@ def is_transient_error(error: Exception) -> bool:
 
     # Network-related errors - transient
     if isinstance(error, (ConnectionError, TimeoutError, asyncio.TimeoutError)):
+        return True
+
+    # HTTP client state errors (commonly seen with XML-RPC transports) - transient
+    if isinstance(error, (http.client.CannotSendRequest, http.client.ResponseNotReady)):
         return True
 
     # OSError subtypes that are transient

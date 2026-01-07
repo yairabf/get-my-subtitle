@@ -48,6 +48,16 @@ class OpenSubtitlesClient:
         self.token: Optional[str] = None
         self.xmlrpc_client: Optional[ServerProxy] = None
 
+    def _create_xmlrpc_client(self) -> ServerProxy:
+        """
+        Create a new XML-RPC client.
+
+        Note: ServerProxy/its transport can keep internal HTTP connection state that is not
+        safe to share across executor threads. Creating a fresh client per call avoids
+        issues like http.client.CannotSendRequest('Request-sent').
+        """
+        return ServerProxy("https://api.opensubtitles.org/xml-rpc")
+
     def _create_retry_decorator(self):
         """Create retry decorator with configured settings."""
         return retry_with_exponential_backoff(
@@ -128,10 +138,8 @@ class OpenSubtitlesClient:
 
     def _xmlrpc_login(self) -> Dict[str, Any]:
         """Execute XML-RPC login (synchronous)."""
-        if not self.xmlrpc_client:
-            self.xmlrpc_client = ServerProxy("https://api.opensubtitles.org/xml-rpc")
-
-        return self.xmlrpc_client.LogIn(
+        client = self._create_xmlrpc_client()
+        return client.LogIn(
             self.username,
             self.password,
             "en",
@@ -237,10 +245,8 @@ class OpenSubtitlesClient:
 
     def _xmlrpc_search(self, search_criteria: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Execute XML-RPC search (synchronous)."""
-        if not self.xmlrpc_client:
-            self.xmlrpc_client = ServerProxy("https://api.opensubtitles.org/xml-rpc")
-
-        return self.xmlrpc_client.SearchSubtitles(self.token, search_criteria)
+        client = self._create_xmlrpc_client()
+        return client.SearchSubtitles(self.token, search_criteria)
 
     async def _search_subtitles_by_hash_xmlrpc(
         self,
@@ -368,7 +374,5 @@ class OpenSubtitlesClient:
 
     def _xmlrpc_download(self, subtitle_id: str) -> Dict[str, Any]:
         """Execute XML-RPC download (synchronous)."""
-        if not self.xmlrpc_client:
-            self.xmlrpc_client = ServerProxy("https://api.opensubtitles.org/xml-rpc")
-
-        return self.xmlrpc_client.DownloadSubtitles(self.token, [subtitle_id])
+        client = self._create_xmlrpc_client()
+        return client.DownloadSubtitles(self.token, [subtitle_id])
