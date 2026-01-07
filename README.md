@@ -255,12 +255,12 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Published images (latest from `main`):
-- `ghcr.io/yairabramovitch/get-my-subtitle-manager:latest`
-- `ghcr.io/yairabramovitch/get-my-subtitle-downloader:latest`
-- `ghcr.io/yairabramovitch/get-my-subtitle-translator:latest`
-- `ghcr.io/yairabramovitch/get-my-subtitle-scanner:latest`
-- `ghcr.io/yairabramovitch/get-my-subtitle-consumer:latest`
+Published images (latest from `main`): replace `<owner>` with your GitHub username/org (e.g. `yairabf`):
+- `ghcr.io/<owner>/get-my-subtitle-manager:latest`
+- `ghcr.io/<owner>/get-my-subtitle-downloader:latest`
+- `ghcr.io/<owner>/get-my-subtitle-translator:latest`
+- `ghcr.io/<owner>/get-my-subtitle-scanner:latest`
+- `ghcr.io/<owner>/get-my-subtitle-consumer:latest`
 
 Note: In `docker-compose.prod.yml`, Redis and RabbitMQ ports are bound to `127.0.0.1` by default to avoid exposing them on your network. If you run this on a remote server and want the RabbitMQ UI, use SSH port forwarding (or intentionally change the bind address).
 
