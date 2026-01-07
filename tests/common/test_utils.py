@@ -627,3 +627,18 @@ class TestLanguageUtils:
         """Test that single character codes are returned as-is (lowercased)."""
         result = LanguageUtils.opensubtitles_to_iso("E")
         assert result == "e"
+
+    @pytest.mark.parametrize(
+        "iso_code,expected",
+        [
+            ("he", ["heb", "he"]),
+            ("en", ["eng", "en"]),
+            ("heb", ["heb"]),
+            ("", []),
+            (None, []),
+            ("xx", ["xx"]),
+        ],
+    )
+    def test_iso_to_opensubtitles_codes(self, iso_code, expected):
+        """Test expansion from ISO codes to OpenSubtitles language codes."""
+        assert LanguageUtils.iso_to_opensubtitles_codes(iso_code) == expected

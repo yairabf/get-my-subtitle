@@ -46,36 +46,6 @@ BUSY_WAIT_SLEEP = 0.1  # Sleep duration to reduce CPU usage during empty queue
 opensubtitles_client = OpenSubtitlesClient()
 
 
-def _expand_hebrew_language_codes(
-    languages: Optional[list[str]],
-) -> Optional[list[str]]:
-    """
-    Expand Hebrew language requests to include both 'he' and 'heb'.
-
-    We do this because different parts of the pipeline / external APIs may use
-    ISO-639-1 ('he') or OpenSubtitles-style ('heb') language codes.
-    """
-    if not languages:
-        return languages
-
-    expanded: list[str] = []
-    for lang in languages:
-        if not lang:
-            continue
-        normalized = lang.lower()
-        if normalized in {"he", "heb"}:
-            expanded.extend(["he", "heb"])
-        else:
-            expanded.append(normalized)
-
-    # Preserve order while de-duplicating
-    unique: list[str] = []
-    for lang in expanded:
-        if lang not in unique:
-            unique.append(lang)
-    return unique
-
-
 def _get_unsynced_subtitle_path(final_subtitle_path: Path) -> Path:
     """
     Build a sibling path for preserving the original downloaded subtitle.
@@ -238,6 +208,19 @@ async def sync_subtitle_to_audio_if_enabled(
         return downloaded_subtitle_path, {"sync_applied": False, "sync_error": str(e)}
 
 
+def _build_opensubtitles_language_filters(
+    language_code: Optional[str],
+) -> Optional[list[str]]:
+    """
+    Build the language filter list to send to OpenSubtitles.
+
+    We expand ISO codes to include known OpenSubtitles 3-letter codes (e.g. he -> heb + he)
+    to increase match rates.
+    """
+    expanded = LanguageUtils.iso_to_opensubtitles_codes(language_code)
+    return expanded or None
+
+
 async def process_message(
     message: AbstractIncomingMessage, channel: aio_pika.abc.AbstractChannel
 ) -> None:
@@ -318,7 +301,7 @@ async def process_message(
                 search_results = await opensubtitles_client.search_subtitles_by_hash(
                     movie_hash=movie_hash,
                     file_size=file_size,
-                    languages=_expand_hebrew_language_codes([language] if language else None),
+                    languages=_build_opensubtitles_language_filters(language),
                 )
 
                 if search_results:
@@ -336,7 +319,7 @@ async def process_message(
                 search_results = await opensubtitles_client.search_subtitles(
                     imdb_id=imdb_id,
                     query=video_title,
-                    languages=_expand_hebrew_language_codes([language] if language else None),
+                    languages=_build_opensubtitles_language_filters(language),
                 )
 
             if search_results:
@@ -443,7 +426,9 @@ async def process_message(
                                 await opensubtitles_client.search_subtitles_by_hash(
                                     movie_hash=movie_hash,
                                     file_size=file_size,
-                                    languages=_expand_hebrew_language_codes([fallback_language]),
+                                    languages=_build_opensubtitles_language_filters(
+                                        fallback_language
+                                    ),
                                 )
                             )
 
@@ -456,7 +441,9 @@ async def process_message(
                                 await opensubtitles_client.search_subtitles(
                                     imdb_id=imdb_id,
                                     query=video_title,
-                                    languages=_expand_hebrew_language_codes([fallback_language]),
+                                    languages=_build_opensubtitles_language_filters(
+                                        fallback_language
+                                    ),
                                 )
                             )
 
