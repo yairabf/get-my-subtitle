@@ -249,12 +249,21 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Published images (latest from `main`): replace `<owner>` with your GitHub username/org (e.g. `yairabf`):
+Published images: replace `<owner>` with your GitHub username/org (e.g. `yairabf`):
+
+**Latest images (from `main` branch):**
 - `ghcr.io/<owner>/get-my-subtitle-manager:latest`
 - `ghcr.io/<owner>/get-my-subtitle-downloader:latest`
 - `ghcr.io/<owner>/get-my-subtitle-translator:latest`
 - `ghcr.io/<owner>/get-my-subtitle-scanner:latest`
 - `ghcr.io/<owner>/get-my-subtitle-consumer:latest`
+
+**Versioned images (semantic versioning):**
+- All images are automatically tagged with version numbers on each push to `main`
+- Example: `ghcr.io/<owner>/get-my-subtitle-manager:v1.2.3`
+- Version tags follow semantic versioning (major.minor.patch)
+- Also available as: `v1.2`, `v1` (major.minor and major only)
+- See GitHub Releases for version history and changelogs
 
 Note: In `docker-compose.prod.yml`, Redis and RabbitMQ ports are bound to `127.0.0.1` by default to avoid exposing them on your network. If you run this on a remote server and want the RabbitMQ UI, use SSH port forwarding (or intentionally change the bind address).
 
@@ -275,6 +284,36 @@ docker run -d \
 
 How updates work:
 - When a new `:latest` image is pushed to GHCR, Watchtower will pull it and restart the affected containers.
+
+#### Versioning and Releases
+
+This project uses **automatic semantic versioning** for Docker images:
+
+- **Automatic versioning on push to `main`**: Each push to `main` automatically creates a new version based on the latest git tag + commits since that tag
+  - Example: If the latest tag is `v1.0.0` and there are 3 commits since then, the new version will be `v1.0.3`
+  - A GitHub Release is automatically created with changelog and Docker image tags
+
+- **Manual versioning with git tags**: You can create a specific version by pushing a git tag:
+  ```bash
+  git tag v1.2.3
+  git push origin v1.2.3
+  ```
+  This will trigger a release with that exact version.
+
+- **Image tags available**:
+  - `latest` - Always points to the latest build from `main`
+  - `v1.2.3` - Specific version (full semantic version)
+  - `v1.2` - Major.minor version (points to latest patch in that minor version)
+  - `v1` - Major version (points to latest minor.patch in that major version)
+
+- **Using versioned images** (recommended for production):
+  ```yaml
+  # In docker-compose.prod.yml, replace :latest with a specific version
+  manager:
+    image: ghcr.io/<owner>/get-my-subtitle-manager:v1.2.3
+  ```
+
+- **View all releases**: Check GitHub Releases in your repository for version history, changelogs, and Docker image tags.
 
 ### Monitoring & Utilities
 
