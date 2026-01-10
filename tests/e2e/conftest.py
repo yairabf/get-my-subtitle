@@ -57,6 +57,26 @@ def run_docker_compose_command(
     return result
 
 
+def _should_skip_e2e_due_to_docker_unavailable(error: Exception) -> bool:
+    """
+    Determine whether e2e tests should be skipped because Docker is unavailable.
+
+    In some environments (local CI sandboxes, dev machines without Docker running),
+    attempting to run docker-compose will fail with a clear daemon connection error.
+    """
+    message = str(error)
+    if isinstance(error, subprocess.CalledProcessError):
+        message = f"{error.stderr or ''}\n{error.stdout or ''}"
+
+    message_lower = message.lower()
+    return (
+        "cannot connect to the docker daemon" in message_lower
+        or "is the docker daemon running" in message_lower
+        or "docker daemon" in message_lower
+        or "cannot connect to the docker engine" in message_lower
+    )
+
+
 @pytest.fixture(scope="session")
 def docker_compose_up() -> Generator[None, None, None]:
     """Start Docker Compose services for e2e tests."""
@@ -66,9 +86,16 @@ def docker_compose_up() -> Generator[None, None, None]:
     # Start services
     print("\n🚀 Starting Docker Compose services for e2e tests...")
     # First, try to stop any existing services to avoid conflicts
-    run_docker_compose_command(["down", "-v"], check=False)
-    # Then start fresh
-    run_docker_compose_command(["up", "-d", "--build"])
+    try:
+        run_docker_compose_command(["down", "-v"], check=False)
+        # Then start fresh
+        run_docker_compose_command(["up", "-d", "--build"])
+    except Exception as e:
+        if _should_skip_e2e_due_to_docker_unavailable(e):
+            pytest.skip(
+                "Skipping e2e tests: Docker daemon is not available/running."
+            )
+        raise
 
     try:
         # Wait for services to be healthy

@@ -362,7 +362,7 @@ class JellyfinWebSocketClient:
                     "jellyfin_item_id": item_id,
                 },
             )
-            await event_publisher.publish_event(media_detected_event)
+            media_published = await event_publisher.publish_event(media_detected_event)
 
             # Publish SUBTITLE_REQUESTED event (for workflow triggering)
             subtitle_requested_event = SubtitleEvent(
@@ -380,7 +380,17 @@ class JellyfinWebSocketClient:
                     and subtitle_request.target_language is not None,
                 },
             )
-            await event_publisher.publish_event(subtitle_requested_event)
+            requested_published = await event_publisher.publish_event(
+                subtitle_requested_event
+            )
+
+            if not media_published or not requested_published:
+                await redis_client.update_phase(
+                    subtitle_response.id,
+                    SubtitleStatus.FAILED,
+                    source="scanner",
+                    metadata={"error": "Failed to publish workflow events"},
+                )
 
             logger.info(
                 f"✅ Published SUBTITLE_REQUESTED event for job {subtitle_response.id}"

@@ -233,19 +233,18 @@ async def _search_subtitles_with_fallbacks(
 ) -> list[dict[str, Any]]:
     """
     Search OpenSubtitles using multiple metadata strategies (in order):
-    1) full title query
-    2) imdb-only (when imdb_id is present)
+    1) imdb-only (when imdb_id is present)
+    2) full title query
     3) normalized title query
 
     Returns the first non-empty result set.
     """
     normalized_query = normalize_video_title_for_search(video_title or "")
 
-    attempts: list[tuple[str, Optional[str], Optional[str]]] = [
-        ("full_title", None, video_title),
-    ]
+    attempts: list[tuple[str, Optional[str], Optional[str]]] = []
     if imdb_id:
         attempts.append(("imdb_only", imdb_id, None))
+    attempts.append(("full_title", None, video_title))
     if normalized_query and normalized_query != (video_title or ""):
         attempts.append(("normalized_title", None, normalized_query))
 
