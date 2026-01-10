@@ -126,7 +126,9 @@ class TestDownloadRequestPublishingFlow:
 
         # Setup event consumer
         event_queue = await rabbitmq_channel.declare_queue(
-            "test_event_consumer", exclusive=True
+            f"test_event_consumer_{uuid4()}",
+            exclusive=True,
+            auto_delete=True,
         )
         exchange = await rabbitmq_channel.declare_exchange(
             "subtitle.events", ExchangeType.TOPIC, durable=True
@@ -265,7 +267,9 @@ class TestTranslationRequestPublishingFlow:
 
         # Setup event consumer
         event_queue = await rabbitmq_channel.declare_queue(
-            "test_event_consumer", exclusive=True
+            f"test_event_consumer_{uuid4()}",
+            exclusive=True,
+            auto_delete=True,
         )
         exchange = await rabbitmq_channel.declare_exchange(
             "subtitle.events", ExchangeType.TOPIC, durable=True

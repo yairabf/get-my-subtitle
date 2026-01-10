@@ -104,15 +104,18 @@ class TestOrchestratorConnection:
                 return_value=mock_rabbitmq_channel
             )
 
-            with patch("manager.orchestrator.event_publisher") as mock_publisher:
-                mock_publisher.connect = AsyncMock()
-                mock_publisher.disconnect = AsyncMock()
+            with patch(
+                "manager.orchestrator.event_publisher.connect", new=AsyncMock()
+            ):
+                with patch(
+                    "manager.orchestrator.event_publisher.disconnect", new=AsyncMock()
+                ) as mock_disconnect:
 
-                await orchestrator.connect()
-                await orchestrator.disconnect()
+                    await orchestrator.connect()
+                    await orchestrator.disconnect()
 
-                mock_rabbitmq_connection.close.assert_called_once()
-                mock_publisher.disconnect.assert_called_once()
+                    mock_rabbitmq_connection.close.assert_called_once()
+                    mock_disconnect.assert_called_once()
 
     async def test_connect_handles_failure_gracefully(self):
         """Test that connect handles connection failures without raising exception."""
@@ -284,20 +287,24 @@ class TestOrchestratorDownloadTaskQueuing:
                 return_value=mock_rabbitmq_channel
             )
 
-            with patch("manager.orchestrator.event_publisher") as mock_publisher:
-                mock_publisher.connect = AsyncMock()
-                mock_publisher.publish_event = AsyncMock(return_value=True)
+            with patch(
+                "manager.orchestrator.event_publisher.connect", new=AsyncMock()
+            ):
+                with patch(
+                    "manager.orchestrator.event_publisher.publish_event",
+                    new=AsyncMock(return_value=True),
+                ) as mock_publish:
 
-                await orchestrator.connect()
-                await orchestrator.enqueue_download_task(
-                    sample_subtitle_request_obj, request_id
-                )
+                    await orchestrator.connect()
+                    await orchestrator.enqueue_download_task(
+                        sample_subtitle_request_obj, request_id
+                    )
 
-                # Verify event was published
-                mock_publisher.publish_event.assert_called_once()
-                event = mock_publisher.publish_event.call_args[0][0]
-                assert event.event_type == EventType.SUBTITLE_DOWNLOAD_REQUESTED
-                assert event.job_id == request_id
+                    # Verify event was published
+                    mock_publish.assert_called_once()
+                    event = mock_publish.call_args[0][0]
+                    assert event.event_type == EventType.SUBTITLE_DOWNLOAD_REQUESTED
+                    assert event.job_id == request_id
 
     async def test_enqueue_download_task_does_not_update_redis_directly(
         self,

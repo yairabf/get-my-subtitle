@@ -96,27 +96,22 @@ class TestMediaFileEventHandler:
 
             with patch("scanner.event_handler.event_publisher") as mock_publisher:
                 mock_publisher.publish_event = AsyncMock()
+                await event_handler._process_media_file(str(test_file))
 
-                with patch("scanner.event_handler.orchestrator") as mock_orchestrator:
-                    mock_orchestrator.enqueue_download_task = AsyncMock(
-                        return_value=True
-                    )
+                # Verify job was created
+                assert mock_redis.save_job.called
+                call_args = mock_redis.save_job.call_args[0][0]
+                assert call_args.video_url == str(test_file)
+                assert call_args.video_title == "test movie"
 
-                    await event_handler._process_media_file(str(test_file))
-
-                    # Verify job was created
-                    assert mock_redis.save_job.called
-                    call_args = mock_redis.save_job.call_args[0][0]
-                    assert call_args.video_url == str(test_file)
-                    assert call_args.video_title == "test movie"
-
-                    # Verify event was published
-                    assert mock_publisher.publish_event.called
-                    event_call = mock_publisher.publish_event.call_args[0][0]
-                    assert event_call.event_type == EventType.MEDIA_FILE_DETECTED
-
-                    # Verify download task was enqueued
-                    assert mock_orchestrator.enqueue_download_task.called
+                # Verify events were published (MEDIA_FILE_DETECTED + SUBTITLE_REQUESTED)
+                assert mock_publisher.publish_event.call_count == 2
+                published_types = [
+                    call_args[0][0].event_type
+                    for call_args in mock_publisher.publish_event.call_args_list
+                ]
+                assert EventType.MEDIA_FILE_DETECTED in published_types
+                assert EventType.SUBTITLE_REQUESTED in published_types
 
     @pytest.mark.asyncio
     async def test_on_created_triggers_processing(self, event_handler, tmp_path):
@@ -220,36 +215,26 @@ class TestMediaScanner:
         """Test that connect establishes all required connections."""
         with patch("scanner.scanner.redis_client") as mock_redis:
             mock_redis.connect = AsyncMock()
-
-            with patch("scanner.scanner.orchestrator") as mock_orchestrator:
-                mock_orchestrator.connect = AsyncMock()
-
-                with patch("scanner.scanner.event_publisher") as mock_publisher:
-                    mock_publisher.connect = AsyncMock()
-
+            with patch("scanner.scanner.event_publisher") as mock_publisher:
+                mock_publisher.connect = AsyncMock()
+                with patch.object(scanner.websocket_client, "connect", new=AsyncMock()):
                     await scanner.connect()
 
-                    mock_redis.connect.assert_called_once()
-                    mock_orchestrator.connect.assert_called_once()
-                    mock_publisher.connect.assert_called_once()
+                mock_redis.connect.assert_called_once()
+                mock_publisher.connect.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_disconnect_closes_connections(self, scanner):
         """Test that disconnect closes all connections."""
-        with patch("scanner.scanner.orchestrator") as mock_orchestrator:
-            mock_orchestrator.disconnect = AsyncMock()
-
-            with patch("scanner.scanner.event_publisher") as mock_publisher:
-                mock_publisher.disconnect = AsyncMock()
-
-                with patch("scanner.scanner.redis_client") as mock_redis:
-                    mock_redis.disconnect = AsyncMock()
-
+        with patch("scanner.scanner.event_publisher") as mock_publisher:
+            mock_publisher.disconnect = AsyncMock()
+            with patch("scanner.scanner.redis_client") as mock_redis:
+                mock_redis.disconnect = AsyncMock()
+                with patch.object(scanner.websocket_client, "disconnect", new=AsyncMock()):
                     await scanner.disconnect()
 
-                    mock_orchestrator.disconnect.assert_called_once()
-                    mock_publisher.disconnect.assert_called_once()
-                    mock_redis.disconnect.assert_called_once()
+                mock_publisher.disconnect.assert_called_once()
+                mock_redis.disconnect.assert_called_once()
 
     def test_start_initializes_observer(self, scanner, tmp_path):
         """Test that start initializes the file system observer."""
@@ -338,33 +323,28 @@ class TestScannerIntegration:
                 mock_redis.connect = AsyncMock()
                 mock_redis.disconnect = AsyncMock()
 
-                with patch("scanner.scanner.orchestrator") as mock_orchestrator:
-                    mock_orchestrator.connect = AsyncMock()
-                    mock_orchestrator.disconnect = AsyncMock()
+                with patch("scanner.scanner.event_publisher") as mock_publisher:
+                    mock_publisher.connect = AsyncMock()
+                    mock_publisher.disconnect = AsyncMock()
 
-                    with patch("scanner.scanner.event_publisher") as mock_publisher:
-                        mock_publisher.connect = AsyncMock()
-                        mock_publisher.disconnect = AsyncMock()
+                    with patch.object(
+                        scanner.websocket_client, "connect", new=AsyncMock()
+                    ):
+                        with patch.object(
+                            scanner.websocket_client, "disconnect", new=AsyncMock()
+                        ):
+                            await scanner.connect()
 
-                        await scanner.connect()
-
-                        # Now mock the actual processing dependencies
-                        with patch(
-                            "scanner.event_handler.redis_client"
-                        ) as mock_redis_handler:
-                            mock_redis_handler.save_job = AsyncMock()
-
+                            # Now mock the actual processing dependencies
                             with patch(
-                                "scanner.event_handler.event_publisher"
-                            ) as mock_publisher_handler:
-                                mock_publisher_handler.publish_event = AsyncMock()
+                                "scanner.event_handler.redis_client"
+                            ) as mock_redis_handler:
+                                mock_redis_handler.save_job = AsyncMock()
 
                                 with patch(
-                                    "scanner.event_handler.orchestrator"
-                                ) as mock_orchestrator_handler:
-                                    mock_orchestrator_handler.enqueue_download_task = (
-                                        AsyncMock(return_value=True)
-                                    )
+                                    "scanner.event_handler.event_publisher"
+                                ) as mock_publisher_handler:
+                                    mock_publisher_handler.publish_event = AsyncMock()
 
                                     # Manually trigger processing (simulating file detection)
                                     handler = MediaFileEventHandler(scanner)
@@ -373,24 +353,13 @@ class TestScannerIntegration:
                                     # Verify job was created
                                     assert mock_redis_handler.save_job.called
 
-                                    # Verify event was published
-                                    assert mock_publisher_handler.publish_event.called
-                                    event = (
-                                        mock_publisher_handler.publish_event.call_args[
-                                            0
-                                        ][0]
-                                    )
+                                    # Verify both events were published
                                     assert (
-                                        event.event_type
-                                        == EventType.MEDIA_FILE_DETECTED
+                                        mock_publisher_handler.publish_event.call_count
+                                        == 2
                                     )
 
-                                    # Verify download task was enqueued
-                                    assert (
-                                        mock_orchestrator_handler.enqueue_download_task.called
-                                    )
-
-                        await scanner.disconnect()
+                            await scanner.disconnect()
 
 
 class TestScannerWorkerShutdown:

@@ -19,6 +19,16 @@ from common.utils import DateTimeUtils
 class TestTopicExchangePublishing:
     """Test topic exchange publishing functionality."""
 
+    async def _declare_unique_queue(
+        self, rabbitmq_channel: aio_pika.abc.AbstractChannel
+    ) -> aio_pika.abc.AbstractQueue:
+        """Declare a unique, exclusive queue to avoid RESOURCE_LOCKED collisions."""
+        return await rabbitmq_channel.declare_queue(
+            f"test_queue_{uuid4()}",
+            exclusive=True,
+            auto_delete=True,
+        )
+
     async def test_publish_event_to_topic_exchange(
         self, test_event_publisher, rabbitmq_channel
     ):
@@ -38,7 +48,7 @@ class TestTopicExchangePublishing:
         )
 
         # Create a test queue bound to the exchange
-        queue = await rabbitmq_channel.declare_queue("test_queue", exclusive=True)
+        queue = await self._declare_unique_queue(rabbitmq_channel)
         exchange = await rabbitmq_channel.declare_exchange(
             "subtitle.events", ExchangeType.TOPIC, durable=True
         )
@@ -73,7 +83,7 @@ class TestTopicExchangePublishing:
         )
 
         # Create a test queue bound to specific routing key
-        queue = await rabbitmq_channel.declare_queue("test_queue", exclusive=True)
+        queue = await self._declare_unique_queue(rabbitmq_channel)
         exchange = await rabbitmq_channel.declare_exchange(
             "subtitle.events", ExchangeType.TOPIC, durable=True
         )
@@ -107,7 +117,7 @@ class TestTopicExchangePublishing:
         )
 
         # Create test queue
-        queue = await rabbitmq_channel.declare_queue("test_queue", exclusive=True)
+        queue = await self._declare_unique_queue(rabbitmq_channel)
         exchange = await rabbitmq_channel.declare_exchange(
             "subtitle.events", ExchangeType.TOPIC, durable=True
         )
@@ -148,7 +158,7 @@ class TestTopicExchangePublishing:
         )
 
         # Create test queue
-        queue = await rabbitmq_channel.declare_queue("test_queue", exclusive=True)
+        queue = await self._declare_unique_queue(rabbitmq_channel)
         exchange = await rabbitmq_channel.declare_exchange(
             "subtitle.events", ExchangeType.TOPIC, durable=True
         )
@@ -190,7 +200,7 @@ class TestTopicExchangePublishing:
         )
 
         # Create a test queue bound to the exchange
-        queue = await rabbitmq_channel.declare_queue("test_queue", exclusive=True)
+        queue = await self._declare_unique_queue(rabbitmq_channel)
         exchange = await rabbitmq_channel.declare_exchange(
             "subtitle.events", ExchangeType.TOPIC, durable=True
         )
@@ -236,7 +246,7 @@ class TestTopicExchangePublishing:
         ]
 
         # Create test queue with wildcard binding
-        queue = await rabbitmq_channel.declare_queue("test_queue", exclusive=True)
+        queue = await self._declare_unique_queue(rabbitmq_channel)
         exchange = await rabbitmq_channel.declare_exchange(
             "subtitle.events", ExchangeType.TOPIC, durable=True
         )
@@ -405,8 +415,16 @@ class TestEventSubscription:
         job_id = uuid4()
 
         # Create two queues bound to same routing key
-        queue1 = await rabbitmq_channel.declare_queue("test_queue1", exclusive=True)
-        queue2 = await rabbitmq_channel.declare_queue("test_queue2", exclusive=True)
+        queue1 = await rabbitmq_channel.declare_queue(
+            f"test_queue_{uuid4()}",
+            exclusive=True,
+            auto_delete=True,
+        )
+        queue2 = await rabbitmq_channel.declare_queue(
+            f"test_queue_{uuid4()}",
+            exclusive=True,
+            auto_delete=True,
+        )
 
         exchange = await rabbitmq_channel.declare_exchange(
             "subtitle.events", ExchangeType.TOPIC, durable=True

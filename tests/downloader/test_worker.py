@@ -228,13 +228,13 @@ class TestOpenSubtitlesSearchFallbackOrdering:
     """Test metadata search fallback ordering after hash search fails."""
 
     @pytest.mark.asyncio
-    async def test_metadata_search_tries_full_title_then_imdb_then_stops_on_success(
+    async def test_metadata_search_tries_imdb_then_stops_on_success(
         self, tmp_path: Path
     ):
         """
         Ensure we try metadata searches in order:
-        1) full title query
-        2) imdb-only (if provided)
+        1) imdb-only (if provided)
+        2) full title query
         3) normalized title (only if still not found)
         """
         request_id = uuid4()
@@ -275,7 +275,6 @@ class TestOpenSubtitlesSearchFallbackOrdering:
                 mock_client.search_subtitles_by_hash = AsyncMock(return_value=[])
                 mock_client.search_subtitles = AsyncMock(
                     side_effect=[
-                        [],  # full_title
                         [{"IDSubtitleFile": "999"}],  # imdb_only success
                     ]
                 )
@@ -292,18 +291,13 @@ class TestOpenSubtitlesSearchFallbackOrdering:
                     ):
                         await process_message(mock_message, mock_channel)
 
-                # Two metadata calls: full_title then imdb_only
-                assert mock_client.search_subtitles.call_count == 2
+                # One metadata call: imdb_only (should short-circuit)
+                assert mock_client.search_subtitles.call_count == 1
                 first_kwargs = mock_client.search_subtitles.call_args_list[0].kwargs
-                second_kwargs = mock_client.search_subtitles.call_args_list[1].kwargs
 
-                assert first_kwargs["imdb_id"] is None
-                assert first_kwargs["query"] == video_title
+                assert first_kwargs["imdb_id"] == imdb_id
+                assert first_kwargs["query"] is None
                 assert first_kwargs["languages"] == ["heb", "he"]
-
-                assert second_kwargs["imdb_id"] == imdb_id
-                assert second_kwargs["query"] is None
-                assert second_kwargs["languages"] == ["heb", "he"]
 
     @pytest.mark.asyncio
     async def test_subtitle_missing_event_contains_correct_payload(self):
@@ -1042,11 +1036,11 @@ class TestWorkerHashSearchFallback:
 
                         # Verify hash search was tried first
                         mock_client.search_subtitles_by_hash.assert_called_once()
-                        # Verify fallback to query search
+                        # Verify fallback to metadata search (IMDb-first)
                         mock_client.search_subtitles.assert_called_once_with(
                             imdb_id="tt9999999",
-                            query="Obscure Movie",
-                            languages=["en"],
+                            query=None,
+                            languages=["eng", "en"],
                         )
                         # Verify subtitle was downloaded
                         mock_client.download_subtitle.assert_called_once()
@@ -1340,11 +1334,9 @@ class TestWorkerIntegration:
 
                         await process_message(mock_message, mock_channel)
 
-                        # Should still attempt search with None values
-                        # Only one call expected since translation is disabled
-                        mock_client.search_subtitles.assert_called_once_with(
-                            imdb_id=None, query=None, languages=["en"]
-                        )
+                        # With no video_title and no imdb_id, we should NOT call OpenSubtitles
+                        # because there is no valid search criteria.
+                        mock_client.search_subtitles.assert_not_called()
 
 
 class TestSubtitleSaveLocation:

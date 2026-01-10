@@ -410,21 +410,15 @@ class TestMediaProcessing:
             mock_redis.save_job = AsyncMock()
             mock_redis.update_phase = AsyncMock()
             with patch("scanner.websocket_client.event_publisher") as mock_publisher:
-                mock_publisher.publish_event = AsyncMock()
-                with patch(
-                    "scanner.websocket_client.orchestrator"
-                ) as mock_orchestrator:
-                    mock_orchestrator.enqueue_download_with_translation = AsyncMock(
-                        return_value=True
-                    )
+                mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                    await websocket_client._process_media_item(
-                        "Test Movie", "/media/test.mp4", "item123"
-                    )
+                await websocket_client._process_media_item(
+                    "Test Movie", "/media/test.mp4", "item123"
+                )
 
-                    mock_redis.save_job.assert_called_once()
-                    mock_publisher.publish_event.assert_called_once()
-                    mock_orchestrator.enqueue_download_with_translation.assert_called_once()
+                mock_redis.save_job.assert_called_once()
+                # MEDIA_FILE_DETECTED + SUBTITLE_REQUESTED
+                assert mock_publisher.publish_event.call_count == 2
 
     @pytest.mark.asyncio
     async def test_process_media_item_without_translation(
@@ -437,40 +431,30 @@ class TestMediaProcessing:
             mock_redis.save_job = AsyncMock()
             mock_redis.update_phase = AsyncMock()
             with patch("scanner.websocket_client.event_publisher") as mock_publisher:
-                mock_publisher.publish_event = AsyncMock()
-                with patch(
-                    "scanner.websocket_client.orchestrator"
-                ) as mock_orchestrator:
-                    mock_orchestrator.enqueue_download_task = AsyncMock(
-                        return_value=True
-                    )
+                mock_publisher.publish_event = AsyncMock(return_value=True)
 
-                    await websocket_client._process_media_item(
-                        "Test Movie", "/media/test.mp4", "item123"
-                    )
+                await websocket_client._process_media_item(
+                    "Test Movie", "/media/test.mp4", "item123"
+                )
 
-                    mock_orchestrator.enqueue_download_task.assert_called_once()
+                mock_redis.save_job.assert_called_once()
+                # MEDIA_FILE_DETECTED + SUBTITLE_REQUESTED
+                assert mock_publisher.publish_event.call_count == 2
 
     @pytest.mark.asyncio
     async def test_process_media_item_enqueue_failure(
         self, websocket_client, mock_settings
     ):
-        """Test handling enqueue failure."""
+        """Test handling publish failure."""
         with patch("scanner.websocket_client.redis_client") as mock_redis:
             mock_redis.save_job = AsyncMock()
             mock_redis.update_phase = AsyncMock()
             with patch("scanner.websocket_client.event_publisher") as mock_publisher:
-                mock_publisher.publish_event = AsyncMock()
-                with patch(
-                    "scanner.websocket_client.orchestrator"
-                ) as mock_orchestrator:
-                    mock_orchestrator.enqueue_download_with_translation = AsyncMock(
-                        return_value=False
-                    )
+                mock_publisher.publish_event = AsyncMock(return_value=False)
 
-                    await websocket_client._process_media_item(
-                        "Test Movie", "/media/test.mp4", "item123"
-                    )
+                await websocket_client._process_media_item(
+                    "Test Movie", "/media/test.mp4", "item123"
+                )
 
-                    # Should update job status to FAILED
-                    mock_redis.update_phase.assert_called_once()
+                # Best-effort failure handling: mark job failed when event publishing fails
+                assert mock_redis.update_phase.call_count >= 1
